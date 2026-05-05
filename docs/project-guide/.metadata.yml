@@ -1,0 +1,196 @@
+common:
+  mode_templates_path: "project_guide/templates/project-guide/templates/modes"
+  artifact_templates_path: "project_guide/templates/project-guide/templates/artifacts"
+  spec_artifacts_path: "docs/specs"
+  root_artifacts_path: "."
+  web_root: "docs/site"
+  programming_language: python
+  test_command: pytest
+  test_invocation: "pyve run {{test_command}}"
+  default_code_mode: code_direct
+  test_first: false
+
+modes:
+
+  # Default
+  - name: default
+    info: Getting started -- full project lifecycle overview
+    description: Default mode for new projects. Walks through setup, planning, and implementation with links to specific modes.
+    sequence_or_cycle: sequence
+    generation_type: document
+    mode_template: "{{mode_templates_path}}/default-mode.md"
+    next_mode: plan_concept
+
+  # Planning
+  - name: plan_concept
+    info: Generate a high-level concept (problem and solution space)
+    description: Define the problem space (problem statement, pain points, target users, value criteria) and the solution space (solution statement, goals, scope, constraints), and pain point to solution mapping.
+    sequence_or_cycle: sequence
+    generation_type: document
+    mode_template: "{{mode_templates_path}}/plan-concept-mode.md"
+    next_mode: plan_features
+    artifacts: 
+      - file: "{{spec_artifacts_path}}/concept.md"
+        action: create
+  - name: plan_features
+    info: Generate feature requirements (what the project does)
+    description: This is what the project does (functional and presentation requirements, not technical implementation).
+    sequence_or_cycle: sequence
+    generation_type: document
+    mode_template: "{{mode_templates_path}}/plan-features-mode.md"
+    next_mode: plan_tech_spec
+    artifacts:
+      - file: "{{spec_artifacts_path}}/features.md"
+        action: create
+    files_exist:
+      - "{{spec_artifacts_path}}/concept.md"
+  - name: plan_tech_spec
+    info: Generate a technical specification prompt (how it's built)
+    description: This details the requirements for how the project is built (architecture, modules, dependencies, but not code).
+    sequence_or_cycle: sequence
+    generation_type: document
+    mode_template: "{{mode_templates_path}}/plan-tech-spec-mode.md"
+    next_mode: plan_stories
+    artifacts:
+      - file: "{{spec_artifacts_path}}/tech-spec.md"
+        action: create
+      - file: "{{spec_artifacts_path}}/project-essentials.md"
+        action: create
+    files_exist:
+      - "{{spec_artifacts_path}}/concept.md"
+      - "{{spec_artifacts_path}}/features.md"
+  - name: plan_stories
+    info: Generate a user stories prompt
+    description: Based on the concept, features, and technical specification documents, scaffold the project, determine the implementation phases, and breakdown all that into stories.
+    sequence_or_cycle: sequence
+    generation_type: document
+    mode_template: "{{mode_templates_path}}/plan-stories-mode.md"
+    next_mode: scaffold_project
+    artifacts:
+      - file: "{{spec_artifacts_path}}/stories.md"
+        action: create
+    files_exist:
+      - "{{spec_artifacts_path}}/concept.md"
+      - "{{spec_artifacts_path}}/features.md"
+      - "{{spec_artifacts_path}}/tech-spec.md"
+
+  # Post-Release
+  - name: archive_stories
+    info: Archive docs/specs/stories.md and re-render a fresh one for the next phase
+    description: Move the current stories.md to .archive/ under a version-stamped name derived from the latest story, and re-render an empty stories.md from the artifact template preserving the `## Future` section.
+    sequence_or_cycle: sequence
+    generation_type: document
+    mode_template: "{{mode_templates_path}}/archive-stories-mode.md"
+    next_mode: plan_phase
+    artifacts:
+      - file: "{{spec_artifacts_path}}/stories.md"
+        action: archive
+    files_exist:
+      - "{{spec_artifacts_path}}/stories.md"
+  - name: plan_phase
+    info: Generate a feature phase prompt, which includes a mini-concept, features, and technical details
+    description: Based on a specific request from the developer, develop a combined concept, features, and technical specification document that describes the gap to fill, then create a new phase in the stories document, and breakdown all that into stories.
+    sequence_or_cycle: sequence
+    generation_type: document
+    mode_template: "{{mode_templates_path}}/plan-phase-mode.md"
+    next_mode: "{{default_code_mode}}"
+    artifacts:
+      - file: "{{spec_artifacts_path}}/new-phase-{{phase_name}}.md"
+      - file: "{{spec_artifacts_path}}/stories.md"
+        action: modify
+      - file: "{{spec_artifacts_path}}/project-essentials.md"
+        action: modify
+    files_exist:
+      - "{{spec_artifacts_path}}/concept.md"
+      - "{{spec_artifacts_path}}/features.md"
+      - "{{spec_artifacts_path}}/tech-spec.md"
+      - "{{spec_artifacts_path}}/stories.md"
+
+  # Scaffold
+  - name: scaffold_project
+    info: Scaffold the project foundation (LICENSE, headers, manifest, README, CHANGELOG)
+    description: One-time project scaffolding after planning. Creates license, copyright headers, package manifest, README with badges, CHANGELOG, and .gitignore based on decisions made during planning.
+    sequence_or_cycle: sequence
+    generation_type: document
+    mode_template: "{{mode_templates_path}}/scaffold-project-mode.md"
+    next_mode: "{{default_code_mode}}"
+    files_exist:
+      - "{{spec_artifacts_path}}/concept.md"
+      - "{{spec_artifacts_path}}/features.md"
+      - "{{spec_artifacts_path}}/tech-spec.md"
+      - "{{spec_artifacts_path}}/stories.md"
+
+  # Pre-Release
+  - name: document_brand
+    info: Develop and document branding for the project
+    description: Define the canonical source of truth for all descriptive language about the project brand for the project. All consumer files (README.md, docs/index.html, pyproject.toml, features.md) should draw from these definitions.
+    sequence_or_cycle: sequence
+    generation_type: document
+    mode_template: "{{mode_templates_path}}/document-brand-mode.md"
+    artifacts:
+      - file: "{{spec_artifacts_path}}/brand-descriptions.md"
+        action: create
+    files_exist:
+      - "{{spec_artifacts_path}}/concept.md"
+      - "{{spec_artifacts_path}}/features.md"
+  - name: document_landing
+    info: Generate a GitHub landing page and markdown support documentation using MkDocs
+    description: Build a GitHub Pages site with a custom branded landing page (index.html) and MkDocs Material theme for structured documentation. Covers site architecture, GitHub Actions deployment, and keeping docs in sync with the project.
+    sequence_or_cycle: sequence
+    generation_type: document
+    mode_template: "{{mode_templates_path}}/document-landing-mode.md"
+    artifacts:
+      - webpage: "{{web_root}}/index.md"
+        action: create
+      - framework: mkdocs
+        action: create
+    files_exist:
+      - "{{spec_artifacts_path}}/concept.md"
+      - "{{spec_artifacts_path}}/features.md"
+      - "{{spec_artifacts_path}}/tech-spec.md"
+      - "{{spec_artifacts_path}}/stories.md"
+      - "{{spec_artifacts_path}}/brand-descriptions.md"
+ 
+  # Code modes
+  - name: code_direct
+    info: Generate code directly, test after
+    description: Implement stories rapidly with direct commits to main. Each cycle reads a story checklist, implements all tasks, runs tests and linting, bumps the version, and updates CHANGELOG. Best for straightforward stories where TDD overhead isn't justified.
+    sequence_or_cycle: cycle
+    generation_type: code
+    mode_template: "{{mode_templates_path}}/code-direct-mode.md"
+    files_exist:
+      - "{{spec_artifacts_path}}/stories.md"
+      - "{{root_artifacts_path}}/CHANGELOG.md"
+  - name: code_test_first
+    info: Generate code with a test-first approach
+    description: "Implement stories using test-driven development (TDD). For each task: write a failing test, confirm red, write minimal implementation, confirm green, refactor. Best for complex logic where correctness is critical and tests can capture intent precisely."
+    sequence_or_cycle: cycle
+    generation_type: code
+    mode_template: "{{mode_templates_path}}/code-test-first-mode.md"
+    files_exist:
+      - "{{spec_artifacts_path}}/stories.md"
+  - name: debug
+    info: Debug code with a test-first approach
+    description: Structured debugging cycle emphasizing root cause analysis and regression prevention. Write a failing test that reproduces the bug before attempting a fix, then isolate, fix, verify, and document the root cause.
+    sequence_or_cycle: cycle
+    generation_type: code
+    mode_template: "{{mode_templates_path}}/debug-mode.md"
+    files_exist:
+      - "{{spec_artifacts_path}}/stories.md"
+
+  # Refactoring modes
+  - name: refactor_plan
+    info: Update planning artifacts (concept, features, tech-spec)
+    description: Rewrite or update existing planning documents because of new features or improvements, including concept, features, and tech-spec. You can also migrate legacy project-guide planning documents--it will preserve information while restructuring into standardized sections.
+    sequence_or_cycle: cycle
+    generation_type: document
+    mode_template: "{{mode_templates_path}}/refactor-plan-mode.md"
+    artifacts:
+      - file: "{{spec_artifacts_path}}/project-essentials.md"
+        action: modify
+  - name: refactor_document
+    info: Update documentation artifacts (README, brand descriptions, landing page, MkDocs)
+    description: Update existing documentation files because of new features or improvements, including README, brand descriptions, landing page, and MkDocs configuration. You can also migrate legacy project-guide documentation--it will preserve information while restructuring into standardized sections.
+    sequence_or_cycle: cycle
+    generation_type: document
+    mode_template: "{{mode_templates_path}}/refactor-document-mode.md"

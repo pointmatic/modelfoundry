@@ -1,0 +1,30 @@
+# macOS only
+.DS_Store
+
+# Python build and test artifacts
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.egg-info
+*.egg
+.coverage
+coverage.xml
+htmlcov/
+.pytest_cache/
+dist/
+build/
+
+# Jupyter notebooks
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# Pyve virtual environment
+.pyve/envs
+.pyve/testenv
+.envrc
+.env
+.vscode/settings.json
+
+# project-guide
+docs/project-guide/**/*.bak.*
