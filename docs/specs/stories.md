@@ -58,15 +58,15 @@ Smallest runnable artefact proving the environment + console script + version pl
 - [x] Add a smoke test under `tests/unit/test_version.py`: imports `modelfoundry.__version__`, asserts it matches `_version.py`.
 - [x] Verify: `pyve run python -m modelfoundry` prints `modelfoundry 0.1.0`; `pyve run modelfoundry` (the installed console script — point to a placeholder `cli.app:main` that re-uses the same print) prints the same; `pyve test tests/unit/test_version.py` passes.
 
-### Story A.c: Integration spike — DataRefinery instance binding [Planned]
+### Story A.c: Integration spike — DataRefinery instance binding [Done]
 
 Throwaway script in `scripts/`, not the package. Validate the most uncertain integration boundary before production modules land: can ModelFoundry read a materialized DataRefinery instance's manifest + JSONL records + sidecar PNGs per the vendor-dependency-spec, decode an image record into a numpy array, and produce something a PyTorch `DataLoader` could consume? Deliverable is the documented outcome (decision / pattern / hypothesis), not production code. See `docs/project-guide/developer/best-practices-guide.md` § "Hello World First — Spike Early, Spike Often."
 
-- [ ] Decide: spike against a real `ml-datarefinery` install (if available from PyPI or an internal index) or against a hand-rolled mock that mimics the vendor-dependency-spec's on-disk layout. Document the choice in the spike outcome doc.
-- [ ] Create `scripts/spike_datarefinery_binding.py` (throwaway): load a DataRefinery instance from a `<datarefinery-cache>/instances/<recipe-hash16>/<input-hash16>/<seed>/` path, parse `manifest.json`, iterate `dataset/train.jsonl`, resolve `path` or `image_path` per the vendor-dep-spec, decode an image with Pillow.
-- [ ] Document the outcome in `docs/spikes/A.c-datarefinery-binding.md`: confirm or refine the `DataRefineryDataset` adapter pattern from `tech-spec.md` § `plugins.pytorch.data`; note any deviations or surprises (per-record-seed stamp shape, aggressive vs source-resolution record distinction, sidecar PNG path resolution).
-- [ ] Note any integration risks for future stories (e.g. if `ml-datarefinery` is not yet installable, document the mock pattern as the interim binding and flag B.i as the place where real-DataRefinery integration must be revisited).
-- [ ] Verify: spike script runs end-to-end on the chosen DataRefinery instance (real or mocked) without error; outcome doc captures the binding pattern and any deviations from `tech-spec.md`.
+- [x] Decide: spike against a real `ml-datarefinery` install (if available from PyPI or an internal index) or against a hand-rolled mock that mimics the vendor-dependency-spec's on-disk layout. Document the choice in the spike outcome doc. (Chose **real** `ml-datarefinery==0.17.0` for the source-resolution path; hand-rolled fixture for the aggressive-sidecar consumer path — see outcome doc.)
+- [x] Create `scripts/spike_datarefinery_binding.py` (throwaway): load a DataRefinery instance from a `<datarefinery-cache>/instances/<recipe-hash16>/<input-hash16>/<seed>/` path, parse `manifest.json`, iterate `dataset/train.jsonl`, resolve `path` or `image_path` per the vendor-dep-spec, decode an image with Pillow.
+- [x] Document the outcome in `docs/spikes/A.c-datarefinery-binding.md`: confirm or refine the `DataRefineryDataset` adapter pattern from `tech-spec.md` § `plugins.pytorch.data`; note any deviations or surprises (per-record-seed stamp shape, aggressive vs source-resolution record distinction, sidecar PNG path resolution).
+- [x] Note any integration risks for future stories. (Flagged for B.i: DataRefinery 0.17.0 cannot materialize an aggressive instance from a scaffolded recipe — sidecar write fails on path-like `record_id`s; recommend filing upstream. Also: `label` is a string class name, not an int index — adapter must build a sorted label→index map.)
+- [x] Verify: spike script runs end-to-end on the chosen DataRefinery instance (real or mocked) without error; outcome doc captures the binding pattern and any deviations from `tech-spec.md`.
 
 ### Story A.d: Logging foundation — `JsonFormatter` and `get_logger` [Planned]
 
