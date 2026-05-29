@@ -49,14 +49,14 @@ Establish the package skeleton — LICENSE, copyright header, `pyproject.toml`, 
 - [x] Update CHANGELOG.md.
 - [x] Verify: `pyve run python -c "import modelfoundry; print(modelfoundry.__version__)"` prints `0.1.0`; `pyve testenv run ruff check src tests` passes; `pyve testenv run mypy src tests` passes.
 
-### Story A.b: Hello World — `modelfoundry --version` [Planned]
+### Story A.b: Hello World — `modelfoundry --version` [Done]
 
 Smallest runnable artefact proving the environment + console script + version plumbing are wired. No CLI framework yet — just a stub `__main__.py` that prints `__version__` and exits.
 
-- [ ] Create `src/modelfoundry/__main__.py` that prints `f"modelfoundry {__version__}"` and exits 0.
-- [ ] Update `__init__.py` to re-export `__version__` from `_version.py`.
-- [ ] Add a smoke test under `tests/unit/test_version.py`: imports `modelfoundry.__version__`, asserts it matches `_version.py`.
-- [ ] Verify: `pyve run python -m modelfoundry` prints `modelfoundry 0.1.0`; `pyve run modelfoundry` (the installed console script — point to a placeholder `cli.app:main` that re-uses the same print) prints the same; `pyve test tests/unit/test_version.py` passes.
+- [x] Create `src/modelfoundry/__main__.py` that prints `f"modelfoundry {__version__}"` and exits 0.
+- [x] Update `__init__.py` to re-export `__version__` from `_version.py`. (Already re-exported by A.a's scaffold; verified.)
+- [x] Add a smoke test under `tests/unit/test_version.py`: imports `modelfoundry.__version__`, asserts it matches `_version.py`.
+- [x] Verify: `pyve run python -m modelfoundry` prints `modelfoundry 0.1.0`; `pyve run modelfoundry` (the installed console script — point to a placeholder `cli.app:main` that re-uses the same print) prints the same; `pyve test tests/unit/test_version.py` passes.
 
 ### Story A.c: Integration spike — DataRefinery instance binding [Planned]
 
