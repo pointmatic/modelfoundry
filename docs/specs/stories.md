@@ -123,14 +123,14 @@ Build the recipe → cache → plugin-protocol foundation that everything else d
 - [x] Unit tests: variant overlay correctly merges nested sections; unknown variant raises clear error; selecting a variant changes the canonicalized recipe shape (verified later in B.d).
 - [x] Verify: `pyve test tests/unit/test_recipe_variants.py` passes.
 
-### Story B.c: Canonical bytes — `recipe.canonical` [Planned]
+### Story B.c: Canonical bytes — `recipe.canonical` [Done]
 
 `features.md` FR-4, `tech-spec.md` § `recipe.canonical`. **Cache identity foundation — see `project-essentials.md` § Cache identity is the reproducibility contract.**
 
-- [ ] Create `src/modelfoundry/recipe/canonical.py` with `canonical_bytes(recipe: ModelRecipe) -> bytes` (`model_dump(mode="json")` → `json.dumps(sort_keys=True, separators=(",",":"), ensure_ascii=False)` → `.encode("utf-8")`) and `recipe_hash(recipe: ModelRecipe) -> str` (SHA-256 hex of canonical bytes, full 64-hex digest).
-- [ ] Document inline that every pydantic field default participates in canonical bytes — this is the deliberate `SUPPORTED_SCHEMA_VERSIONS` invalidation lever.
-- [ ] Unit tests: cosmetic edits (whitespace in source YAML, key reordering) produce identical canonical bytes; semantic edits (value change, op add/remove) produce different bytes; variant selection perturbs canonical bytes.
-- [ ] Verify: `pyve test tests/unit/test_canonical.py` passes.
+- [x] Create `src/modelfoundry/recipe/canonical.py` with `canonical_bytes(recipe: ModelRecipe) -> bytes` (`model_dump(mode="json")` → `json.dumps(sort_keys=True, separators=(",",":"), ensure_ascii=False)` → `.encode("utf-8")`) and `recipe_hash(recipe: ModelRecipe) -> str` (SHA-256 hex of canonical bytes, full 64-hex digest).
+- [x] Document inline that every pydantic field default participates in canonical bytes — this is the deliberate `SUPPORTED_SCHEMA_VERSIONS` invalidation lever.
+- [x] Unit tests: cosmetic edits (whitespace in source YAML, key reordering) produce identical canonical bytes; semantic edits (value change, op add/remove) produce different bytes; variant selection perturbs canonical bytes. (Also: unused-variant edits do not perturb the no-variant bytes — confirms B.b's `variants`-clearing serves cache identity.)
+- [x] Verify: `pyve test tests/unit/test_canonical.py` passes.
 
 ### Story B.d: Cache identity — `cache.identity` [Planned]
 
