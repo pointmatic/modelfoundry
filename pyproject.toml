@@ -1,0 +1,95 @@
+# Copyright (c) 2026 Pointmatic
+# SPDX-License-Identifier: Apache-2.0
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ml-modelfoundry"
+dynamic = ["version"]
+description = "Compile a YAML recipe into a reproducible, framework-agnostic trained-model instance."
+readme = "README.md"
+requires-python = ">=3.12,<3.14"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Pointmatic" }]
+maintainers = [{ name = "Pointmatic" }]
+keywords = ["machine-learning", "model-training", "reproducibility", "pytorch", "optuna"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Typing :: Typed",
+]
+
+# Base runtime dependencies. Authoritative here (these ship with the PyPI wheel;
+# environment.yml is the dev-env shell only and does not ship). See
+# docs/specs/tech-spec.md § Dependencies.
+dependencies = [
+    "numpy",
+    "pandas",
+    "pyarrow",
+    "pyyaml",
+    "pydantic>=2",
+    "rich",
+    "typer",
+    "matplotlib",
+    "scikit-learn",
+    "optuna",
+    "pillow",
+    "ml-datarefinery",
+]
+
+[project.optional-dependencies]
+# The default plugin — ships end-to-end in the pre-production release.
+pytorch = ["torch>=2.5", "torchvision>=0.20", "torchmetrics>=1.4"]
+# Stub plugin; its implementation lives in base (scikit-learn). Declared for symmetry.
+sklearn = []
+# Deferred — close follow-on cycles (see docs/specs/stories.md § Future).
+huggingface = ["transformers>=4.40", "peft>=0.10", "evaluate>=0.4"]
+keras = ["tensorflow>=2.16", "keras>=3.0"]
+# Deferred — reserved namespace; no implementation in the pre-production series.
+llm = ["lmentry"]
+# Dev-time only — powers the Jupyter substrate-neutral smoke (TR-8).
+notebook-smokes = ["nbclient", "ipykernel"]
+
+[project.scripts]
+# Console script target is created in Story A.b (cli/app.py placeholder) and
+# fully implemented in Phase D. Declared here so the entry point is registered
+# at install time; importing it before A.b will raise (expected).
+modelfoundry = "modelfoundry.cli.app:main"
+
+[project.urls]
+Homepage = "https://github.com/pointmatic/modelfoundry"
+Repository = "https://github.com/pointmatic/modelfoundry"
+Issues = "https://github.com/pointmatic/modelfoundry/issues"
+
+[tool.hatch.version]
+path = "src/modelfoundry/_version.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/modelfoundry"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "B", "I", "UP", "SIM", "RUF"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+files = ["src", "tests"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "--cov=modelfoundry --cov-report=term-missing"

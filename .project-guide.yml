@@ -1,8 +1,8 @@
 version: '2.0'
-installed_version: 2.7.1
+installed_version: 2.10.2
 target_dir: docs/project-guide
 metadata_file: .metadata.yml
-current_mode: default
+current_mode: scaffold_project
 test_first: false
 pyve_version: pyve version 2.6.2
 project_name: modelfoundry

@@ -1,0 +1,14 @@
+# Copyright (c) 2026 Pointmatic
+# SPDX-License-Identifier: Apache-2.0
+#
+# Dev tooling for the pyve testenv. Reproduce with:
+#   pyve testenv init && pyve testenv install -r requirements-dev.txt
+ruff
+mypy
+pytest
+pytest-cov
+hypothesis
+nbclient
+ipykernel
+types-pyyaml
+build

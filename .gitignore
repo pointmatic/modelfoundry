@@ -12,8 +12,15 @@ __pycache__
 coverage.xml
 htmlcov/
 .pytest_cache/
+.hypothesis/
+.mypy_cache/
+.ruff_cache/
 dist/
 build/
+
+# ModelFoundry / DataRefinery content-addressed cache roots (materialized instances)
+models/
+data/
 
 # Jupyter notebooks
 .ipynb_checkpoints/
