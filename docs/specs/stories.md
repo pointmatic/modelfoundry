@@ -141,14 +141,14 @@ Build the recipe → cache → plugin-protocol foundation that everything else d
 - [x] Unit tests: same `(recipe, data_triple, seed)` → same `CacheKey`; different seed → different key; different data triple → different `data_instance_hash16`; **re-materializing DataRefinery into the same cache directory (same triple) is a no-op for ModelFoundry's cache identity**.
 - [x] Verify: `pyve test tests/unit/test_cache_identity.py` passes.
 
-### Story B.e: Cache layout — `cache.layout` [Planned]
+### Story B.e: Cache layout — `cache.layout` [Done]
 
 `tech-spec.md` § `cache.layout`. Path helpers for the on-disk ModelInstance directory.
 
-- [ ] Create `src/modelfoundry/cache/layout.py` with `CachePaths` (constructor takes `cache_root` + `CacheKey`; exposes `instance_dir`, `recipe_yaml`, `manifest_json`, `model_dir`, `weights_dir`, `architecture_json`, `tokenizer_dir`, `training_dir`, `training_history`, `checkpoints_dir`, `optimization_dir`, `trials_parquet`, `study_db`, `best_params_json`, `evaluation_dir`, `metrics_json`, `confusion_matrix_npz`, `calibration_parquet`, `predictions_parquet`, `report_dir`, `report_md`, `report_viz_dir`).
-- [ ] Path resolution: `<cache-root>/instances/<recipe-hash16>/<data-instance-hash16>/<seed>/...`. Helpers for `tmp_dir(run_id)` (`<cache-root>/instances/.tmp/<run-id>/`), `trash_dir(timestamp)` (`<cache-root>/.trash/<timestamp>/`).
-- [ ] Unit tests: paths resolve correctly; all helpers return absolute paths under the cache root; no helper escapes the cache root.
-- [ ] Verify: `pyve test tests/unit/test_cache_layout.py` passes.
+- [x] Create `src/modelfoundry/cache/layout.py` with `CachePaths` (constructor takes `cache_root` + `CacheKey`; exposes `instance_dir`, `recipe_yaml`, `manifest_json`, `model_dir`, `weights_dir`, `architecture_json`, `tokenizer_dir`, `training_dir`, `training_history`, `checkpoints_dir`, `optimization_dir`, `trials_parquet`, `study_db`, `best_params_json`, `evaluation_dir`, `metrics_json`, `confusion_matrix_npz`, `calibration_parquet`, `predictions_parquet`, `report_dir`, `report_md`, `report_viz_dir`). (`checkpoints_dir` resolves under `model/` to match C.l's `model/checkpoints/checkpoint-best.pt`; constructor resolves `cache_root` to absolute so every helper is absolute.)
+- [x] Path resolution: `<cache-root>/instances/<recipe-hash16>/<data-instance-hash16>/<seed>/...`. Helpers for `tmp_dir(run_id)` (`<cache-root>/instances/.tmp/<run-id>/`), `trash_dir(timestamp)` (`<cache-root>/.trash/<timestamp>/`).
+- [x] Unit tests: paths resolve correctly; all helpers return absolute paths under the cache root; no helper escapes the cache root.
+- [x] Verify: `pyve test tests/unit/test_cache_layout.py` passes.
 
 ### Story B.f: Atomic temp-then-promote — `cache.atomic` [Planned]
 
