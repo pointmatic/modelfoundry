@@ -160,14 +160,14 @@ Build the recipe → cache → plugin-protocol foundation that everything else d
 - [x] Unit tests: clean exit promotes correctly; raised exception leaves `FAILED` marker; concurrent attempts fail cleanly pre-prod (per OR-10); `trash_existing` moves rather than deletes.
 - [x] Verify: `pyve test tests/unit/test_atomic_promote.py` passes.
 
-### Story B.g: Manifest model + JSON I/O [Planned]
+### Story B.g: Manifest model + JSON I/O [Done]
 
 `tech-spec.md` § Data Models > `Manifest`. Pydantic model written to `manifest.json` at promote time.
 
-- [ ] Create `src/modelfoundry/core/manifest.py` with `Manifest(pydantic.BaseModel)` carrying the fields per `tech-spec.md` (schema_version, plugin, plugin_version, recipe_hash, data_instance_hash, bound_data_instance, seed, variant, created_at, elapsed_seconds, warnings, is_partial, failed_stage, epoch_history, optimization, evaluation, output_expectations, byte_identity_guaranteed, metric_tolerance) plus helper sub-models `ManifestWarning`, `OptimizationManifest`, `ExpectationOutcome`.
-- [ ] `Manifest.write(path)` and `Manifest.load(path)` helpers (UTC ISO 8601 timestamps; pretty-printed JSON for human readability while still byte-stable for goldens).
-- [ ] Unit tests under `tests/unit/test_manifest.py`: round-trip a representative manifest; missing required fields → `pydantic.ValidationError`; `byte_identity_guaranteed=false` requires `metric_tolerance` to be set.
-- [ ] Verify: `pyve test tests/unit/test_manifest.py` passes.
+- [x] Create `src/modelfoundry/core/manifest.py` with `Manifest(pydantic.BaseModel)` carrying the fields per `tech-spec.md` (schema_version, plugin, plugin_version, recipe_hash, data_instance_hash, bound_data_instance, seed, variant, created_at, elapsed_seconds, warnings, is_partial, failed_stage, epoch_history, optimization, evaluation, output_expectations, byte_identity_guaranteed, metric_tolerance) plus helper sub-models `ManifestWarning`, `OptimizationManifest`, `ExpectationOutcome`. (`extra="forbid"` on every sub-model; the tech-spec underspecifies the helper shapes, so I picked minimal sensible fields per the consuming stories — B.l for `ExpectationOutcome`, C.i for `OptimizationManifest`, vendor-dep-spec for `ManifestWarning`. C.i/B.l can extend these pre-prod if needed.)
+- [x] `Manifest.write(path)` and `Manifest.load(path)` helpers (UTC ISO 8601 timestamps; pretty-printed JSON for human readability while still byte-stable for goldens).
+- [x] Unit tests under `tests/unit/test_manifest.py`: round-trip a representative manifest; missing required fields → `pydantic.ValidationError`; `byte_identity_guaranteed=false` requires `metric_tolerance` to be set.
+- [x] Verify: `pyve test tests/unit/test_manifest.py` passes.
 
 ### Story B.h: Plugin Protocol + OperationSpec + discovery [Planned]
 
