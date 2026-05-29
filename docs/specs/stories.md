@@ -150,15 +150,15 @@ Build the recipe → cache → plugin-protocol foundation that everything else d
 - [x] Unit tests: paths resolve correctly; all helpers return absolute paths under the cache root; no helper escapes the cache root.
 - [x] Verify: `pyve test tests/unit/test_cache_layout.py` passes.
 
-### Story B.f: Atomic temp-then-promote — `cache.atomic` [Planned]
+### Story B.f: Atomic temp-then-promote — `cache.atomic` [Done]
 
 `features.md` FR-5, `tech-spec.md` § `cache.atomic`.
 
-- [ ] Create `src/modelfoundry/cache/atomic.py` with `materialize_temp_dir(cache_root, cache_key)` context manager (yields `<cache-root>/instances/.tmp/<run-id>/`; on clean exit, `os.replace` to final path; on exception, write `FAILED` marker file containing failing stage + error class + message and leave the temp dir intact).
-- [ ] `trash_existing(cache_root, key) -> Path` helper for `--overwrite` flag: moves existing instance to `<cache-root>/.trash/<timestamp>/<key>/`.
-- [ ] Document the same-filesystem-only requirement inline (cross-device `os.replace` fails).
-- [ ] Unit tests: clean exit promotes correctly; raised exception leaves `FAILED` marker; concurrent attempts fail cleanly pre-prod (per OR-10); `trash_existing` moves rather than deletes.
-- [ ] Verify: `pyve test tests/unit/test_atomic_promote.py` passes.
+- [x] Create `src/modelfoundry/cache/atomic.py` with `materialize_temp_dir(cache_root, cache_key)` context manager (yields `<cache-root>/instances/.tmp/<run-id>/`; on clean exit, `os.replace` to final path; on exception, write `FAILED` marker file containing failing stage + error class + message and leave the temp dir intact). (Stage is read from the exception's `.stage` when it's a `ModelfoundryError`; final-path-exists at promote raises `ModelArtifactExistsError`, promote/cross-device failures raise `MaterializeError`.)
+- [x] `trash_existing(cache_root, key) -> Path` helper for `--overwrite` flag: moves existing instance to `<cache-root>/.trash/<timestamp>/<key>/`.
+- [x] Document the same-filesystem-only requirement inline (cross-device `os.replace` fails).
+- [x] Unit tests: clean exit promotes correctly; raised exception leaves `FAILED` marker; concurrent attempts fail cleanly pre-prod (per OR-10); `trash_existing` moves rather than deletes.
+- [x] Verify: `pyve test tests/unit/test_atomic_promote.py` passes.
 
 ### Story B.g: Manifest model + JSON I/O [Planned]
 
