@@ -104,15 +104,15 @@ Two-channel logging discipline per `features.md` OR-4 / `tech-spec.md` § Loggin
 
 Build the recipe → cache → plugin-protocol foundation that everything else depends on. By end of Phase B, the system can load a recipe, canonicalize it, compute a cache key, write/read a manifest, register and discover plugins, bind to a (mock-or-real) DataRefinery instance, derive seeds deterministically, persist/load forward-extensible checkpoints, evaluate `OutputExpectations`, and run static validation checks against the recipe. The PyTorch plugin and the materialize orchestrator come in Phase C; this phase is plugin-agnostic infrastructure.
 
-### Story B.a: Recipe pydantic models + loader + schema-version gate [Planned]
+### Story B.a: Recipe pydantic models + loader + schema-version gate [Done]
 
 `features.md` FR-1, `tech-spec.md` § Data Models > `ModelRecipe`, § `recipe.loader`.
 
-- [ ] Create `src/modelfoundry/recipe/models.py` with `ModelRecipe` (top-level pydantic v2 model, `model_config = ConfigDict(extra="forbid", frozen=True)`) + per-section sub-models: `DataSpec`, `LossSpec`, `OptimizerSpec`, `ScheduleSpec`, `TrainingSpec`, `OptimizationSpec`, `EvaluationSpec`, `VisualizationSpec`, `ExpectationSpec`, `EarlyStoppingSpec`, `ComparisonSpec`, `SearchSpaceSpec`. `ArchitectureSpec` stays as a generic `dict[str, Any]` for now (plugins attach per-op typed sub-models in Phase C).
-- [ ] Create `src/modelfoundry/recipe/loader.py` with `SUPPORTED_SCHEMA_VERSIONS: frozenset[int] = frozenset({1})` and `load_recipe(path, *, variant=None, seed=None) -> ModelRecipe` (parse YAML via `yaml.safe_load`, gate on `schema_version`, apply variant overlay placeholder, return a `ModelRecipe`).
-- [ ] Raise `RecipeError` (from Phase A) on malformed YAML, missing `schema_version`, unrecognized `schema_version`, unknown top-level keys (the `extra="forbid"` raises `pydantic.ValidationError` which the loader wraps as `RecipeError`).
-- [ ] Unit tests under `tests/unit/test_recipe_loader.py`: valid minimal recipe round-trips; missing `schema_version` → `RecipeError`; unrecognized `schema_version: 99` → `RecipeError` listing supported versions; malformed YAML → `RecipeError` with file/line context.
-- [ ] Verify: `pyve test tests/unit/test_recipe_loader.py` passes.
+- [x] Create `src/modelfoundry/recipe/models.py` with `ModelRecipe` (top-level pydantic v2 model, `model_config = ConfigDict(extra="forbid", frozen=True)`) + per-section sub-models: `DataSpec`, `LossSpec`, `OptimizerSpec`, `ScheduleSpec`, `TrainingSpec`, `OptimizationSpec`, `EvaluationSpec`, `VisualizationSpec`, `ExpectationSpec`, `EarlyStoppingSpec`, `ComparisonSpec`, `SearchSpaceSpec`. `ArchitectureSpec` stays as a generic `dict[str, Any]` for now (plugins attach per-op typed sub-models in Phase C). (Op-bearing/under-specified specs — `Loss`/`Optimizer`/`Schedule`/`Visualization`/`SearchSpace` — use `extra="allow"` so plugin params survive until Phase C/B.m; framework specs use `extra="forbid"`.)
+- [x] Create `src/modelfoundry/recipe/loader.py` with `SUPPORTED_SCHEMA_VERSIONS: frozenset[int] = frozenset({1})` and `load_recipe(path, *, variant=None, seed=None) -> ModelRecipe` (parse YAML via `yaml.safe_load`, gate on `schema_version`, apply variant overlay placeholder, return a `ModelRecipe`). (`seed` override is applied; `variant` is threaded as a placeholder — real overlay merge lands in B.b.)
+- [x] Raise `RecipeError` (from Phase A) on malformed YAML, missing `schema_version`, unrecognized `schema_version`, unknown top-level keys (the `extra="forbid"` raises `pydantic.ValidationError` which the loader wraps as `RecipeError`).
+- [x] Unit tests under `tests/unit/test_recipe_loader.py`: valid minimal recipe round-trips; missing `schema_version` → `RecipeError`; unrecognized `schema_version: 99` → `RecipeError` listing supported versions; malformed YAML → `RecipeError` with file/line context.
+- [x] Verify: `pyve test tests/unit/test_recipe_loader.py` passes.
 
 ### Story B.b: Variant overlay [Planned]
 
