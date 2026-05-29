@@ -7,5 +7,33 @@ The pre-production scaffold exposes only the version string.
 """
 
 from modelfoundry._version import __version__
+from modelfoundry.core.errors import (
+    CacheError,
+    DataBindingError,
+    ExpectationError,
+    InspectionError,
+    InstanceError,
+    MaterializeError,
+    ModelArtifactExistsError,
+    ModelfoundryError,
+    OptimizationError,
+    PluginError,
+    RecipeError,
+    ValidationError,
+)
 
-__all__ = ["__version__"]
+__all__ = [
+    "CacheError",
+    "DataBindingError",
+    "ExpectationError",
+    "InspectionError",
+    "InstanceError",
+    "MaterializeError",
+    "ModelArtifactExistsError",
+    "ModelfoundryError",
+    "OptimizationError",
+    "PluginError",
+    "RecipeError",
+    "ValidationError",
+    "__version__",
+]

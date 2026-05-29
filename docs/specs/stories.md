@@ -86,17 +86,17 @@ Two-channel logging discipline per `features.md` OR-4 / `tech-spec.md` § Loggin
 - [x] Unit tests: defaults are applied when env is empty; env vars override defaults; explicit constructor args override env vars.
 - [x] Verify: `pyve test tests/unit/test_config.py` passes.
 
-### Story A.f: v0.2.0 Exception hierarchy — `ModelfoundryError` and subclasses [Planned]
+### Story A.f: v0.2.0 Exception hierarchy — `ModelfoundryError` and subclasses [Done]
 
 `tech-spec.md` § Data Models > Exception hierarchy. Establishes the catch-all base + 10 subclasses for the rest of the build. Owns the Phase A v0.2.0 bump (covers A.b–A.f cumulatively).
 
-- [ ] Create `src/modelfoundry/core/errors.py` with `ModelfoundryError` base + subclasses `RecipeError`, `ValidationError`, `PluginError`, `DataBindingError`, `MaterializeError`, `ModelArtifactExistsError`, `OptimizationError`, `ExpectationError`, `CacheError`, `InspectionError`, `InstanceError`.
-- [ ] Each exception carries `message`, `recipe_path: Path | None = None`, `stage: str | None = None`, `detail: dict[str, Any] | None = None`.
-- [ ] Re-export the base + subclasses from `src/modelfoundry/__init__.py` so downstream consumers can `except ModelfoundryError:` cleanly per the consumer-dependency-spec BR-10.
-- [ ] Unit tests under `tests/unit/test_errors.py`: hierarchy is correct (every subclass is a `ModelfoundryError`); `detail` round-trips through repr.
-- [ ] Bump version to v0.2.0.
-- [ ] Update CHANGELOG.md (Phase A summary: hello world, integration spike outcome, logging foundation, runtime config, exception hierarchy).
-- [ ] Verify: `pyve test tests/unit/test_errors.py` passes; `from modelfoundry import ModelfoundryError` works; `pyve testenv run mypy src tests` clean.
+- [x] Create `src/modelfoundry/core/errors.py` with `ModelfoundryError` base + subclasses `RecipeError`, `ValidationError`, `PluginError`, `DataBindingError`, `MaterializeError`, `ModelArtifactExistsError`, `OptimizationError`, `ExpectationError`, `CacheError`, `InspectionError`, `InstanceError`.
+- [x] Each exception carries `message`, `recipe_path: Path | None = None`, `stage: str | None = None`, `detail: dict[str, Any] | None = None`.
+- [x] Re-export the base + subclasses from `src/modelfoundry/__init__.py` so downstream consumers can `except ModelfoundryError:` cleanly per the consumer-dependency-spec BR-10.
+- [x] Unit tests under `tests/unit/test_errors.py`: hierarchy is correct (every subclass is a `ModelfoundryError`); `detail` round-trips through repr.
+- [x] Bump version to v0.2.0.
+- [x] Update CHANGELOG.md (Phase A summary: hello world, integration spike outcome, logging foundation, runtime config, exception hierarchy).
+- [x] Verify: `pyve test tests/unit/test_errors.py` passes; `from modelfoundry import ModelfoundryError` works; `pyve testenv run mypy src tests` clean.
 
 ---
 
