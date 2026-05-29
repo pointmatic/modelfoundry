@@ -132,14 +132,14 @@ Build the recipe → cache → plugin-protocol foundation that everything else d
 - [x] Unit tests: cosmetic edits (whitespace in source YAML, key reordering) produce identical canonical bytes; semantic edits (value change, op add/remove) produce different bytes; variant selection perturbs canonical bytes. (Also: unused-variant edits do not perturb the no-variant bytes — confirms B.b's `variants`-clearing serves cache identity.)
 - [x] Verify: `pyve test tests/unit/test_canonical.py` passes.
 
-### Story B.d: Cache identity — `cache.identity` [Planned]
+### Story B.d: Cache identity — `cache.identity` [Done]
 
 `features.md` FR-4, `tech-spec.md` § `cache.identity`. **Implements the loose-coupling rule from `project-essentials.md` § Loose-coupled DataRefinery binding.**
 
-- [ ] Create `src/modelfoundry/cache/__init__.py` and `src/modelfoundry/cache/identity.py` with `CacheKey` dataclass (`recipe_hash16: str`, `data_instance_hash16: str`, `seed: int`) and `cache_key(recipe, data_instance_triple, seed) -> CacheKey` (compute 16-hex truncations; full hashes flow into the manifest separately).
-- [ ] `data_instance_triple` is the DataRefinery instance's `(recipe_hash, input_hash, seed)` XOR'd-and-truncated to 16 hex chars. ModelFoundry sees the upstream instance as a single hashed unit per the loose-coupling rule.
-- [ ] Unit tests: same `(recipe, data_triple, seed)` → same `CacheKey`; different seed → different key; different data triple → different `data_instance_hash16`; **re-materializing DataRefinery into the same cache directory (same triple) is a no-op for ModelFoundry's cache identity**.
-- [ ] Verify: `pyve test tests/unit/test_cache_identity.py` passes.
+- [x] Create `src/modelfoundry/cache/__init__.py` and `src/modelfoundry/cache/identity.py` with `CacheKey` dataclass (`recipe_hash16: str`, `data_instance_hash16: str`, `seed: int`) and `cache_key(recipe, data_instance_triple, seed) -> CacheKey` (compute 16-hex truncations; full hashes flow into the manifest separately).
+- [x] `data_instance_triple` is the DataRefinery instance's `(recipe_hash, input_hash, seed)` XOR'd-and-truncated to 16 hex chars. ModelFoundry sees the upstream instance as a single hashed unit per the loose-coupling rule. (Each hash contributes its first-16-hex as a 64-bit operand; the DR-side seed is XORed in as a full 64-bit operand so it fully participates rather than being lost to truncation.)
+- [x] Unit tests: same `(recipe, data_triple, seed)` → same `CacheKey`; different seed → different key; different data triple → different `data_instance_hash16`; **re-materializing DataRefinery into the same cache directory (same triple) is a no-op for ModelFoundry's cache identity**.
+- [x] Verify: `pyve test tests/unit/test_cache_identity.py` passes.
 
 ### Story B.e: Cache layout — `cache.layout` [Planned]
 
