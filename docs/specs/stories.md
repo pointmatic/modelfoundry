@@ -77,14 +77,14 @@ Two-channel logging discipline per `features.md` OR-4 / `tech-spec.md` § Loggin
 - [x] Unit tests under `tests/unit/test_logging.py`: emitted JSON lines are valid JSON, contain `timestamp` / `level` / `message`, honour `extra={"stage": "x"}` fields.
 - [x] Verify: `pyve test tests/unit/test_logging.py` passes; sample log emission produces parseable JSON.
 
-### Story A.e: Runtime config — `RuntimeConfig` pydantic model [Planned]
+### Story A.e: Runtime config — `RuntimeConfig` pydantic model [Done]
 
 `tech-spec.md` § Data Models > `RuntimeConfig`. Loads cache root, data cache root, log level, log target, plugin path, variant, seed, overwrite. Precedence: CLI flags (set by caller) > env vars > built-in defaults. Recipe-level overrides are separate (per-recipe `Data.cache_root`).
 
-- [ ] Create `src/modelfoundry/core/config.py` with `RuntimeConfig(pydantic.BaseModel)` carrying the eight fields per `tech-spec.md`.
-- [ ] Add a `RuntimeConfig.from_env(prefix="MODELFOUNDRY_") -> RuntimeConfig` classmethod that reads `MODELFOUNDRY_CACHE_ROOT`, `MODELFOUNDRY_DATA_CACHE_ROOT`, `MODELFOUNDRY_LOG_LEVEL`, `MODELFOUNDRY_LOG_TARGET`, `MODELFOUNDRY_PLUGIN_PATH` (comma-separated for the tuple) and falls back to defaults.
-- [ ] Unit tests: defaults are applied when env is empty; env vars override defaults; explicit constructor args override env vars.
-- [ ] Verify: `pyve test tests/unit/test_config.py` passes.
+- [x] Create `src/modelfoundry/core/config.py` with `RuntimeConfig(pydantic.BaseModel)` carrying the eight fields per `tech-spec.md`.
+- [x] Add a `RuntimeConfig.from_env(prefix="MODELFOUNDRY_") -> RuntimeConfig` classmethod that reads `MODELFOUNDRY_CACHE_ROOT`, `MODELFOUNDRY_DATA_CACHE_ROOT`, `MODELFOUNDRY_LOG_LEVEL`, `MODELFOUNDRY_LOG_TARGET`, `MODELFOUNDRY_PLUGIN_PATH` (comma-separated for the tuple) and falls back to defaults. (`from_env(**overrides)` lets explicit CLI-flag overrides win over env-derived values; `extra="forbid"` rejects unknown keys.)
+- [x] Unit tests: defaults are applied when env is empty; env vars override defaults; explicit constructor args override env vars.
+- [x] Verify: `pyve test tests/unit/test_config.py` passes.
 
 ### Story A.f: v0.2.0 Exception hierarchy — `ModelfoundryError` and subclasses [Planned]
 
