@@ -68,14 +68,14 @@ Throwaway script in `scripts/`, not the package. Validate the most uncertain int
 - [x] Note any integration risks for future stories. (Flagged for B.i: DataRefinery 0.17.0 cannot materialize an aggressive instance from a scaffolded recipe — sidecar write fails on path-like `record_id`s; recommend filing upstream. Also: `label` is a string class name, not an int index — adapter must build a sorted label→index map.)
 - [x] Verify: spike script runs end-to-end on the chosen DataRefinery instance (real or mocked) without error; outcome doc captures the binding pattern and any deviations from `tech-spec.md`.
 
-### Story A.d: Logging foundation — `JsonFormatter` and `get_logger` [Planned]
+### Story A.d: Logging foundation — `JsonFormatter` and `get_logger` [Done]
 
 Two-channel logging discipline per `features.md` OR-4 / `tech-spec.md` § Logging. `rich`-based user output is handled later (per CLI verb); this story lands the stdlib `logging` JSON-lines operational channel.
 
-- [ ] Create `src/modelfoundry/logging.py` with `JsonFormatter` (one JSON object per line: `timestamp`, `level`, `logger`, `message`, plus arbitrary structured fields via `extra=`) and `get_logger(name: str = "modelfoundry") -> logging.Logger` helper.
-- [ ] Configure the formatter to write to a caller-supplied target (file path or `sys.stderr` / `sys.stdout`); never hijack the root logger.
-- [ ] Unit tests under `tests/unit/test_logging.py`: emitted JSON lines are valid JSON, contain `timestamp` / `level` / `message`, honour `extra={"stage": "x"}` fields.
-- [ ] Verify: `pyve test tests/unit/test_logging.py` passes; sample log emission produces parseable JSON.
+- [x] Create `src/modelfoundry/logging.py` with `JsonFormatter` (one JSON object per line: `timestamp`, `level`, `logger`, `message`, plus arbitrary structured fields via `extra=`) and `get_logger(name: str = "modelfoundry") -> logging.Logger` helper.
+- [x] Configure the formatter to write to a caller-supplied target (file path or `sys.stderr` / `sys.stdout`); never hijack the root logger. (`get_logger(target=...)` accepts `"stderr"`/`"stdout"`, a file path, or a writable stream; re-targeting replaces the prior JSON handler.)
+- [x] Unit tests under `tests/unit/test_logging.py`: emitted JSON lines are valid JSON, contain `timestamp` / `level` / `message`, honour `extra={"stage": "x"}` fields.
+- [x] Verify: `pyve test tests/unit/test_logging.py` passes; sample log emission produces parseable JSON.
 
 ### Story A.e: Runtime config — `RuntimeConfig` pydantic model [Planned]
 
