@@ -21,6 +21,7 @@ from pydantic import ValidationError as PydanticValidationError
 
 from modelfoundry.core.errors import RecipeError
 from modelfoundry.recipe.models import ModelRecipe
+from modelfoundry.recipe.variants import apply_variant
 
 SUPPORTED_SCHEMA_VERSIONS: frozenset[int] = frozenset({1})
 
@@ -34,8 +35,8 @@ def load_recipe(
     """Load and validate the recipe at `path`.
 
     `seed` (when given) overrides the recipe's master seed (CLI `--seed`).
-    `variant` selects a named overlay; the overlay merge is implemented in
-    Story B.b — for now the parameter is accepted and threaded but not applied.
+    `variant` selects a named overlay, deep-merged onto the base recipe before
+    validation; an unknown variant name raises `RecipeError`.
     """
     path = Path(path)
     try:
@@ -55,9 +56,11 @@ def load_recipe(
 
     _gate_schema_version(data, path)
 
-    # Variant overlay placeholder (Story B.b implements apply_variant).
-    if variant is not None:
-        data = {**data, "variants": data.get("variants", {})}
+    try:
+        data = apply_variant(data, variant)
+    except RecipeError as exc:
+        exc.recipe_path = path
+        raise
     if seed is not None:
         data = {**data, "seed": seed}
 

@@ -114,14 +114,14 @@ Build the recipe → cache → plugin-protocol foundation that everything else d
 - [x] Unit tests under `tests/unit/test_recipe_loader.py`: valid minimal recipe round-trips; missing `schema_version` → `RecipeError`; unrecognized `schema_version: 99` → `RecipeError` listing supported versions; malformed YAML → `RecipeError` with file/line context.
 - [x] Verify: `pyve test tests/unit/test_recipe_loader.py` passes.
 
-### Story B.b: Variant overlay [Planned]
+### Story B.b: Variant overlay [Done]
 
 `features.md` FR-14, `tech-spec.md` § `recipe.variants`.
 
-- [ ] Create `src/modelfoundry/recipe/variants.py` with `apply_variant(recipe_dict, variant_name) -> dict` (deep-merge a named overlay from `variants.<name>` onto the base recipe before final pydantic construction).
-- [ ] Update `loader.py` to apply the variant overlay before pydantic validation; raise `RecipeError` if `--variant` references an unknown name (with the list of available variants in the message).
-- [ ] Unit tests: variant overlay correctly merges nested sections; unknown variant raises clear error; selecting a variant changes the canonicalized recipe shape (verified later in B.d).
-- [ ] Verify: `pyve test tests/unit/test_recipe_variants.py` passes.
+- [x] Create `src/modelfoundry/recipe/variants.py` with `apply_variant(recipe_dict, variant_name) -> dict` (deep-merge a named overlay from `variants.<name>` onto the base recipe before final pydantic construction). (Nested mappings merge recursively; scalars/lists replace wholesale. Returned dict clears `variants` so unused variants don't pollute cache identity — mirrors the DataRefinery family discipline.)
+- [x] Update `loader.py` to apply the variant overlay before pydantic validation; raise `RecipeError` if `--variant` references an unknown name (with the list of available variants in the message).
+- [x] Unit tests: variant overlay correctly merges nested sections; unknown variant raises clear error; selecting a variant changes the canonicalized recipe shape (verified later in B.d).
+- [x] Verify: `pyve test tests/unit/test_recipe_variants.py` passes.
 
 ### Story B.c: Canonical bytes — `recipe.canonical` [Planned]
 
