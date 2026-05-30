@@ -190,14 +190,14 @@ Build the recipe → cache → plugin-protocol foundation that everything else d
 - [x] Unit tests with a synthesized DataRefinery instance fixture (mimics the vendor-dep-spec on-disk layout): resolution succeeds; missing instance → clear error; partial instance refused; aggressive variant sidecar PNG missing → refused. (Fixture is hand-built via DR's own `Recipe`/`Manifest` models — fast and isolated, no `materialize` round-trip.)
 - [x] Verify: `pyve test tests/unit/test_data_binding.py` passes.
 
-### Story B.j: Seeding contract — `pipeline.seeding` [Planned]
+### Story B.j: Seeding contract — `pipeline.seeding` [Done]
 
 `features.md` FR-25, `tech-spec.md` § `pipeline.seeding`. **See `project-essentials.md` § Determinism contract is foundational.**
 
-- [ ] Create `src/modelfoundry/pipeline/seeding.py` with `derive_seed(master_seed: int, scope: str, *salts: bytes) -> int` (sha256-derived; documented scopes `"weight_init"`, `"data_shuffle"`, `"optuna_sampler"`, `"augmentation:<op_id>"`, `"dropout"`).
-- [ ] `worker_init_fn_factory(master_seed: int) -> Callable[[int], None]` returning a function that seeds each DataLoader worker deterministically from `(master_seed, worker_id)` — output bytes independent of `num_workers`.
-- [ ] Unit tests: same `(master_seed, scope, salts)` → same derived seed; different scope → different seed; `worker_init_fn` seeds NumPy + Python `random` + (if torch is installed) `torch.manual_seed` reproducibly per worker.
-- [ ] Verify: `pyve test tests/unit/test_seeding.py` passes.
+- [x] Create `src/modelfoundry/pipeline/seeding.py` with `derive_seed(master_seed: int, scope: str, *salts: bytes) -> int` (sha256-derived; documented scopes `"weight_init"`, `"data_shuffle"`, `"optuna_sampler"`, `"augmentation:<op_id>"`, `"dropout"`).
+- [x] `worker_init_fn_factory(master_seed: int) -> Callable[[int], None]` returning a function that seeds each DataLoader worker deterministically from `(master_seed, worker_id)` — output bytes independent of `num_workers`. (Lazy `import torch` inside the worker_init_fn — silently skipped when the `[pytorch]` extra isn't installed; NumPy seed masked to 32-bit per its legacy API.)
+- [x] Unit tests: same `(master_seed, scope, salts)` → same derived seed; different scope → different seed; `worker_init_fn` seeds NumPy + Python `random` + (if torch is installed) `torch.manual_seed` reproducibly per worker. (Torch path exercised via a fake-module monkey-patch since `torch` isn't in the base venv.)
+- [x] Verify: `pyve test tests/unit/test_seeding.py` passes.
 
 ### Story B.k: Checkpoint format — `pipeline.checkpoint` (Q16 foundation) [Planned]
 
