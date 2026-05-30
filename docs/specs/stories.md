@@ -208,14 +208,14 @@ Build the recipe → cache → plugin-protocol foundation that everything else d
 - [x] Unit tests: present-keys round-trip; unknown future-keys are preserved (not silently dropped); missing required keys → `pydantic.ValidationError`.
 - [x] Verify: `pyve test tests/unit/test_checkpoint.py` passes.
 
-### Story B.l: OutputExpectations evaluator — `pipeline.expectations` [Planned]
+### Story B.l: OutputExpectations evaluator — `pipeline.expectations` [Done]
 
 `features.md` FR-15, `tech-spec.md` § `pipeline.expectations`.
 
-- [ ] Create `src/modelfoundry/pipeline/expectations.py` with `evaluate_expectations(expectations: list[ExpectationSpec], evaluation_metrics: dict[str, dict[str, Any]]) -> list[ExpectationOutcome]`. Supports `op: gte | lte | eq | within` per `ExpectationSpec`.
-- [ ] Failure handler: returns the list of outcomes; the materialize runner (Phase C) checks for any failures and writes the `FAILED` marker accordingly.
-- [ ] Unit tests: every `op` evaluated against passing + failing inputs; `within` with a 2-element list works; metric absent from evaluation → outcome marked failed with clear detail.
-- [ ] Verify: `pyve test tests/unit/test_expectations.py` passes.
+- [x] Create `src/modelfoundry/pipeline/expectations.py` with `evaluate_expectations(expectations: list[ExpectationSpec], evaluation_metrics: dict[str, dict[str, Any]]) -> list[ExpectationOutcome]`. Supports `op: gte | lte | eq | within` per `ExpectationSpec`.
+- [x] Failure handler: returns the list of outcomes; the materialize runner (Phase C) checks for any failures and writes the `FAILED` marker accordingly. (Module never raises; missing split, missing metric, and non-numeric observed each produce a `passed=False` outcome with a `detail` message.)
+- [x] Unit tests: every `op` evaluated against passing + failing inputs; `within` with a 2-element list works; metric absent from evaluation → outcome marked failed with clear detail.
+- [x] Verify: `pyve test tests/unit/test_expectations.py` passes.
 
 ### Story B.m: v0.3.0 Recipe validator — `recipe.validator` [Planned]
 
