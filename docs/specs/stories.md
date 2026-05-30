@@ -169,15 +169,15 @@ Build the recipe → cache → plugin-protocol foundation that everything else d
 - [x] Unit tests under `tests/unit/test_manifest.py`: round-trip a representative manifest; missing required fields → `pydantic.ValidationError`; `byte_identity_guaranteed=false` requires `metric_tolerance` to be set.
 - [x] Verify: `pyve test tests/unit/test_manifest.py` passes.
 
-### Story B.h: Plugin Protocol + OperationSpec + discovery [Planned]
+### Story B.h: Plugin Protocol + OperationSpec + discovery [Done]
 
 `features.md` FR-24, `tech-spec.md` § `plugins.base`.
 
-- [ ] Create `src/modelfoundry/plugins/__init__.py`, `src/modelfoundry/plugins/base.py` with `OperationSpec(pydantic.BaseModel)` (op_name, param_model, applies_to, requires_extras) and the `Plugin` Protocol decorated with `@runtime_checkable` (name, version, operations, `health_check`, `build_model`, `run_optimization`, `run_training`, `run_evaluation`, `render_visualization`, `save_model`, `load_model`, `predict`, `predict_proba`).
-- [ ] Create `src/modelfoundry/plugins/discovery.py` with `discover_plugins(extra_paths: tuple[Path, ...] = ()) -> dict[str, Plugin]` that reads `pyproject.toml` entry points under the `modelfoundry.plugins` group and optionally walks extra paths from `MODELFOUNDRY_PLUGIN_PATH`.
-- [ ] `PluginError` on duplicate plugin names or unresolvable entry points.
-- [ ] Unit tests with a synthetic in-process plugin: discovery finds the plugin; duplicate names raise `PluginError`; the `Plugin` Protocol's `isinstance` check works at runtime.
-- [ ] Verify: `pyve test tests/unit/test_plugin_discovery.py` passes.
+- [x] Create `src/modelfoundry/plugins/__init__.py`, `src/modelfoundry/plugins/base.py` with `OperationSpec(pydantic.BaseModel)` (op_name, param_model, applies_to, requires_extras) and the `Plugin` Protocol decorated with `@runtime_checkable` (name, version, operations, `health_check`, `build_model`, `run_optimization`, `run_training`, `run_evaluation`, `render_visualization`, `save_model`, `load_model`, `predict`, `predict_proba`). (Protocol return types not yet implemented — `DataRefineryInstance`, `CheckReport`, `*Result`, `InstanceArtifacts` — are PEP 695 `type X = Any` forward stubs that the owning stories refine.)
+- [x] Create `src/modelfoundry/plugins/discovery.py` with `discover_plugins(extra_paths: tuple[Path, ...] = ()) -> dict[str, Plugin]` that reads `pyproject.toml` entry points under the `modelfoundry.plugins` group and optionally walks extra paths from `MODELFOUNDRY_PLUGIN_PATH`. (`extra_paths` is supplied by callers as the resolved `RuntimeConfig.plugin_path` tuple, which A.e's `from_env` already parses from the env var.)
+- [x] `PluginError` on duplicate plugin names or unresolvable entry points.
+- [x] Unit tests with a synthetic in-process plugin: discovery finds the plugin; duplicate names raise `PluginError`; the `Plugin` Protocol's `isinstance` check works at runtime.
+- [x] Verify: `pyve test tests/unit/test_plugin_discovery.py` passes.
 
 ### Story B.i: DataRefinery instance binding — `pipeline.data_binding` [Planned]
 
