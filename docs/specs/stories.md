@@ -199,14 +199,14 @@ Build the recipe → cache → plugin-protocol foundation that everything else d
 - [x] Unit tests: same `(master_seed, scope, salts)` → same derived seed; different scope → different seed; `worker_init_fn` seeds NumPy + Python `random` + (if torch is installed) `torch.manual_seed` reproducibly per worker. (Torch path exercised via a fake-module monkey-patch since `torch` isn't in the base venv.)
 - [x] Verify: `pyve test tests/unit/test_seeding.py` passes.
 
-### Story B.k: Checkpoint format — `pipeline.checkpoint` (Q16 foundation) [Planned]
+### Story B.k: Checkpoint format — `pipeline.checkpoint` (Q16 foundation) [Done]
 
 `tech-spec.md` § `pipeline.checkpoint`. Forward-extensible dict layout per the Q16 developer directive — pre-production writes weights-only; future continued-training adds `optimizer_state` / `scheduler_state` / `rng_state` as additive keys with no public-API change.
 
-- [ ] Create `src/modelfoundry/pipeline/checkpoint.py` with `Checkpoint(pydantic.BaseModel)` carrying the pre-production keys (`epoch`, `weights`, `metric_value`, `recipe_hash16`, `schema_version: int = 1`) and `model_config = ConfigDict(extra="allow")` to tolerate future keys.
-- [ ] `Checkpoint.save(path)` and `Checkpoint.load(path)` helpers. Unknown keys on load are preserved (log-and-continue) so a future tool that reads a forward-extended checkpoint via a current loader sees the present-and-relevant keys without erroring on the new ones.
-- [ ] Unit tests: present-keys round-trip; unknown future-keys are preserved (not silently dropped); missing required keys → `pydantic.ValidationError`.
-- [ ] Verify: `pyve test tests/unit/test_checkpoint.py` passes.
+- [x] Create `src/modelfoundry/pipeline/checkpoint.py` with `Checkpoint(pydantic.BaseModel)` carrying the pre-production keys (`epoch`, `weights`, `metric_value`, `recipe_hash16`, `schema_version: int = 1`) and `model_config = ConfigDict(extra="allow")` to tolerate future keys.
+- [x] `Checkpoint.save(path)` and `Checkpoint.load(path)` helpers. Unknown keys on load are preserved (log-and-continue) so a future tool that reads a forward-extended checkpoint via a current loader sees the present-and-relevant keys without erroring on the new ones. (Persistence is pickle so tensor state_dicts round-trip; `torch.save` is itself pickle-based, so the PyTorch plugin can stack `torch.save(checkpoint.model_dump(), path)` without changing the schema contract.)
+- [x] Unit tests: present-keys round-trip; unknown future-keys are preserved (not silently dropped); missing required keys → `pydantic.ValidationError`.
+- [x] Verify: `pyve test tests/unit/test_checkpoint.py` passes.
 
 ### Story B.l: OutputExpectations evaluator — `pipeline.expectations` [Planned]
 
