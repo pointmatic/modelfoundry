@@ -179,16 +179,16 @@ Build the recipe → cache → plugin-protocol foundation that everything else d
 - [x] Unit tests with a synthetic in-process plugin: discovery finds the plugin; duplicate names raise `PluginError`; the `Plugin` Protocol's `isinstance` check works at runtime.
 - [x] Verify: `pyve test tests/unit/test_plugin_discovery.py` passes.
 
-### Story B.i: DataRefinery instance binding — `pipeline.data_binding` [Planned]
+### Story B.i: DataRefinery instance binding — `pipeline.data_binding` [Done]
 
 `features.md` FR-6, `tech-spec.md` § `pipeline.data_binding`. Spike outcome from A.c locks the pattern here.
 
-- [ ] Create `src/modelfoundry/pipeline/__init__.py` and `src/modelfoundry/pipeline/data_binding.py` with `resolve_data_instance(data_spec: DataSpec, runtime_config: RuntimeConfig) -> DataRefineryInstance` (compute the DataRefinery canonical hash → locate the promoted instance under the resolved cache root → load its manifest → return a wrapper exposing `splits`, `label_schema`, `record_schema`, `manifest`).
-- [ ] If `ml-datarefinery` is installable, import `datarefinery.recipe.loader.SUPPORTED_SCHEMA_VERSIONS` and `datarefinery.Instance.load`; otherwise use the mock pattern from A.c's outcome doc.
-- [ ] Cross-validation helpers (consumed by the validator in B.m): `instance_provides_splits(splits: list[str]) -> bool`, `instance_num_classes() -> int`, `instance_schema_version() -> int`.
-- [ ] Raise `DataBindingError` on: instance not on disk, partial instance (FAILED marker), missing required manifest fields, schema-version higher than ModelFoundry's known max.
-- [ ] Unit tests with a synthesized DataRefinery instance fixture (mimics the vendor-dep-spec on-disk layout): resolution succeeds; missing instance → clear error; partial instance refused; aggressive variant sidecar PNG missing → refused.
-- [ ] Verify: `pyve test tests/unit/test_data_binding.py` passes.
+- [x] Create `src/modelfoundry/pipeline/__init__.py` and `src/modelfoundry/pipeline/data_binding.py` with `resolve_data_instance(data_spec: DataSpec, runtime_config: RuntimeConfig) -> DataRefineryInstance` (compute the DataRefinery canonical hash → locate the promoted instance under the resolved cache root → load its manifest → return a wrapper exposing `splits`, `label_schema`, `record_schema`, `manifest`). (Locates by scanning `<data-cache-root>/instances/<recipe-hash16>/*/<seed>/` — DR's `compute_cache_key` needs raw input hashes which aren't available without re-reading source bytes. Exactly-one-match required; multiple → ambiguous bind.)
+- [x] If `ml-datarefinery` is installable, import `datarefinery.recipe.loader.SUPPORTED_SCHEMA_VERSIONS` and `datarefinery.Instance.load`; otherwise use the mock pattern from A.c's outcome doc. (Real DR is installable in this env; the binding uses `datarefinery.Instance.load` directly and also calls `datarefinery.recipe.variants.apply_variant` when `DataSpec.variant` is set — DR's `load()` does not accept `variant=` itself.)
+- [x] Cross-validation helpers (consumed by the validator in B.m): `instance_provides_splits(splits: list[str]) -> bool`, `instance_num_classes() -> int`, `instance_schema_version() -> int`. (`instance_num_classes` scans `dataset/train.jsonl` for unique label values per A.c's finding that DR doesn't enumerate classes in the manifest.)
+- [x] Raise `DataBindingError` on: instance not on disk, partial instance (FAILED marker), missing required manifest fields, schema-version higher than ModelFoundry's known max. (Also: ambiguous bind, missing recipe YAML, aggressive sidecar missing.)
+- [x] Unit tests with a synthesized DataRefinery instance fixture (mimics the vendor-dep-spec on-disk layout): resolution succeeds; missing instance → clear error; partial instance refused; aggressive variant sidecar PNG missing → refused. (Fixture is hand-built via DR's own `Recipe`/`Manifest` models — fast and isolated, no `materialize` round-trip.)
+- [x] Verify: `pyve test tests/unit/test_data_binding.py` passes.
 
 ### Story B.j: Seeding contract — `pipeline.seeding` [Planned]
 
