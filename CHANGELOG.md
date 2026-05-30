@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-05-30
+
+### Added
+
+- Recipe pydantic models + YAML loader + schema-version gate (Story B.a): `modelfoundry.recipe.models.ModelRecipe` (`frozen`, `extra="forbid"`) with framework-typed and plugin-permissive sub-models; `recipe.loader.load_recipe` wrapping every failure as `RecipeError`.
+- Variant overlay (Story B.b): `recipe.variants.apply_variant` deep-merges named overlays and clears `variants` for cache-identity hygiene.
+- Canonical bytes + recipe hash (Story B.c): `recipe.canonical` defines the cache-identity input — sort_keys/compact JSON, SHA-256 full digest.
+- Cache identity (Story B.d): `cache.identity.CacheKey` and `cache_key()` with the loose-coupling rule; re-materializing DataRefinery into the same triple is a no-op.
+- Cache layout (Story B.e): `cache.layout.CachePaths` exposes every instance-directory path with absolute, root-bound resolution.
+- Atomic temp-then-promote (Story B.f): `cache.atomic.materialize_temp_dir` context manager + `trash_existing`; FAILED marker on exception, cross-device guard, `ModelArtifactExistsError` on race.
+- Manifest model + JSON I/O (Story B.g): `core.manifest.Manifest` with `ManifestWarning`/`OptimizationManifest`/`ExpectationOutcome` sub-models; pretty, byte-stable `write`/`load`.
+- Plugin Protocol + discovery (Story B.h): `plugins.base` (`OperationSpec`, `runtime_checkable Plugin`) and `plugins.discovery.discover_plugins` reading the `modelfoundry.plugins` entry-point group plus optional `extra_paths`.
+- DataRefinery instance binding (Story B.i): `pipeline.data_binding.resolve_data_instance` locates a materialized DR instance by canonical hash + seed, validates failure modes per the vendor-dep-spec, and returns a `DataRefineryInstance` wrapper.
+- Deterministic seeding (Story B.j): `pipeline.seeding.derive_seed` + `worker_init_fn_factory` — output bytes independent of `num_workers`.
+- Forward-extensible checkpoint schema (Story B.k): `pipeline.checkpoint.Checkpoint` with pickle persistence; unknown future keys preserved on load.
+- OutputExpectations evaluator (Story B.l): `pipeline.expectations.evaluate_expectations` returns one outcome per spec, never raises.
+- Recipe validator (Story B.m): `recipe.validator.validate` runs all 19 FR-2 static logical checks against the recipe + bound DataRefinery instance + plugin, never short-circuits, returns a `ValidationReport`.
+
 ## [0.2.0] - 2026-05-28
 
 ### Added

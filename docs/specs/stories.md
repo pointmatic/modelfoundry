@@ -217,12 +217,12 @@ Build the recipe → cache → plugin-protocol foundation that everything else d
 - [x] Unit tests: every `op` evaluated against passing + failing inputs; `within` with a 2-element list works; metric absent from evaluation → outcome marked failed with clear detail.
 - [x] Verify: `pyve test tests/unit/test_expectations.py` passes.
 
-### Story B.m: v0.3.0 Recipe validator — `recipe.validator` [Planned]
+### Story B.m: v0.3.0 Recipe validator — `recipe.validator` [Done]
 
 `features.md` FR-2, `tech-spec.md` § `recipe.validator`. Implements all 19 enumerated static logical checks; never short-circuits. Owns the Phase B v0.3.0 bump.
 
-- [ ] Create `src/modelfoundry/recipe/validator.py` with `ValidationCheck` + `ValidationReport` pydantic models and `validate(recipe, data_instance, plugin) -> ValidationReport`.
-- [ ] Implement checks 1..19 per `features.md` FR-2:
+- [x] Create `src/modelfoundry/recipe/validator.py` with `ValidationCheck` + `ValidationReport` pydantic models and `validate(recipe, data_instance, plugin) -> ValidationReport`. (Signature extended with `*, variants_block: dict[str, Any] | None = None` so the variants check has access to the pre-overlay block — B.b's `apply_variant` clears `variants` before pydantic construction; check 16 emits a skip-message if the caller doesn't supply it. The CLI / library entry points should thread the raw variants dict from the loader.)
+- [x] Implement checks 1..19 per `features.md` FR-2:
   - 1: schema_version recognised
   - 2: plugin recognised + discoverable
   - 3: section names valid for declared plugin
@@ -242,10 +242,10 @@ Build the recipe → cache → plugin-protocol foundation that everything else d
   - 17: plugin-specific operation params validate against `OperationSpec.param_model`
   - 18: `Data:` binding cross-check (splits present, num_classes match, record schema compatible)
   - 19: DataRefinery schema-version coordination — error if bound instance's recipe schema is higher than ModelFoundry's known max
-- [ ] One test per check under `tests/unit/test_recipe_validator.py` with focused recipe fixtures. Validator never short-circuits — all failures are reported.
-- [ ] Bump version to v0.3.0.
-- [ ] Update CHANGELOG.md (Phase B summary: recipe loader + variants + canonical bytes + cache identity + cache layout + atomic promote + manifest + plugin Protocol + DataRefinery binding + seeding + checkpoint + expectations + validator).
-- [ ] Verify: `pyve test tests/unit/test_recipe_validator.py` passes; `pyve testenv run mypy src tests` clean.
+- [x] One test per check under `tests/unit/test_recipe_validator.py` with focused recipe fixtures. Validator never short-circuits — all failures are reported. (24 tests total: per-check failure + happy path + multi-failure non-short-circuit. Checks 9, 10, 15 are pydantic-Literal-enforced at construction time; tests document that the validator sanity-passes any successfully constructed recipe.)
+- [x] Bump version to v0.3.0.
+- [x] Update CHANGELOG.md (Phase B summary: recipe loader + variants + canonical bytes + cache identity + cache layout + atomic promote + manifest + plugin Protocol + DataRefinery binding + seeding + checkpoint + expectations + validator).
+- [x] Verify: `pyve test tests/unit/test_recipe_validator.py` passes; `pyve testenv run mypy src tests` clean.
 
 ---
 
