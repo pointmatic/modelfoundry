@@ -267,6 +267,31 @@ Out of scope (left for the Phase C stories where they naturally live):
 - PyTorch plugin's device resolution (lands in C.b `health_check` and C.e `determinism` + propagation through C.h trainer / C.j evaluation / C.l predict).
 - "Force CPU" environment variables for non-recipe escape hatches — recipe-level `device: cpu` is the supported path.
 
+### Story B.o: Pyve 3.0 env reconfiguration — bare-OS root + `environment.yml` → `testenv` [Planned]
+
+Realizes the topology in [`env-dependencies.md`](env-dependencies.md) §3–§5: demote the repo **root** to backend `none` (bare OS — no managed env) and move the real provisioning into a single micromamba `testenv`. The repo is a test-only library/CLI; there is no production `run` surface, so the package + PyTorch plugin + dev tooling all live in `testenv`, not in a root env. Doc-only/infra change — **no package version bump** (does not touch the shipped wheel's code or runtime deps); shares the post-B.n housekeeping release.
+
+> Current state (pre-story): pyve 3.0.4 materializes a **micromamba root** (`.pyve/envs/root/conda/`) + a **venv testenv** (`.pyve/envs/testenv/venv/`), with `environment.yml` as the *root* manifest. This story inverts that: bare-OS root + micromamba testenv.
+
+- [ ] Confirm the pyve 3.0 mechanism for a backend-`none` root coexisting with a named micromamba `testenv` (consult the pyve docs / `pyve --help` / `[tool.pyve.testenvs]` "Named test environments" reference). Record the chosen mechanism in the story notes; if pyve cannot express a literal `none` root while keeping a micromamba testenv, fall back to the closest supported config and document the deviation against `env-dependencies.md` §3.
+- [ ] Add a `[tool.pyve.testenvs.testenv]` table to `pyproject.toml` declaring `backend = "micromamba"` and `manifest = "environment.yml"` so `environment.yml` becomes the **testenv** manifest (schema per pyve's "Named test environments" docs).
+- [ ] Demote the root: stop materializing a managed root env (backend `none`); the interpreter comes from `.tool-versions` (asdf, `python 3.12.13`) and host tooling (pyve, project-guide, git, direnv) stays global.
+- [ ] Reconcile `.envrc`: it currently activates the root micromamba env (`PYVE_ENV_NAME="modelfoundry"`, `CONDA_PREFIX=.pyve/envs/modelfoundry`). Update or retire it so the root is bare-OS and `pyve testenv run` / `pyve test` still resolve correctly.
+- [ ] Update `.gitignore` / any path assumptions if the materialized env path changes (`.pyve/envs/testenv/conda/`).
+- [ ] Update `environment.yml`'s header comment to state it is now the **testenv** manifest (not the root env shell).
+- [ ] Verify: `pyve testenv init --backend micromamba` materializes the single micromamba testenv; `pyve testenv run pip install -e ".[pytorch]"` + `pyve testenv install -r requirements-dev.txt` succeed; `pyve test` runs the suite green; `pyve testenv run modelfoundry --version` prints the version; no managed root env is materialized after the change.
+
+### Story B.p: Reconcile stale env-layout docs with the pyve 3.0 topology [Planned]
+
+Fix the docs that `env-dependencies.md` §3 flags as describing the **pre-3.0** `.venv/` + `.pyve/testenvs/` two-environment layout, so they match the bare-OS-root + micromamba-testenv topology B.o establishes. Doc-only — **no version bump**.
+
+- [ ] `docs/specs/tech-spec.md` § Runtime & Tooling: rewrite the **Environment manager** row — replace "Two-environment model: runtime in `.venv/`, dev tools in `.pyve/testenv/venv/`" with the pyve-3.0 topology (root = bare OS, backend `none`; a single micromamba `testenv` holds the editable package + PyTorch plugin + dev tooling); point to `env-dependencies.md` as the authoritative env spec.
+- [ ] `docs/specs/tech-spec.md` § Two-environment install: rewrite the command sequence to the single-testenv flow (`pyve testenv init --backend micromamba` → `pyve testenv run pip install -e ".[pytorch]"` → `pyve testenv install -r requirements-dev.txt`); drop the main-`.venv/` editable install. Rename the section if "Two-environment" no longer fits.
+- [ ] `docs/specs/tech-spec.md` § Package Structure + § CI/CD: update the `environment.yml` annotation (now the testenv manifest) and confirm the CI-parity prose describes the single micromamba testenv (CPU).
+- [ ] Add a cross-reference to `env-dependencies.md` from `tech-spec.md` where the env model is introduced, so the two stay in sync.
+- [ ] Flag — **do not hand-edit** — the bundled `docs/project-guide/go.md` § Pyve Essentials (lines ~170–227): it describes pyve **v2.8**'s `.pyve/testenvs/<name>/` layout, itself stale vs the running pyve 3.0.4 `.pyve/envs/<name>/`. This is project-guide **install output** (pyve-owned, refreshed by `project-guide update`); per `go.md` § "Files under `docs/project-guide/` are install output," the fix is upstream — file an issue/PR against the pyve / project-guide repo (or pick it up via `project-guide update`), or `project-guide override` it only if a local divergence is intended. Record the chosen path in the story notes; no silent edit.
+- [ ] Verify: `grep -rn -E '\.venv/|\.pyve/testenv' docs/specs/tech-spec.md` returns no remaining layout claims; `tech-spec.md` references `env-dependencies.md`; the upstream go.md staleness is captured (issue link or override note).
+
 ---
 
 ## Phase C: PyTorch Plugin + Materialize Orchestrator

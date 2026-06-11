@@ -1,0 +1,12 @@
+pyve_schema = "3.0"
+
+[project]
+name = "modelfoundry"
+
+[env.root]
+purpose = "utility"
+backend = "micromamba"
+
+[env.testenv]
+purpose = "test"
+default = true

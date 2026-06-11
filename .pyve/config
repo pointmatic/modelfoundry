@@ -1,4 +1,0 @@
-pyve_version: "2.4.0"
-backend: micromamba
-micromamba:
-  env_name: modelfoundry

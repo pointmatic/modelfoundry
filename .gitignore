@@ -1,5 +1,15 @@
-# macOS only
+# >>> pyve:managed:gitignore >>>
+# pyve-managed .gitignore — do not edit between the markers;
+# add your own ignores above or below the managed section.
+# macOS
 .DS_Store
+
+# Pyve-managed
+.pyve/
+.envrc
+.env
+.vscode/settings.json
+.venv
 
 # Python build and test artifacts
 __pycache__
@@ -12,26 +22,28 @@ __pycache__
 coverage.xml
 htmlcov/
 .pytest_cache/
+dist/
+build/
+
+# Jupyter notebooks
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# <<< pyve:managed:gitignore <<<
+# macOS only
+
+# Python build and test artifacts
 .hypothesis/
 .mypy_cache/
 .ruff_cache/
-dist/
-build/
 
 # ModelFoundry / DataRefinery content-addressed cache roots (materialized instances)
 models/
 data/
 
 # Jupyter notebooks
-.ipynb_checkpoints/
-*.ipynb_checkpoints
 
 # Pyve virtual environment
-.pyve/envs
-.pyve/testenv
-.envrc
-.env
-.vscode/settings.json
 
 # project-guide
 /docs/project-guide/.metadata.yml
