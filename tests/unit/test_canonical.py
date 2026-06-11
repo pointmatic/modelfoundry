@@ -134,3 +134,19 @@ def test_seed_override_perturbs_bytes(tmp_path: Path) -> None:
 def test_canonical_bytes_are_deterministic(tmp_path: Path) -> None:
     recipe = _load(tmp_path, BASE)
     assert canonical_bytes(recipe) == canonical_bytes(recipe)
+
+
+def test_device_field_perturbs_canonical_bytes(tmp_path: Path) -> None:
+    # Story B.n / v0.3.1: adding Training.device with a "auto" default
+    # deliberately shifts the canonical hash for every existing v0.3.0 recipe.
+    # An explicit non-default value perturbs further — distinct ModelInstances
+    # per device, so "trained on CPU" and "trained on MPS" never collide on the
+    # same cache key.
+    explicit_cpu = BASE.replace(
+        "max_epochs: 3\n  batch_size: 32",
+        "max_epochs: 3\n  batch_size: 32\n  device: cpu",
+    )
+    assert explicit_cpu != BASE  # sanity: substitution actually happened
+    default_hash = recipe_hash(_load(tmp_path, BASE))
+    cpu_hash = recipe_hash(_load(tmp_path, explicit_cpu, name="cpu.yml"))
+    assert default_hash != cpu_hash

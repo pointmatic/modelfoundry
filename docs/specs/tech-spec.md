@@ -669,6 +669,13 @@ class TrainingSpec(pydantic.BaseModel):
     precision: Literal["fp32", "amp"] = "fp32"  # AMP off by default per QR-3
     checkpoint_cadence: int = Field(gt=0, default=1)
     early_stopping: EarlyStoppingSpec | None = None
+    # Applies to Training + Evaluation + inference (eval and predict inherit);
+    # resolved by the plugin's health_check-reported availability at materialize
+    # time. "auto" picks the best available accelerator. Validator check 20
+    # rejects an explicit device the plugin reports unavailable. Distinct values
+    # produce distinct canonical recipe bytes (CPU-bench and MPS runs are
+    # separate ModelInstances by design — no silent cross-device cache collision).
+    device: Literal["auto", "cpu", "cuda", "mps"] = "auto"
     # Forward-extensibility hook (Q16 foundation; see § Checkpoint format above):
     # persist_optimizer_state: bool = False  # absent in pre-prod; added by future continued-training FR
 ```
@@ -838,6 +845,8 @@ See `docs/project-guide/developer/best-practices-guide.md` for full rationale.
 **Atomic writes.** All writes inside the instance directory target the materialize temp dir (`<cache-root>/instances/.tmp/<run-id>/`) until promote. The `os.replace` rename is the single atomic step. Same-filesystem-only requirement (cross-device-rename limitation) is documented in FR-5 and surfaced by `check`.
 
 **Determinism plumbing.** The deterministic-algorithm mode (PyTorch plugin) is enabled by the plugin's `health_check` and by `materialize()` before model construction. `CUBLAS_WORKSPACE_CONFIG` is set in `os.environ` if not already present. The `worker_init_fn` derived from `pipeline.seeding` is passed to every `DataLoader`. AMP is off unless the recipe sets `Training.precision: "amp"`; AMP recipes are stamped with `manifest.byte_identity_guaranteed: false` and `manifest.metric_tolerance` from the plugin's documented tolerance table.
+
+**Device resolution.** `Training.device` (`Literal["auto", "cpu", "cuda", "mps"]`, default `"auto"`) drives every model-execution stage in the plugin: Training, the inner trainings of Optuna Optimization, Evaluation, `predict`, and `predict_proba`. Eval and inference resolve the device implicitly from the field — there is no separate `Evaluation.device` knob. `"auto"` lets the plugin pick the best accelerator its `health_check` reports available (MPS > CUDA > CPU in the PyTorch plugin's preference order); explicit values force the choice and are validated against `health_check.accelerators` (FR-2 check 20). Because `device` participates in canonical recipe bytes, distinct device choices produce distinct cache entries — a CPU-benchmark run and an MPS run on the same recipe materialize into separate `ModelInstance` directories rather than colliding on a shared key. Plugins that have not yet wired an `accelerators` field into their `health_check` report are tolerated: the validator records a skip message instead of failing, so honest in-progress plugins are not blocked.
 
 **Schema-version coordination with DataRefinery.** Per the vendor-dependency-spec § Schema-version coordination policy, ModelFoundry tracks DataRefinery's `SUPPORTED_SCHEMA_VERSIONS` (imported as `datarefinery.recipe.loader.SUPPORTED_SCHEMA_VERSIONS`). A bound DataRefinery instance whose manifest declares a recipe `schema_version` higher than ModelFoundry's known max is rejected at validate time (FR-2 check 19). Lower versions are accepted (DataRefinery's forward-migrations already normalized the shape).
 

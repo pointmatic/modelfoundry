@@ -96,6 +96,7 @@ def validate(
         _check_17_op_params_match_spec(recipe, plugin),
         _check_18_data_binding_compat(recipe, data_instance),
         _check_19_dr_schema_version(data_instance),
+        _check_20_device_available(recipe, plugin),
     ]
     return ValidationReport(checks=checks)
 
@@ -508,6 +509,56 @@ def _check_19_dr_schema_version(data_instance: DataRefineryInstance) -> Validati
         f"ModelFoundry's known max {max_supported}",
         detail={"got": sv, "max_supported": max_supported},
     )
+
+
+# --- Check 20 ---
+
+
+def _check_20_device_available(recipe: ModelRecipe, plugin: Plugin) -> ValidationCheck:
+    """`Training.device` is `"auto"` or an accelerator the plugin reports available."""
+    device = recipe.Training.device
+    if device == "auto":
+        return _ok(20, "device_available")
+
+    report = plugin.health_check()
+    accelerators = _extract_accelerators(report)
+    if accelerators is None:
+        return ValidationCheck(
+            id=20,
+            name="device_available",
+            passed=True,
+            message=(
+                f"plugin {plugin.name!r} health_check did not expose 'accelerators'; "
+                f"skipping device-availability check for {device!r}"
+            ),
+        )
+    if device in accelerators:
+        return _ok(20, "device_available")
+    return _fail(
+        20,
+        "device_available",
+        f"Training.device={device!r} is not in plugin {plugin.name!r}'s "
+        f"available accelerators {sorted(accelerators)}",
+        detail={"requested": device, "available": sorted(accelerators)},
+    )
+
+
+def _extract_accelerators(report: Any) -> set[str] | None:
+    """Pull an `accelerators` collection from a plugin's `health_check` report.
+
+    Tolerant of dict-shaped or attribute-shaped reports; returns `None` when no
+    `accelerators` field is exposed so the caller can skip-with-message rather
+    than fail an honest plugin that simply hasn't wired the field yet.
+    """
+    if report is None:
+        return None
+    if isinstance(report, dict):
+        accelerators = report.get("accelerators")
+    else:
+        accelerators = getattr(report, "accelerators", None)
+    if accelerators is None:
+        return None
+    return {str(a) for a in accelerators}
 
 
 # --- helpers ---

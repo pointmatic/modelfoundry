@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-06-11
+
+### Added
+
+- Recipe amendment — `Training.device` execution knob (Story B.n): new `device: Literal["auto", "cpu", "cuda", "mps"] = "auto"` field on `TrainingSpec`. Drives every model-execution stage in the PyTorch plugin (Training, the inner trainings of Optuna Optimization, Evaluation, `predict` / `predict_proba`) — eval and inference implicitly inherit. Validator gains check 20: the requested device must be reported as available by the plugin's `health_check`, or be `"auto"`. Plugins that don't yet expose an `accelerators` field on their health-check result are tolerated with a skip-message.
+
+### Changed
+
+- Documented `Training.device` in [features.md](docs/specs/features.md) (extended QR-5 + new FR-2 check 20), [tech-spec.md](docs/specs/tech-spec.md) (updated `TrainingSpec` block + new "Device resolution" cross-cutting concern), and [README.md](README.md) ("Choosing an accelerator" subsection).
+- **Cache invalidation:** the new `Training.device` field's default value participates in canonical recipe bytes, so every existing v0.3.0 ModelInstance is stale and must be re-materialized. This is the deliberate `SUPPORTED_SCHEMA_VERSIONS`-level invalidation that the cache-identity contract documents — explicit `device: cpu` and `device: mps` recipes also produce distinct cache entries by design (no silent collision of cross-device runs on the same key).
+
 ## [0.3.0] - 2026-05-30
 
 ### Added

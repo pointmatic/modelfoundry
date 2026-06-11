@@ -41,6 +41,29 @@ modelfoundry validate model.yml
 modelfoundry materialize model.yml
 ```
 
+### Choosing an accelerator
+
+Hardware acceleration is **auto-detected** by default — the PyTorch plugin picks Metal (Apple Silicon) → CUDA → CPU in that order. To pin a specific device (e.g. for CPU-speed benchmarking on a GPU-equipped machine, or to debug a non-deterministic op), set `Training.device` in the recipe:
+
+```yaml
+Training:
+  max_epochs: 10
+  batch_size: 32
+  device: cpu              # one of: auto (default) | cpu | cuda | mps
+```
+
+`device` participates in the recipe's canonical hash, so the same recipe run with `device: cpu` and `device: mps` materializes into two distinct `ModelInstance` cache entries — no silent cross-device collision. Use the existing `variants:` block to keep both side-by-side without maintaining two recipe files:
+
+```yaml
+variants:
+  cpu_bench:
+    Training: {device: cpu}
+```
+
+```bash
+modelfoundry materialize model.yml --variant cpu_bench
+```
+
 ## Documentation
 
 - [`docs/specs/concept.md`](docs/specs/concept.md) — why the project exists

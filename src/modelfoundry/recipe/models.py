@@ -71,6 +71,11 @@ class TrainingSpec(BaseModel):
     precision: Literal["fp32", "amp"] = "fp32"
     checkpoint_cadence: int = Field(gt=0, default=1)
     early_stopping: EarlyStoppingSpec | None = None
+    # Applies to Training + Evaluation + inference (eval and predict inherit);
+    # resolved by the plugin's health_check-reported availability at materialize
+    # time. "auto" picks the best available accelerator. Validator check 20
+    # rejects an explicit device the plugin reports unavailable.
+    device: Literal["auto", "cpu", "cuda", "mps"] = "auto"
 
 
 class SearchSpaceSpec(BaseModel):

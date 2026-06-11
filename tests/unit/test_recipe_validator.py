@@ -60,7 +60,8 @@ class _Plugin:
             ),
         }
 
-    def health_check(self) -> Any: return None
+    def health_check(self) -> Any:
+        return {"accelerators": ["cpu", "mps", "cuda"]}
     def build_model(self, arch: dict[str, Any]) -> Any: return None
     def run_optimization(self, *a: Any, **k: Any) -> Any: return None
     def run_training(self, *a: Any, **k: Any) -> Any: return None
@@ -170,10 +171,10 @@ def _failures_for(report: Any, check_id: int) -> list[Any]:
 # --- happy path ---
 
 
-def test_happy_path_all_19_pass() -> None:
+def test_happy_path_all_20_pass() -> None:
     report = validate(_recipe(), _instance(), _Plugin())
     assert report.passed, [c.message for c in report.failures]
-    assert [c.id for c in report.checks] == list(range(1, 20))
+    assert [c.id for c in report.checks] == list(range(1, 21))
 
 
 def test_report_collects_all_failures_no_short_circuit() -> None:
@@ -374,6 +375,48 @@ def test_check_18_label_field_missing() -> None:
 def test_check_19_dr_schema_version_too_high() -> None:
     report = validate(_recipe(), _instance(schema_version=99), _Plugin())
     assert _failures_for(report, 19)
+
+
+# --- Check 20: Training.device availability ---
+
+
+def test_check_20_auto_passes_without_consulting_plugin() -> None:
+    # device="auto" must not require the plugin to expose accelerators.
+    class _NoAccelPlugin(_Plugin):
+        def health_check(self) -> Any:
+            return None
+
+    report = validate(_recipe(), _instance(), _NoAccelPlugin())
+    [check_20] = [c for c in report.checks if c.id == 20]
+    assert check_20.passed
+
+
+def test_check_20_explicit_unavailable_device_fails() -> None:
+    class _CpuOnlyPlugin(_Plugin):
+        def health_check(self) -> Any:
+            return {"accelerators": ["cpu"]}
+
+    report = validate(_recipe({"Training": {"device": "cuda"}}), _instance(), _CpuOnlyPlugin())
+    assert _failures_for(report, 20)
+
+
+def test_check_20_explicit_available_device_passes() -> None:
+    report = validate(_recipe({"Training": {"device": "mps"}}), _instance(), _Plugin())
+    assert not _failures_for(report, 20)
+
+
+def test_check_20_skips_when_plugin_doesnt_expose_accelerators() -> None:
+    # An honest plugin that hasn't wired accelerators into health_check yet
+    # should not fail the validation — emit a skip-with-message instead.
+    class _UninformativePlugin(_Plugin):
+        def health_check(self) -> Any:
+            return {"torch_version": "2.5.0"}
+
+    report = validate(
+        _recipe({"Training": {"device": "cuda"}}), _instance(), _UninformativePlugin()
+    )
+    [check_20] = [c for c in report.checks if c.id == 20]
+    assert check_20.passed and check_20.message is not None
 
 
 # --- ValidationReport API ---

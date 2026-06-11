@@ -247,6 +247,26 @@ Build the recipe → cache → plugin-protocol foundation that everything else d
 - [x] Update CHANGELOG.md (Phase B summary: recipe loader + variants + canonical bytes + cache identity + cache layout + atomic promote + manifest + plugin Protocol + DataRefinery binding + seeding + checkpoint + expectations + validator).
 - [x] Verify: `pyve test tests/unit/test_recipe_validator.py` passes; `pyve testenv run mypy src tests` clean.
 
+### Story B.n: v0.3.1 Recipe amendment — `Training.device` execution knob [Done]
+
+`features.md` QR-5 / NG-13 follow-up. Adds a recipe-level device knob so users can force CPU execution on machines with GPU acceleration available (e.g. CPU-speed benchmarking, debugging non-deterministic ops, cross-device parity checks). Eval and inference inherit; the field drives every model-execution stage in the PyTorch plugin (Phase C). Cache-invalidating per `project-essentials.md` § Cache identity — acceptable pre-prod with a release-notes callout.
+
+- [x] Add `device: Literal["auto", "cpu", "cuda", "mps"] = "auto"` to `TrainingSpec` in `src/modelfoundry/recipe/models.py`. Inline comment: "applies to Training + Evaluation + inference; resolved by the plugin's `health_check`-reported availability at materialize time."
+- [x] Extend `recipe.validator.validate` with **check 20**: `Training.device` is either `"auto"` or matches one of the plugin's `health_check`-reported available accelerators. The synthetic `Plugin` in tests gets a stubbed `health_check` returning an object with an `accelerators` field; check 20 reads that list. Tolerant of plugins whose `health_check` doesn't expose accelerator info (skip with a message). (`_extract_accelerators` handles both dict-shaped and attribute-shaped report objects.)
+- [x] Update the validator test fixture's good recipe and stub `_Plugin.health_check` to expose accelerators; add per-check tests for: device=`"auto"` passes; device=`"cuda"` on a CPU-only plugin fails; happy-path now sweeps checks 1..20. (Added 4 check-20 tests: auto-passes-without-plugin-info, explicit-unavailable-fails, explicit-available-passes, skip-when-plugin-doesnt-expose-accelerators.)
+- [x] Update `tests/unit/test_canonical.py` to document the deliberate v0.3.1 invalidation: add a `test_device_field_perturbs_canonical_bytes` that loads two recipes (one default-device, one explicit `Training.device: cpu`) and asserts their hashes differ.
+- [x] Bump version to v0.3.1.
+- [x] Update CHANGELOG.md `[0.3.1]` section: cache-invalidation notice ("all existing v0.3.0 ModelInstances are stale; re-materialize") + new field summary.
+- [x] Document the new knob in the user-facing specs:
+  - [x] `docs/specs/features.md` — extend **QR-5** to name the `Training.device` field and reference FR-2 check 20; append the new **check 20** to the FR-2 enumeration so the static-check list is authoritative.
+  - [x] `docs/specs/tech-spec.md` — update the `TrainingSpec` code block to include the `device` field with the same inline-comment rationale that lives in the source; add a **Device resolution** paragraph under Cross-Cutting Concerns describing the auto-detect order, the canonical-bytes participation, and the validator's plugin-tolerance behavior.
+  - [x] `README.md` — add a short **Choosing an accelerator** subsection under Usage demonstrating the recipe field, the canonical-hash-distinction note, and the `variants:` overlay pattern for CPU-bench side-by-side.
+- [x] Verify: `pyve test tests/unit/test_recipe_validator.py tests/unit/test_canonical.py` passes; `from modelfoundry.recipe.models import TrainingSpec; TrainingSpec.model_fields["device"]` exists; `mypy src tests` clean (invoked as `python -m mypy` due to a pyve v3 path-migration leftover in the installed `mypy` script's shebang — not caused by this story).
+
+Out of scope (left for the Phase C stories where they naturally live):
+- PyTorch plugin's device resolution (lands in C.b `health_check` and C.e `determinism` + propagation through C.h trainer / C.j evaluation / C.l predict).
+- "Force CPU" environment variables for non-recipe escape hatches — recipe-level `device: cpu` is the supported path.
+
 ---
 
 ## Phase C: PyTorch Plugin + Materialize Orchestrator
