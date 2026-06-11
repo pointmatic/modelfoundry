@@ -237,7 +237,7 @@ Verify a recipe's correctness without running the pipeline. Covers schema correc
 13. `Labels` source is declared and resolvable from the declared inputs.
 14. `Generation` operations produce records whose schema is consistent with `Output`.
 15. No operation references a split name that is not defined in `Splits`.
-16. `SampleData` declaration is resolvable to a strict subset of the declared input.
+16. `SampleData` declaration is resolvable to a strict subset of the prepared dataset. Selector coherence is enforced at validate time (`n` xor `fraction`; bounds; `kind: per_class` requires a label source; `splits:` entries must match a defined split). Strict-subset enforcement is structural — the runtime stage (FR-J-1, Story J.a) produces `<= len(split)` records per selected split.
 17. `InputContracts` and `OutputExpectations` reference only fields that exist at the relevant pipeline stage.
 18. Plugin-specific operation parameters validate against the plugin's declared operation schemas.
 19. `label_from_spec_resolves` — `InputSource.label_from` is structurally valid; manifest file at `label_from.path` exists; declared `header` (when present) matches the file's column count; `id_field` / `label_field` reference columns that resolve; no duplicate ids for `join: by_id`; row count matches enumerated record count for `join: by_row_order`; source-type consistency (`image_folder` + `label_from` is rejected; `image_flat` without `label_from` is rejected). Plugin-specific: only applies to `image_classification` in v1.

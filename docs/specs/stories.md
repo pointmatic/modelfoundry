@@ -292,11 +292,34 @@ Fix the docs that `env-dependencies.md` §3 flags as describing the **pre-3.0** 
 - [ ] Flag — **do not hand-edit** — the bundled `docs/project-guide/go.md` § Pyve Essentials (lines ~170–227): it describes pyve **v2.8**'s `.pyve/testenvs/<name>/` layout, itself stale vs the running pyve 3.0.4 `.pyve/envs/<name>/`. This is project-guide **install output** (pyve-owned, refreshed by `project-guide update`); per `go.md` § "Files under `docs/project-guide/` are install output," the fix is upstream — file an issue/PR against the pyve / project-guide repo (or pick it up via `project-guide update`), or `project-guide override` it only if a local divergence is intended. Record the chosen path in the story notes; no silent edit.
 - [ ] Verify: `grep -rn -E '\.venv/|\.pyve/testenv' docs/specs/tech-spec.md` returns no remaining layout claims; `tech-spec.md` references `env-dependencies.md`; the upstream go.md staleness is captured (issue link or override note).
 
+### Story B.q: DataRefinery v0.19.0 adoption — schema v2 + `recipe.json` binding [Planned]
+
+`features.md` FR-6 / FR-2 follow-up; cross-repo contract per [`datarefinery/vendor-dependency-spec.md`](datarefinery/vendor-dependency-spec.md). Bring ModelFoundry's DataRefinery binding up to the ratified v0.19.0 contract so the Phase C CIFAR-10 deliverable (C.r) can bind a schema-v2 instance. Built against `ml-datarefinery==0.17.0` originally (A.c/B.i); v0.19.0 brings schema v2, `recipe.json` (not `recipe.yaml`), and `class_balance` (0.18.0+). No Phase C dependency — lands in Phase B. Dependency + doc/infra change — **no package version bump**; shares the post-B.n housekeeping release.
+
+- [ ] Bump the `ml-datarefinery` dependency pin to `>= 0.19.0` in `pyproject.toml` (and `requirements-dev.txt` if pinned there); reinstall into the testenv.
+- [ ] Update ModelFoundry's tracked DataRefinery `SUPPORTED_SCHEMA_VERSIONS` to include **2** wherever it is asserted (B.m validator check 19 / B.n check 20 coordination and any binding-side gate), tracking `datarefinery.recipe.loader.SUPPORTED_SCHEMA_VERSIONS` / `LATEST_SCHEMA_VERSION`.
+- [ ] Re-validate `pipeline.data_binding` (B.i): read the persisted recipe from **`recipe.json`** (the canonical v2 shape), not `recipe.yaml` (no longer persisted per the vendor-spec); confirm the manifest fields ModelFoundry binds against still resolve under the v0.19.0 manifest (incl. the new `class_balance` field — read-and-ignore for now per Subphase C-1 §C10).
+- [ ] Update the synthesized DataRefinery fixture(s) to the v2 / `recipe.json` on-disk shape so the binding + validator contract tests exercise the current contract.
+- [ ] Verify: `pyve test tests/unit/test_data_binding.py tests/unit/test_recipe_validator.py` passes against the v0.19.0 shapes; `pyve testenv run mypy src tests` clean.
+
 ---
 
 ## Phase C: PyTorch Plugin + Materialize Orchestrator
 
-Implement the PyTorch plugin end-to-end (architecture vocabulary, losses, optimizers, schedules, deterministic training, DataRefinery dataset adapter, lazy augmentations, training loop, Optuna optimization, evaluation, visualizations, persistence), ship the sklearn stub for plugin-interface honesty, build the materialize orchestrator that sequences every stage atomically, and expose the `ModelFoundry`/`ModelInstance` library API. By end of Phase C, a Python program can call `ModelFoundry.from_recipe(...).materialize()` against a bound DataRefinery instance and get back a notebook-shaped `ModelInstance`.
+Implement the PyTorch plugin end-to-end (architecture vocabulary, losses, optimizers, schedules, deterministic training, DataRefinery dataset adapter, lazy augmentations, training loop, Optuna optimization, evaluation, visualizations, persistence), ship a working sklearn `MLPClassifier` baseline, build the materialize orchestrator that sequences every stage atomically, and expose the `ModelFoundry`/`ModelInstance` library API. By end of Phase C, a Python program can call `ModelFoundry.from_recipe(...).materialize()` against a bound DataRefinery instance and get back a notebook-shaped `ModelInstance`.
+
+## Subphase C-1: Reprioritize to Client Requirements
+
+Phase C is reprioritized to deliver one client vertical first: declaratively build, tune, train, and **summarize** a **ResNet-20** over a materialized **CIFAR-10** DataRefinery instance, **CPU-only** within a per-step time budget, **readable from a notebook**. The client and requirements are sanitized to keep this public repo generic (CIFAR-10 is a public dataset). The PyTorch vertical (C.a–C.p) is the spine; this subphase weaves in the few additions the requirements need:
+
+- **C.c** adds the `resnet20` baseline (the anchor architecture).
+- **C.f** applies DataRefinery's fitted per-channel normalization at load and derives the class set from all labeled splits (interim until DR `manifest.label_classes`).
+- **C.i** makes `batch_size` and `early_stopping.patience` tunable.
+- **C.m** is promoted from a stub to a **working sklearn `MLPClassifier`** baseline.
+- **C.q** (new) generates the torchinfo **model summary** as a materialize-time artifact + accessor + `inspect` view.
+- **C.r** (new) is the tested deliverable: a real-shape CIFAR-10 / ResNet-20 recipe calibrated to the CPU budget, materialized end-to-end, owning the Phase C release bump.
+
+Upstream dependency: the CIFAR-10 DataRefinery instance (DR-1) and the v0.19.0 contract (Phase B story **B.q**). See [`phase-c-subphase-1-reprioritize-plan.md`](phase-c-subphase-1-reprioritize-plan.md) for the full plan, conflicts, scope decisions, and the DataRefinery ↔ ModelFoundry contract status.
 
 ### Story C.a: Architectural spike — deterministic PyTorch training loop [Planned]
 
@@ -322,10 +345,13 @@ Throwaway script in `scripts/`. Validate the most uncertain architectural assump
 
 `features.md` FR-7 / FR-ARCH-1, `tech-spec.md` § `plugins.pytorch` > `architecture.py`. CIFAR-10 baseline CNN vocabulary.
 
-- [ ] Create `src/modelfoundry/plugins/pytorch/architecture.py` registering primitives (`Conv2d`, `BatchNorm2d`, `ReLU`, `MaxPool2d`, `AvgPool2d`, `AdaptiveAvgPool2d`, `Linear`, `Dropout`, `Flatten`), composites (`MLP`, `ConvBlock`, `ResidualBlock`), and baseline architectures (`simple_cnn`, `resnet8`). Each op pairs an `nn.Module` subclass with a pydantic `OperationSpec.param_model`.
+- [ ] Create `src/modelfoundry/plugins/pytorch/architecture.py` registering primitives (`Conv2d`, `BatchNorm2d`, `ReLU`, `MaxPool2d`, `AvgPool2d`, `AdaptiveAvgPool2d`, `Linear`, `Dropout`, `Flatten`), composites (`MLP`, `ConvBlock`, `ResidualBlock`), and baseline architectures (`simple_cnn`, `resnet8`, `resnet20`). Each op pairs an `nn.Module` subclass with a pydantic `OperationSpec.param_model`.
+- [ ] **`resnet20` baseline (Subphase C-1 / G2):** the canonical CIFAR residual network — a 3×3 conv stem → three stages of three `ResidualBlock`s at 16/32/64 channels → `AdaptiveAvgPool2d` global average pool → single `Linear` head. The block supports **option-B projection shortcuts** (1×1 conv on the two downsampling blocks), **bias-free convs** (a `BatchNorm2d` follows each), and **strided-conv downsampling** (stride-2 first conv of stages 2 and 3 — no max-pool). Extend `ResidualBlock` params as needed for the projection-shortcut + stride path.
 - [ ] Recursive builder `build_model(arch_spec) -> nn.Module` reads the canonical `Architecture` block from the recipe and composes ops. Validates `num_classes` matches the bound DataRefinery instance's label count.
 - [ ] Optional pretrained-encoder + LoRA path (`Encoder`, `LoRA`, `Pooling`, `Head`) declared in `requires_extras=("huggingface",)` so recipe-time validation works without `[huggingface]` installed; `build_model` raises a clear `ImportError` at materialize time if extras are missing.
-- [ ] Unit tests: every op resolves; `simple_cnn` and `resnet8` instantiate cleanly; bad params → pydantic `ValidationError` → mapped to `PluginError`.
+- [ ] Update the user-facing specs: `features.md` FR-ARCH-1 baseline-architectures list and `tech-spec.md` `[pytorch]` vocabulary line to include `resnet20`.
+- [ ] Unit tests: every op resolves; `simple_cnn`, `resnet8`, and `resnet20` instantiate cleanly; **a test pins `resnet20`'s canonical layer inventory and total parameter count (≈272,474)** so the architecture can't silently drift; bad params → pydantic `ValidationError` → mapped to `PluginError`.
+- [ ] Note: adding `resnet20` vocabulary perturbs canonical bytes only for recipes that select it (a new op); acceptable pre-prod with a CHANGELOG callout per `project-essentials.md` § Cache identity.
 - [ ] Verify: `pyve test tests/unit/test_pytorch_architecture.py` passes.
 
 ### Story C.d: PyTorch losses, optimizers, schedules [Planned]
@@ -354,9 +380,12 @@ Throwaway script in `scripts/`. Validate the most uncertain architectural assump
 `tech-spec.md` § `plugins.pytorch` > `data.py`. A.c's spike outcome locks the binding pattern.
 
 - [ ] Create `src/modelfoundry/plugins/pytorch/data.py` with `DataRefineryDataset(torch.utils.data.Dataset)`: constructor takes the bound `DataRefineryInstance` + split name + recipe `Augmentations` policy; `__len__` reads `manifest.record_counts[split]`; `__getitem__` reads the JSONL line, resolves `path` or `image_path` per the vendor-dep-spec, decodes via Pillow, applies lazy augmentations.
+- [ ] **Apply DataRefinery normalization (Subphase C-1 / C8):** read the fitted per-channel `mean`/`std` via `Instance.fitted_statistics.get_vector(<normalize_op_id>, ...)`, line up the **RGB** channel order, and apply `(x - mean) / std` producing float32 tensors — for **every** split (train/val/test/inference). Replicate DataRefinery's **exact zero-variance guard** (`std == 0 → 1.0`, equality not tolerance). Resolve `<normalize_op_id>` (and any chained `mean_subtract`) from `recipe.json` in `Transformations` order. Per `datarefinery/vendor-dependency-spec.md` § "Fitted statistics ModelFoundry binds against."
+- [ ] **Class-set derivation (interim, Subphase C-1):** build the label→index map by scanning **all labeled splits + sorting ascending** (matches the future DR `manifest.label_classes` producer computation); do not scan train-only. Adopt `manifest.label_classes` directly once DR v0.20.0 is taken up.
+- [ ] **Refuse lazy-mode geometry transforms (guard):** if the bound recipe declares a pixel-altering Transformation (e.g. `resize`) without aggressive sidecars / a sink, raise `DataBindingError` rather than silently decode pre-transform source pixels (vendor-spec § "Consumer-applied transformations" J.g interim guidance). The CIFAR-10 flow declares none — this is a guard, not a feature.
 - [ ] Honour per-record-seed stamps (`<AugmentationOp.name>_seed`) from DataRefinery's JSONL for aggressive variants (read directly); lazy augmentations realize via the C.g augmenters seeded from `pipeline.seeding`.
 - [ ] `DataLoader` factory helper `build_dataloader(dataset, training_spec, master_seed) -> DataLoader` (uses `worker_init_fn_factory(master_seed)` from B.j; `generator` seeded; `pin_memory` toggled per accelerator availability).
-- [ ] Unit tests against the synthesized DataRefinery fixture: dataset length matches manifest; record decoding produces a tensor of the expected shape; iteration with `num_workers=1` and `num_workers=2` produces identical output (per `worker_init_fn`).
+- [ ] Unit tests against the synthesized DataRefinery fixture: dataset length matches manifest; record decoding produces a **normalized float32** tensor of the expected shape with the **RGB-ordered** stats applied and the zero-variance guard exercised; the all-splits label scan yields the expected sorted class order; a `resize`-bearing fixture is refused; iteration with `num_workers=1` and `num_workers=2` produces identical output (per `worker_init_fn`).
 - [ ] Verify: `pyve test tests/unit/test_pytorch_data_adapter.py` passes.
 
 ### Story C.g: PyTorch lazy augmentations — `plugins.pytorch.augmentations` [Planned]
@@ -386,9 +415,10 @@ Throwaway script in `scripts/`. Validate the most uncertain architectural assump
 - [ ] Create `src/modelfoundry/plugins/pytorch/optimization.py` with `run_optimization(opt_spec, recipe, data_instance, seed, temp_dir) -> OptimizationResult`. Builds Optuna `Study` with `RDBStorage("sqlite:///<temp-dir>/optimization/study.db")`; sampler seeded via `derive_seed(master_seed, "optuna_sampler")`; `n_jobs=1` enforced; pruner `MedianPruner` or none.
 - [ ] `baseline_trial: enqueue_recipe_defaults`: calls `study.enqueue_trial(...)` with the recipe's hyperparameter values flattened from the search-space-relevant fields.
 - [ ] Trial loop: sample hyperparameters → apply to recipe copy → run short Training (capped by `max_epochs_per_trial`) → report intermediate values per epoch → return `Evaluation.primary_metric` (or `Optimization.objective_metric`) evaluated on `val` as the trial value.
+- [ ] **Tunable `batch_size` + `early_stopping.patience` (Subphase C-1 / G4):** ensure the search-space mechanism can target these recipe paths (`Training.batch_size` as a categorical, e.g. `{32,64,128}`; `Training.early_stopping.patience` as an int range), that B.m validator check 7 accepts them, and that `apply_params` threads `batch_size` through to `build_dataloader` (C.f) and `patience` through to the early-stopping monitor (C.h) within each trial.
 - [ ] Persists `trials.parquet` (matches Optuna's `study.trials_dataframe()` shape) and `best-params.json`.
 - [ ] Best-trial params merged back into the recipe via `recipe.search_space.apply_params(...)` before the Training stage runs (auto-composition, FR-3 step 4.2 → 4.3).
-- [ ] Integration test: 3-trial TPE study deterministic across reruns; baseline_trial enqueued correctly; best-params merge into the recipe.
+- [ ] Integration test: 3-trial TPE study deterministic across reruns; baseline_trial enqueued correctly; best-params merge into the recipe; a study that varies `batch_size` and `patience` runs and the chosen values take effect in the trial's DataLoader / early-stopping.
 - [ ] Verify: `pyve test tests/integration/test_pytorch_optimization.py` passes.
 
 ### Story C.j: PyTorch evaluation — `plugins.pytorch.evaluation` [Planned]
@@ -423,15 +453,17 @@ Throwaway script in `scripts/`. Validate the most uncertain architectural assump
 - [ ] Integration test: save a trained `simple_cnn` to a temp dir; load via `load_model`; `predict(X)` returns the same outputs as the original model on a fixed input batch (round-trip guarantee).
 - [ ] Verify: `pyve test tests/integration/test_pytorch_round_trip.py` passes.
 
-### Story C.m: sklearn stub plugin + shared metric implementations [Planned]
+### Story C.m: sklearn plugin — working `MLPClassifier` baseline + shared metrics [Planned]
 
-`features.md` FR-24 (sklearn stub for plugin-interface honesty), `tech-spec.md` § `plugins.sklearn`.
+`features.md` FR-24, `tech-spec.md` § `plugins.sklearn`. **Subphase C-1 (G5): promoted from a stub to a working baseline** so the brief's sklearn "ceiling baseline" is materializable through ModelFoundry (e.g. as an `Evaluation.comparison.baseline_model_id`), not just a redirect.
 
-- [ ] Create `src/modelfoundry/plugins/sklearn/__init__.py`, `src/modelfoundry/plugins/sklearn/plugin.py` (stub): registers the full `OperationSpec` set (mirroring the pytorch plugin's ops where applicable); `materialize()` against `plugin: sklearn` raises the documented `PluginError` redirect message.
+- [ ] Create `src/modelfoundry/plugins/sklearn/__init__.py`, `src/modelfoundry/plugins/sklearn/plugin.py` implementing the `Plugin` Protocol for a real `MLPClassifier` baseline: `build_model`, `run_training`, `run_evaluation`, `save_model`/`load_model`, `predict`/`predict_proba`. Registers the `OperationSpec` set it supports.
+- [ ] Feature-flattening data path: adapt the bound `DataRefineryInstance` records (uint8 PNG → normalized float32 per C.f's stats) into the flat `(n_samples, n_features)` matrix sklearn expects; reuse the C.f normalization + all-splits label scan so train/inference parity and class ordering match the pytorch path.
 - [ ] `src/modelfoundry/plugins/sklearn/metrics.py`: shared sklearn-based metric implementations (`f1_score`, `confusion_matrix`, `calibration_curve`, hand-rolled ECE) consumed by the pytorch plugin (per C.j's calibration_curve dependency).
-- [ ] Wire the sklearn entry point into `pyproject.toml` under `[project.entry-points."modelfoundry.plugins"]`.
-- [ ] Integration test: `discover_plugins()` finds both `pytorch` and `sklearn`; sklearn `health_check()` reports "stub"; `materialize()` against a `plugin: sklearn` recipe raises `PluginError` with the documented message.
-- [ ] Verify: `pyve test tests/integration/test_sklearn_stub.py` passes.
+- [ ] Wire the sklearn entry point into `pyproject.toml` under `[project.entry-points."modelfoundry.plugins"]`; ensure the `[sklearn]` extra carries the needed deps.
+- [ ] Determinism: seed `MLPClassifier(random_state=...)` from `pipeline.seeding.derive_seed` so the baseline is reproducible like the rest of the pipeline.
+- [ ] Integration test: `discover_plugins()` finds both `pytorch` and `sklearn`; sklearn `health_check()` reports ready; a small `plugin: sklearn` recipe materializes an `MLPClassifier` end-to-end and reports validation accuracy; round-trip `load_model(path).predict(X)` matches.
+- [ ] Verify: `pyve test tests/integration/test_sklearn_baseline.py` passes.
 
 ### Story C.n: Reporting — `reporting.report` + reporting visualizations pipeline [Planned]
 
@@ -454,18 +486,40 @@ Throwaway script in `scripts/`. Validate the most uncertain architectural assump
 - [ ] Integration test against the C.f synthesized fixture: full materialize end-to-end produces a complete instance directory with manifest, model artifacts, training history, evaluation metrics, predictions, report.
 - [ ] Verify: `pyve test tests/integration/test_materialize_runner.py` passes.
 
-### Story C.p: v0.4.0 `ModelFoundry` class + `ModelInstance` notebook-shaped accessors [Planned]
+### Story C.p: `ModelFoundry` class + `ModelInstance` notebook-shaped accessors [Planned]
 
-`features.md` FR-22, `tech-spec.md` § Key Component Design > `ModelFoundry` + `ModelInstance`. The library entry point + the substrate-neutral result object. Owns the Phase C v0.4.0 bump.
+`features.md` FR-22, `tech-spec.md` § Key Component Design > `ModelFoundry` + `ModelInstance`. The library entry point + the substrate-neutral result object. (The Phase C release bump moved to C.r, the subphase's last story.)
 
 - [ ] Create `src/modelfoundry/core/__init__.py`, `src/modelfoundry/core/modelfoundry.py` with `ModelFoundry.from_recipe(recipe_path, *, data, config=None, variant=None, seed=None) -> ModelFoundry` and the verbs `validate`, `materialize`, `status`, `inspect`, `report`, `clean`, `check`. Verbs are thin wrappers that share construction state.
 - [ ] Top-level `materialize(...)` convenience function per `tech-spec.md`.
-- [ ] `src/modelfoundry/core/instance.py` with `ModelInstance` frozen dataclass + the cached-property accessors (`metrics`, `evaluation`, `confusion_matrix`, `calibration`, `predictions`, `trials`, `best_params`, `figures`) + `predict(X)` / `predict_proba(X)` (delegated to the plugin) + `load(path)` classmethod + `render_report()`.
+- [ ] `src/modelfoundry/core/instance.py` with `ModelInstance` frozen dataclass + the cached-property accessors (`metrics`, `evaluation`, `confusion_matrix`, `calibration`, `predictions`, `trials`, `best_params`, `figures`) + `predict(X)` / `predict_proba(X)` (delegated to the plugin) + `load(path)` classmethod + `render_report()`. (The `summary` accessor is added by C.q.)
 - [ ] Re-export `ModelFoundry`, `ModelInstance`, `materialize`, `ModelfoundryError` from `src/modelfoundry/__init__.py`.
 - [ ] Integration test: full materialize via `ModelFoundry.from_recipe(...).materialize()`; every `ModelInstance` accessor returns the expected type and shape; `ModelInstance.load(path).predict(X)` round-trips per FR-23.
-- [ ] Bump version to v0.4.0.
-- [ ] Update CHANGELOG.md (Phase C summary: end-to-end PyTorch plugin + sklearn stub + materialize orchestrator + ModelFoundry library API).
 - [ ] Verify: `pyve test tests/integration/test_modelfoundry_api.py` passes; `from modelfoundry import ModelFoundry, ModelInstance, materialize, ModelfoundryError` works.
+
+### Story C.q: PyTorch model summary (torchinfo) — `plugins.pytorch.summary` [Planned]
+
+`features.md` **FR-27** (new — model summary), `tech-spec.md` § `plugins.pytorch` > `summary.py`. Subphase C-1 (G1, R2–R4): the brief requires a generated model summary reporting per-layer type, output shape, parameter count, mult-adds, and network totals (incl. trainable/non-trainable). Surfaced as a **materialize-time artifact** so it is reproducible and readable from disk alone.
+
+- [ ] Add `torchinfo` to the `[pytorch]` extra in `pyproject.toml`.
+- [ ] Create `src/modelfoundry/plugins/pytorch/summary.py` with a capability that runs `torchinfo.summary(model, input_size=(N, C, H, W), verbose=0)` (input shape derived from the bound instance's record schema, e.g. `(N, 3, 32, 32)` for CIFAR-10) and returns a structured result: per-layer `(type, output_shape, param_count, mult_adds)` rows + totals (`total_params`, `trainable_params`, `non_trainable_params`, `total_mult_adds`).
+- [ ] Materialize-time artifact: the orchestrator (C.o) writes `model/summary.txt` (the torchinfo render) and `model/summary.json` (the structured rows + totals). Byte-deterministic for a fixed architecture + input size (no timestamps in the artifact).
+- [ ] `ModelInstance.summary` cached-property accessor (extends C.p) reads `model/summary.json`; `inspect --view model_summary` (FR-17) renders the text summary. Substrate-neutral — renders in any notebook host.
+- [ ] Author **FR-27** in `features.md` (model-summary requirement + the three reported quantities) and a `tech-spec.md` § `plugins.pytorch` > `summary.py` subsection; reference FR-17 for the inspect view.
+- [ ] Unit tests: summary of `resnet20` reports the pinned total (≈272,474) and the expected layer-type inventory; `model/summary.json` round-trips through the accessor; the rendered bytes are identical across two runs (determinism).
+- [ ] Verify: `pyve test tests/unit/test_pytorch_summary.py` passes.
+
+### Story C.r: v0.4.0 Deliverable — CIFAR-10 / ResNet-20 recipe + CPU-budget calibration + e2e [Planned]
+
+`features.md` FR-3 / FR-22; Subphase C-1 (G3, R1/R7/R8/R9). The tested client deliverable: a real-shape CIFAR-10 / ResNet-20 recipe materialized end-to-end on CPU, distinct from E.l's downsized CI smoke. **Owns the Phase C v0.4.0 bump** (the phase's last story, per Version Cadence).
+
+- [ ] **Hard prerequisites:** the DataRefinery CIFAR-10 instance (DR-1, ~1,700/300/1,000 balanced, with `normalize` + the lazy augmentation policy) and Phase B story **B.q** (ml-datarefinery ≥ 0.19.0 / schema v2). See [`phase-c-subphase-1-reprioritize-plan.md`](phase-c-subphase-1-reprioritize-plan.md) § 8.
+- [ ] Author `recipes/cifar10_resnet20.yml` (and a smaller fixture variant under `tests/fixtures/recipes/`): `plugin: pytorch`, `Architecture: resnet20`, `Loss: cross_entropy`, `Training.device: cpu`, the R5 search space (LR log-uniform 1e-4..1e-2; optimizer AdamW with SGD+momentum comparison; weight_decay log-uniform 1e-5..1e-2; schedule `reduce_on_plateau`|`cosine`; `batch_size ∈ {32,64,128}`; `early_stopping.patience` 5..15), `Optimization` TPE + median pruning (`sampler: tpe`, `pruner: median`, 20–30 trials, `n_jobs=1`) with the `random`-sampler fallback documented, `Evaluation.splits: [val, test]`, `Evaluation.primary_metric: accuracy`.
+- [ ] **CPU-budget calibration (measured, C5):** tune trials × `max_epochs_per_trial` × final epochs so each materialize step fits the per-step time budget on mainstream CPU; record the measured timings in the story notes / recipe comments. If the full 20–30-trial study overruns, document the reduction (fewer trials / capped epochs / heavier pruning) that fits, with the random-search fallback noted.
+- [ ] End-to-end integration test: `ModelFoundry.from_recipe("cifar10_resnet20.yml", data=<cifar10 instance>).materialize()` produces a complete ModelInstance; assert `model/summary.json` reports the pinned ResNet-20 totals; the Optuna study runs, persists `best-params.json`, and final training applies them; `ModelInstance.evaluation["val"]["accuracy"]` is computed; the round-trip `ModelInstance.load(path).predict(X)` works.
+- [ ] Bump version to v0.4.0.
+- [ ] Update CHANGELOG.md (Phase C summary: end-to-end PyTorch plugin + `resnet20` + model summary + working sklearn baseline + materialize orchestrator + ModelFoundry library API + the CIFAR-10/ResNet-20 deliverable).
+- [ ] Verify: `pyve test tests/integration/test_cifar10_resnet20.py` passes locally on CPU; `pyve testenv run mypy src tests` clean.
 
 ---
 
@@ -630,7 +684,7 @@ Build the test suite. By end of Phase E, the project has: a synthesized DataRefi
 `tech-spec.md` § Testing Strategy > Plugin contract tests.
 
 - [ ] `tests/plugin_contract/test_pytorch_contract.py`: the pytorch plugin's declared `OperationSpec` set is exhaustive (every op listed in `features.md` matches a registered op); the `Plugin` Protocol's runtime `isinstance` check passes; `mypy --strict` on the plugin source clean.
-- [ ] `tests/plugin_contract/test_sklearn_stub_contract.py`: the sklearn stub registers the full `OperationSpec` set; `materialize()` against `plugin: sklearn` raises `PluginError` with the documented message.
+- [ ] `tests/plugin_contract/test_sklearn_baseline_contract.py`: the sklearn plugin registers the full `OperationSpec` set, satisfies the `Plugin` Protocol's runtime `isinstance` check, and materializes a small `MLPClassifier` recipe end-to-end (per C.m's promotion from stub to working baseline).
 - [ ] Verify: both contract tests pass.
 
 ### Story E.j: CLI smoke tests [Planned]
@@ -731,7 +785,7 @@ The `archive_stories` mode preserves this section verbatim when archiving storie
 - **`[huggingface]` plugin end-to-end** — transformers + peft + evaluate-based plugin honouring the same `Plugin` Protocol. Architecture vocabulary extends with `Encoder` (HF model id), `LoRA` (peft), `Pooling`, `Head` per the optional pretrained-encoder path. Pretrained-weight cache management (`~/.cache/huggingface/` or `HF_HOME` override) lives in the plugin's docs, not in `project-essentials.md`.
 - **`[keras]` plugin end-to-end** — TensorFlow + Keras 3 backend. Likely shares the metric implementations from `plugins/sklearn/metrics.py` for ECE / calibration_curve.
 - **`[llm]` extra implementation** — `init --llm-assist` flag routed through `lmentry` for interpretive baseline-model recommendations. Namespace claimed in `pyproject.toml`; no implementation in the pre-production series. Lands as its own FR with its own acceptance criteria.
-- **sklearn plugin end-to-end** — promote the stub from C.m to a working scikit-learn implementation (MLPClassifier, RandomForest, GBM baselines for CIFAR-10 — likely needs feature-flattening from the DataRefineryDataset adapter).
+- **Additional sklearn baselines** — C.m ships a working `MLPClassifier` baseline (Subphase C-1); extend with RandomForest / GBM baselines for CIFAR-10 (reusing the C.f feature-flattening + normalization path).
 - **Continued training** — `Training.persist_optimizer_state: bool = false` recipe field gated by a `schema_version` bump; the `Checkpoint` model's forward-extensible keys (`optimizer_state`, `scheduler_state`, `rng_state`, `training_step`) are populated; new `materialize --resume-from <checkpoint>` workflow. The Q16 foundation in B.k is what makes this a pure additive change with no public-API rework.
 - **Tight-coupled DataRefinery binding (FR-26)** — `schema_version` bump that mixes the bound DataRefinery instance's `recipe_hash` into ModelFoundry's cache identity, so upstream re-materialization auto-invalidates downstream. Requires a documented migration of existing cached ModelInstances.
 - **Marimo + IPython substrate-neutral smokes** — the Jupyter smoke in E.k is the canonical substrate-neutral test; Marimo headless and IPython REPL smokes extend the contract.

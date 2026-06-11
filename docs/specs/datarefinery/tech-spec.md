@@ -278,10 +278,13 @@ class Instance:
 ### `recipe.loader` (FR-1)
 
 ```python
-SUPPORTED_SCHEMA_VERSIONS: frozenset[int] = frozenset({1})
+SUPPORTED_SCHEMA_VERSIONS: frozenset[int] = frozenset({1, 2})
+LATEST_SCHEMA_VERSION: int = 2
 
 def load(path: pathlib.Path) -> Recipe:
-    """Parse YAML, gate on schema_version, return validated pydantic Recipe."""
+    """Parse YAML, gate on schema_version, apply registered migrations
+    from the loaded version to LATEST_SCHEMA_VERSION, return validated
+    pydantic Recipe (v2 shape)."""
 ```
 
 Edge cases mapped to features.md FR-1:
@@ -289,6 +292,16 @@ Edge cases mapped to features.md FR-1:
 - Unrecognized version -> `RecipeError` listing supported versions and migration path.
 - Malformed YAML -> `RecipeError` wrapping `yaml.YAMLError` with line/column.
 - Unknown top-level keys -> warning logged + recorded in the validation report (not a hard error per FR-1's "warning" treatment); v1 surfaces these in `validate` output.
+
+### `recipe.migrations` (Phase I bundle 4 — Stories I.x.1 / I.x.2 / I.x.3)
+
+```python
+migrations: dict[tuple[int, int], Callable[[dict[str, Any]], dict[str, Any]]] = {
+    (1, 2): v1_to_v2,   # composed chain
+}
+```
+
+Each callable rewrites a recipe dict from one `schema_version` to the next, executed by the loader before pydantic validation. The chain for `(1, 2)` is the composition of `filters_reshape_v1_to_v2` (G15 / Story I.x.1 — lifts `FilterOp.predicate.op` and `FilterOp.predicate.seed` to top-level fields, renames the remaining keys to `params`), `generation_reshape_v1_to_v2` (G12 / Story I.x.2 — lifts `op` to top level from `name` (or from `params.op` if a recipe used that workaround), renames `applies_at` → `splits`, lifts the `output_schema_matches_input: true` workaround to `output_schema: "matches_input"`), and `assertion_naming_v1_to_v2` (G16a / Story I.x.3 — rewrites `InputContracts`/`OutputExpectations` assertion `kind` per `{dtype → dtype_equals, range → value_range, record_count → record_count_in_range}`; `required_field` and `distributional` unchanged). Each step is idempotent on already-v2 input so the chain remains robust under partial application.
 
 ### `recipe.validator` (FR-2)
 
@@ -317,6 +330,32 @@ def apply_variant(recipe: Recipe, variant_name: str | None) -> Recipe: ...
 ```
 
 Variants are applied **before** canonicalization, so `cache_key` reflects the selected variant.
+
+### `recipe.seeds` (G11 — Story I.n)
+
+```python
+def derive_seed(master_seed: int, op_name: str) -> int:
+    master_u64 = master_seed & ((1 << 64) - 1)
+    digest = hashlib.sha256(
+        master_u64.to_bytes(8, "big") + op_name.encode("utf-8")
+    ).digest()
+    return int.from_bytes(digest[:8], "big")
+
+def resolve_seed(
+    value: int | SeedDerivationSpec | None,
+    *,
+    master_seed: int,
+    op_name: str,
+) -> int | None: ...
+```
+
+`SeedDerivationSpec(from_="master")` is the only spec form in v1.
+
+Pinned by `tests/unit/test_seeds.py::test_derive_seed_is_pinned_for_a_known_master_op_pair`:
+
+    derive_seed(20260509, "filter_train_pool") == 15455891160210205198
+
+**Cache identity participation.** The master seed (`Recipe.seed`) is part of canonical bytes — changing it changes the recipe hash, which is the intended propagation channel. The `SeedDerivationSpec` is also preserved in canonical bytes (the cached `recipe.json` records the YAML intent, not the resolved integer). Changing the derivation function itself is a deliberate cache invalidation: bump the pinned value, follow the post-prod ceremonious-invalidation rules.
 
 ### `cache.identity` (FR-4)
 
@@ -511,8 +550,16 @@ Never opaque pickles.
 
 ```python
 def evaluate_input_contracts(records: Iterable[Record], contracts: list[Contract]) -> ContractResult: ...
-def evaluate_output_expectations(dataset: Dataset, expectations: list[Expectation]) -> ContractResult: ...
+def evaluate_output_expectations(
+    dataset: Mapping[str, Sequence[Record]] | Iterable[Record],
+    expectations: list[Expectation],
+    *, skip_missing_label_field: str | None = None,
+) -> ContractResult: ...
 ```
+
+`evaluate_output_expectations` accepts the post-Splits `Mapping[str, list[Record]]` keyed by split (a flat iterable is also accepted and routed as one implicit split for backward compatibility). `evaluate_input_contracts` stays flat — input contracts run pre-Splits.
+
+**Assertion kinds.** Flat kinds (every record across all splits): `record_count_in_range`, `required_field`, `dtype_equals`, `value_range`, `distributional` (v1 placeholder), `count_by_field`, `count_by_fields`, `shape_equals`, `value_in_set`, `per_class_count_equals`. Per-split kinds (consult the split structure; `OutputExpectations` only): `split_record_counts`, `per_class_count_per_split` (rounding-tolerant via optional `tolerance`, default 1). G6 + G16b (Story I.o) added the per-split / per-class / structural kinds; G16a (Story I.x.3) renamed the three remaining bare-verb v1 kinds (`record_count` → `record_count_in_range`, `dtype` → `dtype_equals`, `range` → `value_range`) — v1 recipes are auto-migrated by `recipe.migrations.assertion_naming_v1_to_v2`.
 
 Failures abort materialization; partial state lives under `.tmp/` with the standard FAILED marker.
 
@@ -600,8 +647,8 @@ Per-section models (sketch; full field definitions land alongside the FR-1 imple
 | `LabelsSection` | `field: str`, `source: LabelSource` (direct or derived; FR-22) |
 | `SampleDataSection` | `selector: SampleSelector` (declarative subset of `Input`) |
 | `Contract` / `Expectation` | `field: str | None`, `assertion: AssertionExpr`, `severity: Severity` |
-| `FilterOp` | `name`, `predicate`, `stages`, `splits`, `seed` (sampling only). Plugin-contributed sampling ops declare their own pydantic param model alongside the `OperationSpec` schema — `SamplePerClassParams` (`n_per_class: int > 0`, `label: str | None`, `exclude_already_labeled: list[str] | None`), `SamplePerClassFractionalParams` (`n_per_class_base: int > 0`, `fractions: dict[str, float]` each in `[0.0, 1.0]`, plus inherited `label` / `exclude_already_labeled`), and `DropByLabelParams` (`labels: list[str]`, non-empty) are validated inside the op via `model_validate(predicate)`; recipe-level validation still goes through the plugin's `OperationSpec` (check 18). |
-| `GenerationOp` | `name`, `inputs`, `output_schema`, `seed`, `applies_at`, `params: dict[str, Any] = {}`. Plugin-contributed parameterized ops declare a pydantic param model — e.g., `ImageCorruptionsApplyParams` (`corruption_types: list[str]` non-empty, `severities: list[int]` each in `[1,5]`, `preserve_original: bool = False`, `tag_fields: list[str]`) — validated inside the op via `model_validate(params)`. Recipe-level validation runs through the plugin's `OperationSpec` (check 18 covers Generation as well as Filters / Transformations / etc). |
+| `FilterOp` | `name`, `op`, `params: dict[str, Any] = {}`, `stages`, `splits`, `seed: int \| SeedDerivationSpec \| None` (top-level; G15 / Story I.x.1 reshape — v1 nested all of these inside `predicate` and is auto-migrated by `recipe.migrations.filters_reshape_v1_to_v2`). Plugin-contributed sampling ops declare their own pydantic param model alongside the `OperationSpec` schema — `SamplePerClassParams` (`n_per_class: int > 0`, `label: str \| None`, `exclude_already_labeled: list[str] \| None`), `SamplePerClassFractionalParams` (`n_per_class_base: int > 0`, `fractions: dict[str, float]` each in `[0.0, 1.0]`, plus inherited `label` / `exclude_already_labeled`), and `DropByLabelParams` (`labels: list[str]`, non-empty) are validated inside the op via `model_validate(params)`; recipe-level validation still goes through the plugin's `OperationSpec` (check 18). |
+| `GenerationOp` | `name`, `op`, `inputs`, `output_schema: dict[str, FieldSpec] \| Literal["matches_input"]`, `seed: int \| SeedDerivationSpec`, `splits: list[str] = ["train"]`, `params: dict[str, Any] = {}`, `replace_input_records: bool = False` (G12 / Story I.x.2 reshape — v1 left `op` implicit in `name`, called the splits field `applies_at`, and required an explicit dict for `output_schema`; auto-migrated by `recipe.migrations.generation_reshape_v1_to_v2`). The `"matches_input"` shorthand is expanded at materialize time by `pipeline.stages.generation._resolve_output_schema` to `Output.record_schema` plus any fields named in `params.tag_fields` (list or dict form). Plugin-contributed parameterized ops declare a pydantic param model — e.g., `ImageCorruptionsApplyParams` (`corruption_types: list[str]` non-empty, `severities: list[int]` each in `[1,5]`, `preserve_original: bool = False`, `tag_fields: list[str] \| dict[str, str]`) — validated inside the op via `model_validate(params)`. Recipe-level validation runs through the plugin's `OperationSpec` (check 18 covers Generation as well as Filters / Transformations / etc). |
 | `SplitsSection` | `ratios: dict[str, float]` or `key_assignment: KeyAssignment`, `stratify_by: str | None`, `seed: int | None`, `class_balance: ClassBalanceStrategy | None`, `applies_to: str | None`. When `applies_to` is set, it names a single source-declared partition to sub-partition via `ratios`; sibling partitions are preserved verbatim. |
 | `TransformationOp` | `name`, `op`, `params`, `fit_source: str | None`, `splits`. A fit-on-train op may set `params["stats_from_instance"]` (validated as `StatsFromInstanceSpec` with `recipe: str` + `op_id: str`) to import fitted statistics from a sibling materialized instance instead of fitting locally; `fit_source` and `stats_from_instance` are mutually exclusive (validator check 22). Resolution lives in `cache.sibling_stats.resolve_sibling_stats`; the apply path is wired into `pipeline.stages.transformations.apply_transformations` (the stage dispatcher), so any future fit-on-train op picks up sibling-import support by declaring `stats_from_instance` in its `OperationSpec`. |
 | `AugmentationOp` | `name`, `op`, `params`, `splits` (validator rejects non-train), `seed`, `materialization: Literal["lazy", "aggressive"] = "lazy"`, `expansion: int = 1`. Model-level validator rejects `expansion < 1` and `expansion > 1 + materialization=lazy` — surfaced as `RecipeError` through the loader. Aggressive ops dispatch through a plugin-registered `Realizer` (see `plugins/image_classification/augmentations/_realizer.py`); per-variant seeding extends the FR-3 determinism contract with an `(op_id, variant_index)` coordinate. The `image_classification` plugin registers per-op pydantic param models — `RandomCropParams` (`size: int \| tuple[int, int]`, `padding: int = 0`, `padding_mode: Literal["reflect", "replicate", "zero", "constant"] = "reflect"`; Story H.q FR-AUG-1), `HorizontalFlipParams` (`p: float = 0.5` in `[0.0, 1.0]`; Story H.q FR-AUG-2), `ColorJitterParams` (`brightness`/`contrast`/`saturation` in `[0.0, 1.0]`, `hue` in `[0.0, 0.5]`; Story H.r FR-AUG-3), and `RandomErasingParams` (`p` in `[0.0, 1.0]`, `scale` and `ratio` as ordered float tuples; Story H.r FR-AUG-4) — validated inside each realizer via `model_validate(params)`. Recipe-level validation continues through the plugin's `OperationSpec` (check 18). |
@@ -702,6 +749,9 @@ Recipe semantics never read from CLI/env. The only field where CLI flag override
 │   │           │   ├── test.jsonl
 │   │           │   └── <split>/images/<record_id>.png    # FR-11 aggressive-mode variants only (Story H.r.2)
 │   │           ├── fitted_statistics/
+│   │           ├── sample/                        # FR-J-1 SampleData runtime (Story J.a)
+│   │           │   ├── <split>.jsonl              # subset of dataset/<split>.jsonl per SampleSelector
+│   │           │   └── <split>/images/<record_id>.png   # sidecar PNGs for aggressive variants
 │   │           ├── report/
 │   │           │   ├── report.md
 │   │           │   ├── drift.json
