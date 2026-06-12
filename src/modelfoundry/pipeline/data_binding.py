@@ -55,6 +55,8 @@ class DataRefineryInstance:
     splits: tuple[str, ...]
     label_schema: dict[str, Any]
     record_schema: dict[str, Any]
+    # datarefinery FittedStatistics view — C.f reads the fit-on-train normalize stats.
+    fitted_statistics: Any = None
 
     def instance_provides_splits(self, splits: list[str]) -> bool:
         """True iff every requested split is present in the materialized instance."""
@@ -124,6 +126,7 @@ def resolve_data_instance(
         record_schema={
             k: v.model_dump() for k, v in dr_instance.recipe.Output.record_schema.items()
         },
+        fitted_statistics=getattr(dr_instance, "fitted_statistics", None),
     )
 
 
