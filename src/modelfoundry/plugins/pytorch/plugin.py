@@ -117,8 +117,10 @@ class PyTorchPlugin:
     version: str = __version__
 
     def __init__(self) -> None:
-        # C.c architecture + C.d losses/optimizers/schedules; C.g (augmentations)
-        # and the visualization/evaluation stories extend this map further.
+        # C.c architecture + C.d losses/optimizers/schedules; the
+        # visualization/evaluation stories extend this map further. (Lazy
+        # augmentations, C.g, are realized from the bound DataRefinery policy —
+        # not a ModelFoundry recipe op — so they are not registered here.)
         self.operations: dict[str, OperationSpec] = {
             **ARCHITECTURE_OPERATIONS,
             **LOSS_OPERATIONS,
