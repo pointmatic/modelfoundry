@@ -21,7 +21,9 @@ def test_discovery_finds_pytorch_plugin() -> None:
     pytorch = plugins["pytorch"]
     assert isinstance(pytorch, Plugin)
     assert pytorch.name == "pytorch"
-    assert pytorch.operations == {}  # vocabulary lands in C.c+
+    # C.c populated the architecture vocabulary; C.d/C.g extend it further.
+    assert "resnet20" in pytorch.operations
+    assert "Conv2d" in pytorch.operations
 
 
 def test_health_check_reports_available_backend() -> None:
@@ -38,8 +40,9 @@ def test_health_check_reports_available_backend() -> None:
 
 
 def test_stub_methods_raise_not_implemented() -> None:
+    # build_model is implemented as of C.c; the execution methods remain stubs.
     pytorch = discover_plugins()["pytorch"]
-    with pytest.raises(NotImplementedError, match=r"C\.c"):
-        pytorch.build_model({})
     with pytest.raises(NotImplementedError, match=r"C\.h"):
         pytorch.run_training(None, None, None, None, 0, None)  # type: ignore[arg-type]
+    with pytest.raises(NotImplementedError, match=r"C\.j"):
+        pytorch.run_evaluation(None, None, None, None)  # type: ignore[arg-type]

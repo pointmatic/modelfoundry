@@ -326,7 +326,7 @@ Instantiate the model from plugin primitives.
 
 - **Primitives**: `Conv2d`, `BatchNorm2d`, `ReLU`, `MaxPool2d`, `AvgPool2d`, `AdaptiveAvgPool2d`, `Linear`, `Dropout`, `Flatten`.
 - **Composite**: `MLP` (`hidden_dims: list[int]`, `dropout: float`, `activation: str`), `ConvBlock` (`out_channels`, `kernel_size`, `stride`, `padding`, `with_batchnorm: bool`, `with_pool: bool`), `ResidualBlock` (`channels`, `stride`).
-- **Baseline architectures**: `simple_cnn` (a small reference CNN sized for CIFAR-10 — three ConvBlock stacks + classification head), `resnet8` (a ResNet variant sized for CIFAR-10).
+- **Baseline architectures**: `simple_cnn` (a small reference CNN sized for CIFAR-10 — three ConvBlock stacks + classification head), `resnet8` (a ResNet variant sized for CIFAR-10), `resnet20` (the canonical CIFAR ResNet-20 — 3×3 stem → three stages of three `ResidualBlock`s at 16/32/64 channels with option-B projection shortcuts and strided-conv downsampling → global average pool → `Linear` head; 272,474 params at `num_classes=10`).
 - **Optional pretrained-encoder path (deferred but contract-supported)**: `Encoder` (`source: huggingface`, `id: <hf model id>`, `frozen: bool`), `LoRA` (`rank`, `alpha`, `dropout`, `target_modules: list[str]`), `Pooling` (`type: attention | mean | max`, `hidden_dim`), classification `Head` (`type: mlp`, `hidden_dims`, `num_classes`, `id2label`).
 
 **Edge Cases:**

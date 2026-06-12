@@ -2,9 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """PyTorch plugin scaffold + `health_check` (Story C.b).
 
-The smallest viable plugin: it registers `name = "pytorch"`, an (initially empty)
-`operations` map, and a working `health_check`. Every other `Plugin` method is a
-stub that raises `NotImplementedError` pointing at its owning Story (C.c-C.p).
+The plugin shell: it registers `name = "pytorch"`, an `operations` map (the
+architecture vocabulary from C.c, extended by later stories), `build_model`
+(delegated to `architecture.build_model`), and a working `health_check`. The
+remaining execution methods are stubs raising `NotImplementedError` pointing at
+their owning Story (C.h-C.p).
 
 **Import-safe without the `[pytorch]` extra.** This module ships in ModelFoundry's
 own entry-point table, so it is loaded by `discover_plugins()` on *every* install
@@ -32,6 +34,12 @@ from modelfoundry.plugins.base import (
     OptimizationResult,
     Plugin,
     TrainingResult,
+)
+from modelfoundry.plugins.pytorch.architecture import (
+    ARCHITECTURE_OPERATIONS,
+)
+from modelfoundry.plugins.pytorch.architecture import (
+    build_model as _build_model,
 )
 from modelfoundry.recipe.models import (
     EvaluationSpec,
@@ -101,9 +109,9 @@ class PyTorchPlugin:
     version: str = __version__
 
     def __init__(self) -> None:
-        # Populated by the vocabulary stories (C.c architecture, C.d losses/
-        # optimizers/schedules, C.g augmentations, …).
-        self.operations: dict[str, OperationSpec] = {}
+        # C.c contributes the architecture vocabulary; C.d (losses/optimizers/
+        # schedules) and C.g (augmentations) extend this map further.
+        self.operations: dict[str, OperationSpec] = dict(ARCHITECTURE_OPERATIONS)
 
     def health_check(self) -> PyTorchHealthReport:
         torch_version = _safe_dist_version("torch")
@@ -121,7 +129,7 @@ class PyTorchPlugin:
         )
 
     def build_model(self, arch: dict[str, Any]) -> Any:
-        raise _not_implemented("build_model", "C.c")
+        return _build_model(arch)
 
     def run_optimization(
         self,

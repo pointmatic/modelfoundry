@@ -76,7 +76,7 @@ Per `docs/project-guide/go.md` § Pyve Essentials, the LLM wraps its own Bash-to
 
 | Extra | Pulls In | Purpose |
 |---|---|---|
-| `[pytorch]` | `torch>=2.5`, `torchvision>=0.20`, `torchmetrics>=1.4` | The default plugin. CIFAR-10 baseline architecture vocabulary (`Conv2d`, `BatchNorm2d`, `Linear`, `MLP`, `ConvBlock`, `ResidualBlock`, `simple_cnn`, `resnet8`), Training loop, Evaluation metric implementations, Visualization rendering. The first pre-production release ships this extra end-to-end. |
+| `[pytorch]` | `torch>=2.5`, `torchvision>=0.20`, `torchmetrics>=1.4` | The default plugin. CIFAR-10 baseline architecture vocabulary (`Conv2d`, `BatchNorm2d`, `Linear`, `MLP`, `ConvBlock`, `ResidualBlock`, `simple_cnn`, `resnet8`, `resnet20`), Training loop, Evaluation metric implementations, Visualization rendering. The first pre-production release ships this extra end-to-end. |
 | `[sklearn]` | (already in base) | The stub plugin; registers the full `OperationSpec` set against shared sklearn metric implementations but raises `PluginError` at `materialize()` (FR-24). The extra is documented for symmetry but installs nothing extra. |
 | `[huggingface]` | `transformers>=4.40`, `peft>=0.10`, `evaluate>=0.4` | **Deferred** — close follow-on cycle, not the first pre-production release. The recipe shape's optional pretrained-encoder + LoRA path (FR-7) references this. |
 | `[keras]` | `tensorflow>=2.16`, `keras>=3.0` | **Deferred** — close follow-on cycle. Keras 3 ships bundled with TF 2.16+ via `tf.keras`. |
