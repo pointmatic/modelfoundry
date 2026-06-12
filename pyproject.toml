@@ -42,7 +42,7 @@ dependencies = [
     "scikit-learn",
     "optuna",
     "pillow",
-    "ml-datarefinery",
+    "ml-datarefinery>=0.19.0",
 ]
 
 [project.optional-dependencies]
@@ -93,3 +93,7 @@ files = ["src", "tests"]
 pythonpath = ["src"]
 testpaths = ["tests"]
 addopts = "--cov=modelfoundry --cov-report=term-missing"
+
+[tool.pyve.testenvs.testenv]
+backend  = "micromamba"
+manifest = "environment.yml"

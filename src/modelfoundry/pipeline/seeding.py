@@ -56,7 +56,7 @@ def worker_init_fn_factory(master_seed: int) -> Callable[[int], None]:
         random.seed(seed)
         np.random.seed(seed & _NUMPY_SEED_MASK)
         try:
-            import torch  # type: ignore[import-not-found]
+            import torch  # type: ignore[import-not-found, unused-ignore]
         except ImportError:
             return
         torch.manual_seed(seed)

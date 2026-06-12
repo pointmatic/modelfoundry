@@ -28,10 +28,13 @@ from modelfoundry.pipeline.data_binding import (
 )
 from modelfoundry.recipe.models import DataSpec
 
-# A minimal DR recipe that loads via DR's own loader.
+# A minimal DR recipe that loads via DR's own loader. Declares the canonical
+# DataRefinery schema v2 (the only shape persisted as `recipe.json` since
+# ml-datarefinery 0.19.0); a v1 source recipe migrates to byte-identical v2 on
+# load, so binding sees `schema_version: 2` either way.
 _DR_RECIPE_YAML = textwrap.dedent(
     """
-    schema_version: 1
+    schema_version: 2
     plugin: image_classification
     seed: 11
     Input:
@@ -127,7 +130,7 @@ def _build_fixture(
         "test": len(test_records),
     }
     manifest = DRManifest(
-        datarefinery_version="0.17.0",
+        datarefinery_version="0.19.0",
         plugin="image_classification",
         plugin_version="1",
         recipe_hash=recipe_hash,
@@ -137,6 +140,14 @@ def _build_fixture(
         elapsed_seconds=0.1,
         is_partial=manifest_partial,
         record_counts=record_counts,
+        # `class_balance` is new in ml-datarefinery 0.18.0+; ModelFoundry binds
+        # against `record_counts` and read-and-ignores this field for now
+        # (Subphase C-1 §C10). Present here so every binding test exercises a
+        # v0.19.0-shaped manifest.
+        class_balance={
+            split: dict.fromkeys(classes, total // len(classes))
+            for split, total in record_counts.items()
+        },
         warnings=[],
         sinks={},
         sinks_skipped={},
@@ -182,7 +193,7 @@ def test_cross_validation_helpers(tmp_path: Path) -> None:
     inst = resolve_data_instance(_data_spec(recipe_yaml), _config(cache_root))
     assert inst.instance_provides_splits(["train", "val"]) is True
     assert inst.instance_provides_splits(["train", "missing"]) is False
-    assert inst.instance_schema_version() == 1
+    assert inst.instance_schema_version() == 2
     assert inst.instance_num_classes() == 3
 
 
