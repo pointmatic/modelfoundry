@@ -149,6 +149,20 @@ class DataRefineryDataset(Dataset[tuple[torch.Tensor, int]]):
                 records.append(json.loads(line))
         return records
 
+    def class_counts(self) -> list[int]:
+        """Per-class record counts for this split, indexed by `label_to_index`.
+
+        Reads labels straight from the JSONL records (no image decode), so the
+        trainer (C.h) can fit `cross_entropy_class_weighted` weights cheaply. The
+        i-th entry is the count of the class whose index is `i`.
+        """
+        counts = [0] * len(self.label_to_index)
+        for record in self._records:
+            value = record.get(self._label_field) if self._label_field else None
+            if value is not None:
+                counts[self.label_to_index[value]] += 1
+        return counts
+
     # --- Dataset protocol ---
 
     def __len__(self) -> int:

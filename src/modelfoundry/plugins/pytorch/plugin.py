@@ -165,7 +165,10 @@ class PyTorchPlugin:
         seed: int,
         temp_dir: Path,
     ) -> TrainingResult:
-        raise _not_implemented("run_training", "C.h")
+        # Lazy import keeps this module (loaded on every discovery) torch-free.
+        from modelfoundry.plugins.pytorch.trainer import run_training as _run_training
+
+        return _run_training(training, model, recipe, data, seed, temp_dir)
 
     def run_evaluation(
         self,
