@@ -64,6 +64,13 @@ notebook-smokes = ["nbclient", "ipykernel"]
 # at install time; importing it before A.b will raise (expected).
 modelfoundry = "modelfoundry.cli.app:main"
 
+# Built-in plugins, discovered via `plugins.discovery.discover_plugins` (B.h).
+# The pytorch plugin ships in-tree and is import-safe without the [pytorch]
+# extra (its torch imports are lazy), so this entry point is harmless on
+# sklearn-only installs. The sklearn baseline registers its own entry in C.m.
+[project.entry-points."modelfoundry.plugins"]
+pytorch = "modelfoundry.plugins.pytorch.plugin:plugin"
+
 [project.urls]
 Homepage = "https://github.com/pointmatic/modelfoundry"
 Repository = "https://github.com/pointmatic/modelfoundry"

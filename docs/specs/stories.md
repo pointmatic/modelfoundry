@@ -343,15 +343,15 @@ Bugfix for the latent defect the **C.a** determinism spike surfaced: `pipeline.s
 - [x] Add a closing "repaired in C.a.1" note to [docs/spikes/C.a-pytorch-determinism.md](../spikes/C.a-pytorch-determinism.md) and a `Fixed` entry to `CHANGELOG.md` `[Unreleased]`.
 - [x] Verify: spike `RESULT: PASS` with `picklable: True`; `test_seeding.py` 12 passed; full suite **226 passed**; `mypy src tests` clean (46 files); `ruff check` clean. (Run via the conda testenv interpreter — `pyve run`/`pyve test` parked on the Pyve v3.0.6 conda fix per B.o.)
 
-### Story C.b: PyTorch plugin scaffold + health_check + registration [Planned]
+### Story C.b: PyTorch plugin scaffold + health_check + registration [Done]
 
 `tech-spec.md` § `plugins.pytorch`. Smallest possible plugin: registers a `name = "pytorch"`, empty `operations`, working `health_check` (reports torch/torchvision/torchmetrics availability + accelerator detection). Used by the registration test in B.h's discovery harness.
 
-- [ ] Create `src/modelfoundry/plugins/pytorch/__init__.py` and `src/modelfoundry/plugins/pytorch/plugin.py` implementing the `Plugin` Protocol skeleton (all methods raise `NotImplementedError` except `health_check`).
-- [ ] Wire the plugin entry point into `pyproject.toml` under `[project.entry-points."modelfoundry.plugins"]`.
-- [ ] `health_check` returns a `CheckReport` listing torch / torchvision / torchmetrics versions, accelerator (MPS / CUDA / CPU-only), and whether deterministic-algorithm mode is enable-able on this backend.
-- [ ] Integration test: `discover_plugins()` finds the pytorch plugin; `health_check()` returns a non-error report on the test machine.
-- [ ] Verify: `pyve test tests/integration/test_pytorch_plugin_registration.py` passes.
+- [x] Create `src/modelfoundry/plugins/pytorch/__init__.py` and `src/modelfoundry/plugins/pytorch/plugin.py` implementing the `Plugin` Protocol skeleton (all methods raise `NotImplementedError` except `health_check`). (`plugin: Plugin = PyTorchPlugin()` is annotated as `Plugin` so mypy statically checks Protocol conformance. **Import-safe without `[pytorch]`:** the entry point ships in ModelFoundry's own table and is loaded by `discover_plugins()` on *every* install, so torch is imported lazily inside `health_check`/`_detect_accelerators`, never at module top level — a sklearn-only install can still discover the plugin.)
+- [x] Wire the plugin entry point into `pyproject.toml` under `[project.entry-points."modelfoundry.plugins"]`. (`pytorch = "modelfoundry.plugins.pytorch.plugin:plugin"`; reinstalled editable into the conda testenv so `importlib.metadata` sees it.)
+- [x] `health_check` returns a `CheckReport` listing torch / torchvision / torchmetrics versions, accelerator (MPS / CUDA / CPU-only), and whether deterministic-algorithm mode is enable-able on this backend. (Concrete `PyTorchHealthReport` pydantic model — `plugin`, `available`, `{torch,torchvision,torchmetrics}_version`, `accelerators`, `deterministic_algorithms_available`. `accelerators` uses the `Training.device` vocabulary (`cpu`/`cuda`/`mps`) so B.n's validator check 20 reads it directly. The shared `CheckReport` Protocol alias stays `Any` — its canonical refinement remains D.c's job.)
+- [x] Integration test: `discover_plugins()` finds the pytorch plugin; `health_check()` returns a non-error report on the test machine. ([tests/integration/test_pytorch_plugin_registration.py](tests/integration/test_pytorch_plugin_registration.py): discovery + `isinstance(_, Plugin)` + `operations == {}`; health report asserts `available`/`cpu`-present/`deterministic` (guarded by `pytest.importorskip("torch")`); stub methods raise `NotImplementedError` with the owning-story pointer. On this Apple-Silicon machine the report shows torch 2.12.0 / accelerators `('cpu','mps')`.)
+- [x] Verify: `pyve test tests/integration/test_pytorch_plugin_registration.py` passes. (Integration: 3 passed; full suite **229 passed**; `mypy src tests` clean (49 files); `ruff check` clean. Run via the conda testenv interpreter — `pyve test` parked on the Pyve v3.0.6 conda fix per B.o.)
 
 ### Story C.c: PyTorch architecture vocabulary — `plugins.pytorch.architecture` [Planned]
 

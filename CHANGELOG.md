@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- PyTorch plugin scaffold + `health_check` + registration (Story C.b): `modelfoundry.plugins.pytorch` registers the `pytorch` plugin via the `modelfoundry.plugins` entry point with an (initially empty) `operations` map. `health_check` returns a `PyTorchHealthReport` (torch/torchvision/torchmetrics versions, available accelerators in `Training.device` terms — `cpu`/`cuda`/`mps`, and whether deterministic-algorithm mode is enable-able); every other `Plugin` method is a stub raising `NotImplementedError` until its owning Story (C.c–C.p). The module is import-safe without the `[pytorch]` extra (lazy torch import), so discovery works on sklearn-only installs.
+
 ### Fixed
 
 - `worker_init_fn_factory` (`pipeline.seeding`) returned a nested closure that the macOS/Windows `spawn` start method cannot pickle, crashing `DataLoader(num_workers>0)` (Story C.a.1, latent defect surfaced by the C.a determinism spike). It now returns a picklable `functools.partial` over a module-level `_seed_worker`; public API and seeding behavior are unchanged, and a pickle round-trip regression test guards it.
