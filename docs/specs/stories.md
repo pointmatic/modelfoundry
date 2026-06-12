@@ -323,15 +323,15 @@ Phase C is reprioritized to deliver one client vertical first: declaratively bui
 
 Upstream dependency: the CIFAR-10 DataRefinery instance (DR-1) and the v0.19.0 contract (Phase B story **B.q**). See [`phase-c-subphase-1-reprioritize-plan.md`](phase-c-subphase-1-reprioritize-plan.md) for the full plan, conflicts, scope decisions, and the DataRefinery ↔ ModelFoundry contract status.
 
-### Story C.a: Architectural spike — deterministic PyTorch training loop [Planned]
+### Story C.a: Architectural spike — deterministic PyTorch training loop [Done]
 
 Throwaway script in `scripts/`. Validate the most uncertain architectural assumption before the production PyTorch plugin lands: can `torch.use_deterministic_algorithms(True)` + `CUBLAS_WORKSPACE_CONFIG=:4096:8` + the `worker_init_fn_factory` from B.j produce byte-identical model state across two runs of a minimal CNN training loop on a synthetic dataset (CPU + `num_workers=1, 2, 4`)? Deliverable is the documented outcome.
 
-- [ ] Create `scripts/spike_pytorch_determinism.py`: minimal `nn.Module` (2-layer CNN), synthetic 32-record image dataset, 2-epoch training loop. Run three times across `num_workers ∈ {1, 2, 4}` and compare `model.state_dict()` byte-by-byte.
-- [ ] Run the same script with `torch.use_deterministic_algorithms(False)` to confirm non-determinism without the guard.
-- [ ] Document outcome in `docs/spikes/C.a-pytorch-determinism.md`: which ops (if any) hard-error under deterministic mode; the env-var setup pattern; the `worker_init_fn` integration pattern; any platform-specific surprises on macOS-MPS (or CPU-only if MPS is sidestepped).
-- [ ] Note any integration risks for C.e (determinism module) and C.h (trainer).
-- [ ] Verify: spike runs; byte-identity holds under deterministic mode + worker_init_fn; outcome doc captures the production pattern.
+- [x] Create `scripts/spike_pytorch_determinism.py`: minimal `nn.Module` (2-layer CNN), synthetic 32-record image dataset, 2-epoch training loop. Run three times across `num_workers ∈ {1, 2, 4}` and compare `model.state_dict()` byte-by-byte. (State-dict hashed as SHA-256 over each tensor's raw bytes in sorted-key order; all three worker counts produce an identical hash, and a repeat run reproduces it.)
+- [x] Run the same script with `torch.use_deterministic_algorithms(False)` to confirm non-determinism without the guard. (Finding: on **CPU** the loop is already byte-deterministic *without* the guard — same hash both ways. The guard's value is the CUDA path + as a hard-error tripwire; documented in the outcome doc. CPU-only non-determinism couldn't be induced with the C-1 op vocabulary.)
+- [x] Document outcome in `docs/spikes/C.a-pytorch-determinism.md`: which ops (if any) hard-error under deterministic mode; the env-var setup pattern; the `worker_init_fn` integration pattern; any platform-specific surprises on macOS-MPS (or CPU-only if MPS is sidestepped). (No ops hard-error on CPU; MPS sidestepped per the Subphase C-1 CPU budget.)
+- [x] Note any integration risks for C.e (determinism module) and C.h (trainer). (**Key finding:** B.j's `worker_init_fn_factory` returns an **unpicklable closure** that crashes `DataLoader(num_workers>0)` under macOS `spawn`; the spike demonstrates the spawn-safe fix — a module-level fn bound via `functools.partial` — that C.f/C.h must adopt, with a recommended rework of B.j. Full detail + the C.e/C.f/C.h pattern in the outcome doc.)
+- [x] Verify: spike runs; byte-identity holds under deterministic mode + worker_init_fn; outcome doc captures the production pattern. (`RESULT: PASS`; spike + `ruff check` clean. Run via the conda testenv interpreter — `pyve run`/`pyve test` parked on the Pyve v3.0.6 conda fix per B.o.)
 
 ### Story C.b: PyTorch plugin scaffold + health_check + registration [Planned]
 
