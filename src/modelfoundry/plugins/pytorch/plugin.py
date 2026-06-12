@@ -154,7 +154,12 @@ class PyTorchPlugin:
         seed: int,
         temp_dir: Path,
     ) -> OptimizationResult:
-        raise _not_implemented("run_optimization", "C.i")
+        # Lazy import keeps this module (loaded on every discovery) torch-free.
+        from modelfoundry.plugins.pytorch.optimization import (
+            run_optimization as _run_optimization,
+        )
+
+        return _run_optimization(opt, recipe, data, seed, temp_dir)
 
     def run_training(
         self,

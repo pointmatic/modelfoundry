@@ -41,9 +41,10 @@ def test_health_check_reports_available_backend() -> None:
 
 
 def test_stub_methods_raise_not_implemented() -> None:
-    # build_model (C.c) and run_training (C.h) are implemented; the rest are stubs.
+    # build_model (C.c), run_training (C.h), run_optimization (C.i) are implemented;
+    # evaluation / visualization / persistence remain stubs.
     pytorch = discover_plugins()["pytorch"]
     with pytest.raises(NotImplementedError, match=r"C\.j"):
         pytorch.run_evaluation(None, None, None, None)  # type: ignore[arg-type]
-    with pytest.raises(NotImplementedError, match=r"C\.i"):
-        pytorch.run_optimization(None, None, None, 0, None)  # type: ignore[arg-type]
+    with pytest.raises(NotImplementedError, match=r"C\.k"):
+        pytorch.render_visualization(None, None)  # type: ignore[arg-type]

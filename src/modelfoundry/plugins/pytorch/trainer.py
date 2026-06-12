@@ -27,7 +27,7 @@ seeded generator. See `project-essentials.md` § Determinism contract.
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -75,8 +75,15 @@ def run_training(
     data: DataRefineryInstance,
     seed: int,
     temp_dir: Path,
+    *,
+    epoch_callback: Callable[[int, dict[str, float]], None] | None = None,
 ) -> TrainingResult:
-    """Train `model` over the bound instance, writing artifacts under `temp_dir`."""
+    """Train `model` over the bound instance, writing artifacts under `temp_dir`.
+
+    `epoch_callback(epoch, record)` runs after each epoch's metrics are produced
+    (before checkpointing) — the Optuna optimization stage (C.i) uses it to report
+    intermediate values and raise `optuna.TrialPruned` to prune a trial early.
+    """
     enable_deterministic_algorithms()
     torch.manual_seed(derive_seed(seed, "dropout"))
 
@@ -135,6 +142,9 @@ def run_training(
             record["val_loss"] = val_loss
             record["val_accuracy"] = val_accuracy
         history.append(record)
+
+        if epoch_callback is not None:
+            epoch_callback(epoch, record)
 
         _step_scheduler(scheduler, recipe, record, monitor)
 
