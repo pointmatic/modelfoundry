@@ -366,16 +366,16 @@ Bugfix for the latent defect the **C.a** determinism spike surfaced: `pipeline.s
 - [x] Note: adding `resnet20` vocabulary perturbs canonical bytes only for recipes that select it (a new op); acceptable pre-prod with a CHANGELOG callout per `project-essentials.md` § Cache identity. (Callout added to `CHANGELOG.md` `[Unreleased]`.)
 - [x] Verify: `pyve test tests/unit/test_pytorch_architecture.py` passes. (Architecture: 18 passed; full suite **247 passed**; `mypy src tests` clean (51 files); `ruff check` clean. Run via the conda testenv interpreter — `pyve test` parked on the Pyve v3.0.6 conda fix per B.o.)
 
-### Story C.d: PyTorch losses, optimizers, schedules [Planned]
+### Story C.d: PyTorch losses, optimizers, schedules [Done]
 
 `features.md` FR-LOSS-1 / FR-OPT-1 / FR-OPT-2, `tech-spec.md` § `plugins.pytorch` > `losses.py` / `optimizers.py` / `schedules.py`.
 
-- [ ] `losses.py`: `cross_entropy`, `cross_entropy_class_weighted` (with `weight_source: train | train_inverse_frequency | effective_number`, weights fit on train at training start, persisted to `training/class_weights.json`), `bce_with_logits` (recipe-time rejected when `num_classes > 2`).
-- [ ] `optimizers.py`: `adamw`, `sgd`, `adam` with their typed params.
-- [ ] `schedules.py`: `reduce_on_plateau`, `cosine`, `linear_warmup` with their typed params.
-- [ ] Each op registered as an `OperationSpec` in the plugin's `operations` dict.
-- [ ] Unit tests: each op constructs the correct `torch.nn` / `torch.optim` / `torch.optim.lr_scheduler` object with the expected hyperparameters; class-weighted loss correctly derives weights from a synthetic train-split label distribution.
-- [ ] Verify: `pyve test tests/unit/test_pytorch_ops.py` passes.
+- [x] `losses.py`: `cross_entropy`, `cross_entropy_class_weighted` (with `weight_source: train | train_inverse_frequency | effective_number`, weights fit on train at training start, persisted to `training/class_weights.json`), `bce_with_logits` (recipe-time rejected when `num_classes > 2`). (`derive_class_weights(weight_source, class_counts)` returns mean-normalized weights — `train` = sklearn-balanced, `train_inverse_frequency` = `1/n_c`, `effective_number` = Cui et al. class-balanced; the trainer (C.h) fits + persists `training/class_weights.json`. `build_loss` enforces the binary-only `bce_with_logits` constraint as a **materialize-time `PluginError`** when `num_classes > 2` — the backstop to FR-2 check 17's recipe-time rejection; not modified the validator here.)
+- [x] `optimizers.py`: `adamw`, `sgd`, `adam` with their typed params. (`learning_rate` → torch `lr`; `build_optimizer(op, params, model_parameters)`.)
+- [x] `schedules.py`: `reduce_on_plateau`, `cosine`, `linear_warmup` with their typed params. (`reduce_on_plateau`'s watched metric is `ScheduleSpec.monitor` (fed to `scheduler.step(value)` by the trainer); op params carry only LR knobs. `linear_warmup` is a `LambdaLR` warming 0→1 over `warmup_steps` then linearly decaying toward `min_lr` by `total_steps`.)
+- [x] Each op registered as an `OperationSpec` in the plugin's `operations` dict. (`LOSS_OPERATIONS` / `OPTIMIZER_OPERATIONS` / `SCHEDULE_OPERATIONS` merged into `PyTorchPlugin.operations` alongside `ARCHITECTURE_OPERATIONS`; all three modules are import-safe without `[pytorch]` — lazy torch in the builders.)
+- [x] Unit tests: each op constructs the correct `torch.nn` / `torch.optim` / `torch.optim.lr_scheduler` object with the expected hyperparameters; class-weighted loss correctly derives weights from a synthetic train-split label distribution. ([tests/unit/test_pytorch_ops.py](tests/unit/test_pytorch_ops.py): 18 tests — registries, each loss/optimizer/schedule build + hyperparams, class-weight derivation (balanced→uniform, imbalanced→minority-upweighted across all three sources), bce multiclass guard, unknown-op errors.)
+- [x] Verify: `pyve test tests/unit/test_pytorch_ops.py` passes. (18 passed; full suite **265 passed**; `mypy src tests` clean (55 files); `ruff check` clean. Run via the conda testenv interpreter — `pyve test` parked on the Pyve v3.0.6 conda fix per B.o.)
 
 ### Story C.e: PyTorch determinism module — `plugins.pytorch.determinism` [Planned]
 
