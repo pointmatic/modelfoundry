@@ -182,7 +182,12 @@ class PyTorchPlugin:
         data: DataRefineryInstance,
         temp_dir: Path,
     ) -> EvaluationResult:
-        raise _not_implemented("run_evaluation", "C.j")
+        # Lazy import keeps this module (loaded on every discovery) torch-free.
+        from modelfoundry.plugins.pytorch.evaluation import (
+            run_evaluation as _run_evaluation,
+        )
+
+        return _run_evaluation(evaluation, model, data, temp_dir)
 
     def render_visualization(
         self,

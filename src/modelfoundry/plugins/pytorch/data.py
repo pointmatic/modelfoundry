@@ -149,6 +149,14 @@ class DataRefineryDataset(Dataset[tuple[torch.Tensor, int]]):
                 records.append(json.loads(line))
         return records
 
+    def record_ids(self) -> list[str]:
+        """The split's `record_id`s in iteration order (for predictions alignment).
+
+        With `shuffle=False` + `num_workers=0`, an evaluation pass visits records
+        in this order, so the i-th prediction belongs to `record_ids()[i]`.
+        """
+        return [str(rec.get("record_id", idx)) for idx, rec in enumerate(self._records)]
+
     def class_counts(self) -> list[int]:
         """Per-class record counts for this split, indexed by `label_to_index`.
 
