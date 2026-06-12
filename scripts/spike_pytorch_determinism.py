@@ -30,7 +30,6 @@ import os
 # CPU but we set it here to mirror the production determinism module (C.e).
 os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
 
-import functools
 import pickle
 import random
 
@@ -89,21 +88,6 @@ class SyntheticImages(Dataset[tuple[torch.Tensor, int]]):
         return img, label
 
 
-def _seed_worker(master_seed: int, worker_id: int) -> None:
-    """Picklable, module-level equivalent of B.j's `worker_init_fn`.
-
-    B.j's `worker_init_fn_factory` returns a *closure*, which the macOS `spawn`
-    start method cannot pickle (it crashes `DataLoader(num_workers>0)`). A
-    module-level function bound to its `master_seed` via `functools.partial` is
-    picklable and survives `spawn` — the fix the production data adapter (C.f)
-    and trainer (C.h) must adopt. See the outcome doc.
-    """
-    seed = derive_seed(master_seed, "data_shuffle", worker_id.to_bytes(4, "big", signed=False))
-    random.seed(seed)
-    np.random.seed(seed & ((1 << 32) - 1))
-    torch.manual_seed(seed & _I64)
-
-
 def _setup_determinism(deterministic: bool) -> None:
     os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
     torch.use_deterministic_algorithms(deterministic)
@@ -141,7 +125,7 @@ def run_once(num_workers: int, *, deterministic: bool = True) -> str:
         batch_size=8,
         shuffle=True,
         num_workers=num_workers,
-        worker_init_fn=functools.partial(_seed_worker, MASTER_SEED),
+        worker_init_fn=worker_init_fn_factory(MASTER_SEED),
         generator=shuffle_gen,
     )
 
@@ -161,15 +145,16 @@ def main() -> int:
     print(f"CUBLAS_WORKSPACE_CONFIG={os.environ.get('CUBLAS_WORKSPACE_CONFIG')!r}")
     print(f"multiprocessing start method: {torch.multiprocessing.get_start_method()}\n")
 
-    # 0. Integration finding: is B.j's worker_init_fn closure picklable (spawn-safe)?
+    # 0. Regression confirmation: B.j's worker_init_fn must be picklable so it
+    #    survives the `spawn` start method (the latent defect C.a found, repaired
+    #    in C.a.1). The multi-worker runs below use it directly and would crash
+    #    here if it regressed to a closure.
     print("[0] B.j worker_init_fn_factory picklability (spawn requirement)")
     try:
         pickle.dumps(worker_init_fn_factory(MASTER_SEED))
-        print("    → picklable: True")
+        print("    → picklable: True (spawn-safe; repaired in C.a.1)\n")
     except (pickle.PicklingError, AttributeError, TypeError) as exc:
-        print(f"    → picklable: False — {type(exc).__name__}: {exc}")
-        print("    → spike uses functools.partial(_seed_worker, MASTER_SEED) instead "
-              "(the fix C.f/C.h must adopt).\n")
+        print(f"    → picklable: False — {type(exc).__name__}: {exc} (REGRESSION)\n")
 
     # 1. Byte-identity across worker counts, deterministic mode ON.
     print("[1] deterministic=True, num_workers ∈ {1, 2, 4}")

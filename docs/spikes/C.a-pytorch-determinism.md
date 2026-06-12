@@ -70,8 +70,12 @@ literal digest.
    - **Recommended follow-up for B.j:** rework `worker_init_fn_factory` to return a
      `functools.partial` over a module-level helper instead of a closure (a small,
      behavior-preserving change; its unit tests exercise the seeding effect, not
-     the object identity). Tracking note left for the C.f/C.h implementer — not
-     fixed here (spike scope is documentation, and B.j is already `[Done]`).
+     the object identity).
+   - **✅ Repaired in Story C.a.1.** `worker_init_fn_factory` now returns
+     `functools.partial(_seed_worker, master_seed)` over a module-level
+     `_seed_worker`; a `pickle` round-trip regression test guards it, and this
+     spike's `[0]` probe now reports `picklable: True` and the multi-worker runs
+     consume the fixed factory directly under `spawn`.
 2. **CPU is already byte-deterministic without the guard here.** With identical
    seeds, `deterministic=False` produced the *same* hash as `deterministic=True`.
    That's expected: the ops in this loop have no nondeterministic CPU kernels. The

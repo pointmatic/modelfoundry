@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `worker_init_fn_factory` (`pipeline.seeding`) returned a nested closure that the macOS/Windows `spawn` start method cannot pickle, crashing `DataLoader(num_workers>0)` (Story C.a.1, latent defect surfaced by the C.a determinism spike). It now returns a picklable `functools.partial` over a module-level `_seed_worker`; public API and seeding behavior are unchanged, and a pickle round-trip regression test guards it.
+
 ### Changed
 
 - DataRefinery v0.19.0 adoption (Story B.q): bumped the `ml-datarefinery` pin to `>= 0.19.0` and brought the binding contract up to DataRefinery **schema v2** — instances now persist `recipe.json` (not `recipe.yaml`), read via `datarefinery.Instance.load`. ModelFoundry's tracked DR schema set is derived dynamically from `datarefinery.recipe.loader.SUPPORTED_SCHEMA_VERSIONS` (`{1, 2}`), so the binding gate and validator check 19 picked up v2 with no code change. The new `manifest.class_balance` field (DataRefinery 0.18.0+) is read-and-ignored. Synthesized binding fixtures updated to the v2 / `recipe.json` shape. No package version bump (dependency/test-only change; shares the post-0.3.1 housekeeping release).

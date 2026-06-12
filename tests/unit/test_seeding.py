@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import hashlib
 import importlib
+import pickle
 import random
 
 import numpy as np
@@ -86,6 +87,19 @@ def test_worker_init_fn_independent_of_master_seed_when_constant() -> None:
     expect_rnd = random.random()
     init(0)
     assert random.random() == expect_rnd
+
+
+def test_worker_init_fn_is_picklable_for_spawn() -> None:
+    # Regression guard for the C.a spike finding: DataLoader ships worker_init_fn
+    # to each worker, and the macOS/Windows `spawn` start method pickles it. A
+    # nested closure is unpicklable; the factory must return a picklable object.
+    init = worker_init_fn_factory(master_seed=42)
+    restored = pickle.loads(pickle.dumps(init))
+    # The unpickled callable must seed identically to the original.
+    init(0)
+    expected = (random.random(), np.random.rand())
+    restored(0)
+    assert (random.random(), np.random.rand()) == expected
 
 
 def test_worker_init_fn_seeds_torch_when_available(

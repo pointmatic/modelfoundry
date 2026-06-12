@@ -17,6 +17,7 @@ these seeds being reproducible across runs and across worker counts.
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import random
 from collections.abc import Callable
@@ -40,27 +41,38 @@ def derive_seed(master_seed: int, scope: str, *salts: bytes) -> int:
     return int.from_bytes(digest[:8], "big")
 
 
-def worker_init_fn_factory(master_seed: int) -> Callable[[int], None]:
-    """Return a DataLoader `worker_init_fn` that seeds NumPy + Python `random` + Torch.
+def _seed_worker(master_seed: int, worker_id: int) -> None:
+    """Seed one DataLoader worker's NumPy + Python `random` + (if installed) Torch RNGs.
 
-    The returned callable derives a per-worker seed from
+    Module-level (**not** a nested closure) so it is *picklable*: `DataLoader`
+    ships its `worker_init_fn` to each worker, and the macOS/Windows `spawn`
+    start method pickles it. A closure raises `AttributeError: Can't get local
+    object ...` under `spawn`; this function bound to its `master_seed` via
+    `functools.partial` (see `worker_init_fn_factory`) is picklable and spawn-safe.
+    """
+    seed = derive_seed(master_seed, "data_shuffle", worker_id.to_bytes(4, "big", signed=False))
+    random.seed(seed)
+    np.random.seed(seed & _NUMPY_SEED_MASK)
+    try:
+        import torch  # type: ignore[import-not-found, unused-ignore]
+    except ImportError:
+        return
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
+
+def worker_init_fn_factory(master_seed: int) -> Callable[[int], None]:
+    """Return a **picklable** DataLoader `worker_init_fn` bound to `master_seed`.
+
+    The returned `functools.partial` seeds each worker from
     `(master_seed, "data_shuffle", worker_id_bytes)`, so output bytes are
     independent of `num_workers`. Torch seeding is best-effort: when the
     `[pytorch]` extra is not installed, the Torch step is skipped silently.
+
+    Returning a `functools.partial` over the module-level `_seed_worker` (rather
+    than a nested closure) keeps the result picklable, so it survives the `spawn`
+    start method that `DataLoader(num_workers>0)` uses on macOS and Windows — the
+    latent defect surfaced by the C.a determinism spike. See `_seed_worker`.
     """
-
-    def _worker_init_fn(worker_id: int) -> None:
-        seed = derive_seed(
-            master_seed, "data_shuffle", worker_id.to_bytes(4, "big", signed=False)
-        )
-        random.seed(seed)
-        np.random.seed(seed & _NUMPY_SEED_MASK)
-        try:
-            import torch  # type: ignore[import-not-found, unused-ignore]
-        except ImportError:
-            return
-        torch.manual_seed(seed)
-        if torch.cuda.is_available():
-            torch.cuda.manual_seed_all(seed)
-
-    return _worker_init_fn
+    return functools.partial(_seed_worker, master_seed)
