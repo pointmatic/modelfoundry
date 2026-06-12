@@ -377,15 +377,15 @@ Bugfix for the latent defect the **C.a** determinism spike surfaced: `pipeline.s
 - [x] Unit tests: each op constructs the correct `torch.nn` / `torch.optim` / `torch.optim.lr_scheduler` object with the expected hyperparameters; class-weighted loss correctly derives weights from a synthetic train-split label distribution. ([tests/unit/test_pytorch_ops.py](tests/unit/test_pytorch_ops.py): 18 tests — registries, each loss/optimizer/schedule build + hyperparams, class-weight derivation (balanced→uniform, imbalanced→minority-upweighted across all three sources), bce multiclass guard, unknown-op errors.)
 - [x] Verify: `pyve test tests/unit/test_pytorch_ops.py` passes. (18 passed; full suite **265 passed**; `mypy src tests` clean (55 files); `ruff check` clean. Run via the conda testenv interpreter — `pyve test` parked on the Pyve v3.0.6 conda fix per B.o.)
 
-### Story C.e: PyTorch determinism module — `plugins.pytorch.determinism` [Planned]
+### Story C.e: PyTorch determinism module — `plugins.pytorch.determinism` [Done]
 
 `features.md` QR-3, `tech-spec.md` § `plugins.pytorch` > `determinism.py`. C.a's spike outcome locks the pattern here.
 
-- [ ] Create `src/modelfoundry/plugins/pytorch/determinism.py` with `enable_deterministic_algorithms() -> None` (sets `os.environ["CUBLAS_WORKSPACE_CONFIG"]` if unset; calls `torch.use_deterministic_algorithms(True)`; sets `torch.manual_seed` / `torch.cuda.manual_seed_all` / MPS seed as applicable).
-- [ ] `documented_hard_error_ops: tuple[str, ...]` listing ops known to hard-error under deterministic mode (sourced from C.a's spike outcome).
-- [ ] Integration into the plugin's `health_check`: report whether deterministic mode can be enabled on the installed backend; report which documented ops would hard-error.
-- [ ] Unit tests: `enable_deterministic_algorithms()` is idempotent; environment variable is set; the hard-error documentation list matches the spike outcome.
-- [ ] Verify: `pyve test tests/unit/test_pytorch_determinism.py` passes.
+- [x] Create `src/modelfoundry/plugins/pytorch/determinism.py` with `enable_deterministic_algorithms() -> None` (sets `os.environ["CUBLAS_WORKSPACE_CONFIG"]` if unset; calls `torch.use_deterministic_algorithms(True)`; sets `torch.manual_seed` / `torch.cuda.manual_seed_all` / MPS seed as applicable). (Signature `enable_deterministic_algorithms(seed: int | None = None)`; idempotent; seeds CUDA/MPS only when available. Import-safe without `[pytorch]` — lazy torch.)
+- [x] `documented_hard_error_ops: tuple[str, ...]` listing ops known to hard-error under deterministic mode (sourced from C.a's spike outcome). (Empty `()` — the C.a spike found no Subphase C-1 CPU op trips the guard; the constant's docstring records the canonical GPU candidates to populate when one does.)
+- [x] Integration into the plugin's `health_check`: report whether deterministic mode can be enabled on the installed backend; report which documented ops would hard-error. (`PyTorchHealthReport` gains `documented_hard_error_ops`; `deterministic_algorithms_available` now sourced from `determinism.deterministic_mode_supported()`.)
+- [x] Unit tests: `enable_deterministic_algorithms()` is idempotent; environment variable is set; the hard-error documentation list matches the spike outcome. ([tests/unit/test_pytorch_determinism.py](tests/unit/test_pytorch_determinism.py): 6 tests — env-var set, mode enabled, idempotent, does-not-override-existing-CUBLAS, reproducible seeding, empty hard-error list — with a fixture that restores global torch deterministic state so it can't leak into other tests. Also extended the C.b health-check assertion.)
+- [x] Verify: `pyve test tests/unit/test_pytorch_determinism.py` passes. (6 passed; full suite **271 passed**; `mypy src tests` clean (57 files); `ruff check` clean. Run via the conda testenv interpreter — `pyve test` parked on the Pyve v3.0.6 conda fix per B.o.)
 
 ### Story C.f: PyTorch `DataRefineryDataset` adapter — `plugins.pytorch.data` [Planned]
 

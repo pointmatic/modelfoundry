@@ -37,6 +37,7 @@ def test_health_check_reports_available_backend() -> None:
     assert isinstance(report.accelerators, tuple)
     assert "cpu" in report.accelerators  # CPU is always present when torch loads
     assert report.deterministic_algorithms_available is True
+    assert report.documented_hard_error_ops == ()  # no CPU op trips the guard (C.a/C.e)
 
 
 def test_stub_methods_raise_not_implemented() -> None:

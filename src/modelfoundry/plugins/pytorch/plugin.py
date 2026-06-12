@@ -41,6 +41,10 @@ from modelfoundry.plugins.pytorch.architecture import (
 from modelfoundry.plugins.pytorch.architecture import (
     build_model as _build_model,
 )
+from modelfoundry.plugins.pytorch.determinism import (
+    deterministic_mode_supported,
+    documented_hard_error_ops,
+)
 from modelfoundry.plugins.pytorch.losses import LOSS_OPERATIONS
 from modelfoundry.plugins.pytorch.optimizers import OPTIMIZER_OPERATIONS
 from modelfoundry.plugins.pytorch.schedules import SCHEDULE_OPERATIONS
@@ -70,6 +74,7 @@ class PyTorchHealthReport(BaseModel):
     torchmetrics_version: str | None
     accelerators: tuple[str, ...]
     deterministic_algorithms_available: bool
+    documented_hard_error_ops: tuple[str, ...]
 
 
 def _safe_dist_version(distribution: str) -> str | None:
@@ -131,9 +136,9 @@ class PyTorchPlugin:
             torchvision_version=_safe_dist_version("torchvision"),
             torchmetrics_version=_safe_dist_version("torchmetrics"),
             accelerators=_detect_accelerators() if available else (),
-            # `torch.use_deterministic_algorithms(True)` is available whenever
-            # torch is importable; C.e wires the production toggle.
-            deterministic_algorithms_available=available,
+            # Sourced from the C.e determinism module (the production toggle).
+            deterministic_algorithms_available=deterministic_mode_supported(),
+            documented_hard_error_ops=documented_hard_error_ops,
         )
 
     def build_model(self, arch: dict[str, Any]) -> Any:
