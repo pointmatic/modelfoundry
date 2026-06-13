@@ -70,6 +70,9 @@ modelfoundry = "modelfoundry.cli.app:main"
 # sklearn-only installs. The sklearn baseline registers its own entry in C.m.
 [project.entry-points."modelfoundry.plugins"]
 pytorch = "modelfoundry.plugins.pytorch.plugin:plugin"
+# The sklearn MLPClassifier baseline (C.m). scikit-learn is a base dependency, so
+# the [sklearn] extra adds nothing; this entry is import-safe (lazy sklearn/torch).
+sklearn = "modelfoundry.plugins.sklearn.plugin:plugin"
 
 [project.urls]
 Homepage = "https://github.com/pointmatic/modelfoundry"
