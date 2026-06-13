@@ -16,7 +16,7 @@ A secondary purpose is to surface **environment requirements Pyve does not yet m
 > - `docs/project-guide/go.md` — workflow steps tailored to the current mode (cycle steps, approval gates, conventions).
 > - Pyve backends reference: <https://pointmatic.github.io/pyve/backends/>
 
-**Repo shape (orienting):** `modelfoundry` is a **library / CLI consumed by other applications** (it ships as the `ml-modelfoundry` wheel and is imported, e.g. inside nbfoundry lifecycle templates). The repo itself has **no production "run" surface** — its only purpose is development and testing. Consequently the root environment is the **bare OS** (backend `none`), and a single materialized **micromamba `testenv`** carries everything the tests need (the editable package, the PyTorch plugin, and the dev tooling). See §4.
+**Repo shape (orienting):** `modelfoundry` is a **library / CLI consumed by other applications** (it ships as the `ml-modelfoundry` wheel and is imported, e.g. inside nbfoundry lifecycle templates). The repo itself has **no production "run" surface** — its only purpose is development and testing. It therefore runs **two micromamba environments**: a `utility` **root** (the env you land in to instantiate a `ModelFoundry` and run scripts ad hoc) and a `test` **`testenv`** (the editable package, the PyTorch plugin, and the dev/test tooling — where every test category executes). The bare-OS `none` backend is reserved for languages with no managed-env concept (Rust/C++/Ruby); for a first-class Python+micromamba combo there is no reason to give up the reproducibility/isolation a managed env provides. See §4.
 
 ---
 
@@ -26,9 +26,9 @@ A secondary purpose is to surface **environment requirements Pyve does not yet m
 |-------|-------|
 | **Repo name** | `modelfoundry` (PyPI distribution `ml-modelfoundry`) |
 | **Primary language(s)** | Python 3.12.13 (`requires-python = ">=3.12,<3.14"`) |
-| **Pyve version** | `3.0.4` |
+| **Pyve version** | `3.0.6` |
 | **Doc status** | `Draft` |
-| **Last updated** | `2026-06-11` |
+| **Last updated** | `2026-06-12` |
 | **Author / maintainer** | Michael Smith |
 
 ---
@@ -53,8 +53,10 @@ A secondary purpose is to surface **environment requirements Pyve does not yet m
   a single choice keeps each environment's intent unambiguous.)
 - **Root development environment** — the environment activated at the repo root (pyve's
   primary environment). Its purpose is typically `utility` — it hosts tooling, not
-  necessarily the app or the tests. **In this repo the root carries no managed dependencies
-  at all** (backend `none`, bare OS); all real provisioning lives in `testenv` (see §5.0).
+  necessarily the app or the tests. **In this repo the root is a micromamba `utility` env**
+  carrying the editable package + its runtime closure, so a contributor (or LLM) can
+  instantiate a `ModelFoundry` and run scripts ad hoc; the dev/test tooling lives in
+  `testenv` (see §5.0).
 - **Named test environment** — a `purpose: test` environment. The first/default is named
   `testenv`. Additional environments use distinct names (e.g. `testenv-mps`,
   `testenv-cuda`). Each maps to exactly one backend.
@@ -109,9 +111,10 @@ A secondary purpose is to surface **environment requirements Pyve does not yet m
   (Node plugin). Every other value in the closed vocabulary is *advisory*. The special value
   `none` materializes nothing by definition (bare OS).
 - **Repo-specific terms:**
-  - **Test-only repo** — the repo has no `run`/`utility` *managed* environment; the root is
-    the bare OS (`none`) and a single `test` env (`testenv`, micromamba) holds the editable
-    package, the PyTorch plugin, and the dev tooling. See §4.
+  - **Test-only repo** — the repo has no `run` (production) surface; it runs two micromamba
+    envs — a `utility` **root** (editable package + runtime closure, for ad-hoc instantiation
+    and scripts) and a `test` **`testenv`** (the editable package, the PyTorch plugin, and the
+    dev/test tooling). See §4.
   - **Bound DataRefinery instance (vendor)** — a read-only, already-materialized upstream
     data directory consumed at runtime via the `ml-datarefinery` library (FR-6). It is an
     *input artifact*, **not** an environment, and is never materialized by pyve.
@@ -127,26 +130,27 @@ A secondary purpose is to surface **environment requirements Pyve does not yet m
 | `venv` | **canonical (default)** | `.pyve/envs/<name>/venv/` | `requirements.txt` | `requirements.txt` w/ `--hash` (pip-tools) | `pyve init` / `pyve testenv init` |
 | `pnpm` / `npm` / `yarn` | **canonical** (Node plugin) | `node_modules/` (+ store) | `package.json` | `pnpm-lock.yaml` / `package-lock.json` / `yarn.lock` | `pyve init` (Node-detected) |
 
-This repo uses **`none`** (root, bare OS) and **`micromamba`** (`testenv`, the single
-materialized env). No advisory backends and no container backends are in use. The `venv` and
-Node rows are retained as the canonical-backend reference. See §8.
+This repo uses **`micromamba`** for both materialized envs — the `utility` root and the
+`test` `testenv`. No advisory backends and no container backends are in use. The `none`,
+`venv`, and Node rows are retained as the closed-vocabulary reference. See §8.
 
 **Default-backend assumption:** any environment may benefit from the `venv` backend. A
-non-`venv` backend is chosen only with a stated reason (recorded per environment in §5). The
-`testenv`'s `micromamba` choice is justified in §5.1 (it inherits the conda-forge-pinned
-`python=3.12.13` from `environment.yml`).
+non-`venv` backend is chosen only with a stated reason (recorded per environment in §5). Both
+envs' `micromamba` choice is justified in §5 (they inherit the conda-forge-pinned
+`python=3.12.13` from `environment.yml`, and the ML stack resolves cleanly on conda-forge).
 
-**Env-location & reconfiguration note (pyve 3.0):** pyve 3.0.4 materializes environments under
-`.pyve/envs/<name>/<backend>/`. **The current on-disk layout predates this spec** — it
-materializes a `micromamba` *root* env (`.pyve/envs/root/conda/`) plus a `venv` *testenv*
-(`.pyve/envs/testenv/venv/`), and `environment.yml` sits at the repo root as the *root*
-manifest. **Adopting this spec** means: (a) demote the root to backend `none` (no managed
-env), and (b) re-point `environment.yml` to be the `testenv` manifest under a
-`[tool.pyve.testenvs]` entry (or relocate it), so the single micromamba env is the test env.
-The `.envrc` (which currently activates the root micromamba env) is reconciled in the same
-follow-up. This reconfiguration is a small pyve-config story, tracked separately from this
-point-in-time spec. (Pre-3.0 prose in `tech-spec.md` / `project-essentials.md` still describes
-the older `.venv/` + `.pyve/testenvs/<name>/` two-env layout; flagged there for reconciliation.)
+**Env-location & config note (pyve 3.0.6):** pyve 3.0.6 materializes environments under
+`.pyve/envs/<name>/<backend>/` and reads the env spec from **`pyve.toml`** (`pyve_schema =
+"3.0"`) via `[env.<name>]` tables — the `[tool.pyve.testenvs]` table in `pyproject.toml` is the
+**superseded v2.8 location** and is removed. The two micromamba envs are declared in `pyve.toml`:
+`[env.root]` (`purpose = "utility"`) materializes at `.pyve/envs/root/conda/` and `[env.testenv]`
+(`purpose = "test"`, `default = true`, `manifest = "environment.yml"`) at
+`.pyve/envs/testenv/conda/`. `environment.yml` is the shared conda manifest (pins
+`python=3.12.13` + `pip`; the package + extras install via pip per `pyproject.toml`). The
+pyve-managed `.envrc` activates the root env, which is correct under this topology. (Pre-3.0
+prose in `tech-spec.md` still describes the older `.venv/` + `.pyve/testenvs/<name>/` two-env
+layout; flagged for reconciliation in Story B.p. Note: `pyve testenv …` is a deprecated alias
+for `pyve env …` under 3.0.6, removed in v4.0.)
 
 ---
 
@@ -160,14 +164,14 @@ project: modelfoundry
 description: Compile a YAML recipe into a reproducible, framework-agnostic trained-model instance. Library/CLI; test-only repo.
 envs:
   root:
-    purpose: utility                # bare-OS development host; hosts no managed deps
-    backend: none                   # no formal configuration mechanism — the bare OS
+    purpose: utility                # ad-hoc dev host: instantiate a ModelFoundry, run scripts
+    backend: micromamba             # managed env (python=3.12.13 from environment.yml, conda-forge)
     default: false
     path: "."
-    languages: [python]             # asdf-pinned interpreter only (.tool-versions: python 3.12.13)
-    frameworks: [none]
+    languages: [python]
+    frameworks: [none]              # not a test surface; no test/lint frameworks
     packaging: none
-    app_type: none                  # the repo's deliverable is a library, but the root env hosts no code
+    app_type: none                  # carries the importable library for ad-hoc runs, ships nothing
   testenv:
     purpose: test
     backend: micromamba             # inherits python=3.12.13 from environment.yml (conda-forge)
@@ -183,7 +187,7 @@ envs:
 
 | # | Environment name | Purpose | Backend | Default? | App type | Frameworks | Languages |
 |---|------------------|---------|---------|----------|----------|------------|-----------|
-| 0 | `root` (repo root) | `utility` | `none` | n/a | `none` | `none` | `python` |
+| 0 | `root` (repo root) | `utility` | `micromamba` | no | `none` | `none` | `python` |
 | 1 | `testenv` | `test` | `micromamba` | yes | `none` | `pytest`, `ruff`, `mypy` | `python` |
 
 **Why this many test environments:** **One.** The pre-production release ships only the
@@ -206,43 +210,51 @@ declared workflow exists to enumerate (see §8).
 
 ### 5.0 Environment: `root` (purpose: `utility`)
 
-- **Purpose (surface):** `utility` — the bare-OS development host. Hosts only host-level
-  orchestration tooling (`pyve`, `project-guide`, `git`, `direnv`, `asdf`); carries **no
-  managed Python dependency closure**. The repo's deliverable is the importable
-  `ml-modelfoundry` library, but the package itself is installed into `testenv`, not here.
+- **Purpose (surface):** `utility` — the ad-hoc development host. A micromamba env carrying the
+  editable `ml-modelfoundry` package + its runtime closure (incl. the PyTorch plugin) so a
+  contributor or LLM can instantiate a `ModelFoundry` and run scripts (`pyve run python …`)
+  without standing up the test env. It hosts **no test/dev tooling** (pytest / ruff / mypy) —
+  that lives in `testenv`. Host orchestration tooling (`pyve`, `project-guide`, `git`,
+  `direnv`, `asdf`) stays global.
 - **Attributes:** app_type `none`; frameworks `none`; languages `python`; packaging `none`.
-- **Backend & rationale:** `none` — there is no production runtime to provision and no
-  development dependency set that belongs outside the test env. The interpreter comes from
-  `.tool-versions` (asdf); host tooling is installed globally (Homebrew / pipx / asdf), not
-  pyve-managed.
-- **Language runtime / pins:** Python `3.12.13` — source: `.tool-versions` (asdf). No conda
-  layer at the root.
+- **Backend & rationale:** `micromamba` — `environment.yml` pins `python=3.12.13` from
+  conda-forge; using the same managed backend as `testenv` keeps the interpreter + ML stack
+  consistent across both envs. (`none` is reserved for languages with no managed-env concept;
+  Python has micromamba, so the root is a managed env, not bare OS.)
+- **Language runtime / pins:** Python `3.12.13` — source: `environment.yml` (conda-forge);
+  consistent with `.tool-versions`.
 - **Bootstrap (one-time):**
   ```bash
-  asdf install                                 # provision python 3.12.13 per .tool-versions (or use a system 3.12.13)
-  # Host tooling (pyve, project-guide, git, direnv) is installed globally — not pyve-managed.
+  pyve env init --env root --backend micromamba   # .pyve/envs/root/conda from environment.yml
+  pyve run pip install -e ".[pytorch]"             # editable package + runtime closure (CPU) for ad-hoc runs
   ```
-- **Install dependencies:** N/A — the root hosts no managed dependencies.
-- **Managed dependencies (`pip` / `conda`):** N/A — none (backend `none`).
+- **Install dependencies:** the editable package + its runtime closure (no dev/test tooling).
+- **Managed dependencies (`pip` / `conda`):**
+
+  | Package | Version pin | Source class | Purpose |
+  |---------|-------------|--------------|---------|
+  | `python` | `==3.12.13` | `conda` | Interpreter (conda-forge, `environment.yml`). |
+  | `pip` | (latest) | `conda` | In-env installer for the editable package + PyPI deps. |
+  | `ml-modelfoundry[pytorch]` | editable (`-e .`) | `pip` (`pyproject.toml`) | Importable package + runtime closure for ad-hoc instantiation / scripts (no test/dev tooling). |
+
 - **System / external dependencies (`system` / `vendored` / `runtime`):**
 
   | Dependency | Version | Source class | Install method | Why not in the managed env |
   |------------|---------|--------------|----------------|----------------------------|
-  | Python interpreter | `3.12.13` | `runtime` | `asdf` (`.tool-versions`) | The bare-OS interpreter; the conda-pinned copy lives in `testenv`. |
-  | `pyve` | `3.0.4` | `system` | global (pipx/brew) | Orchestration tool; manages the envs, isn't one. |
+  | `pyve` | `3.0.6` | `system` | global (pipx/brew) | Orchestration tool; manages the envs, isn't one. |
   | `project-guide` | (current) | `system` | global | Workflow host; not a project dependency. |
   | `direnv`, `git` | (current) | `system` | brew / apt | Shell + VCS plumbing. |
 
-- **Lock / reproducibility strategy:** the interpreter is pinned by `.tool-versions`; host
-  tooling versions are not project-locked (they are developer-global). Nothing pyve-managed to
-  lock at the root.
+- **Lock / reproducibility strategy:** `environment.yml` pins the interpreter (`pyve lock` →
+  `conda-lock.yml`); host tooling versions are developer-global, not project-locked.
 - **Verification (smoke test):**
   ```bash
-  python --version          # → Python 3.12.13
-  pyve --version            # → pyve version 3.0.4
+  pyve run python --version        # → Python 3.12.13
+  pyve run modelfoundry --version  # → modelfoundry <version>
+  pyve --version                   # → pyve version 3.0.6
   ```
-- **CI parity notes:** CI uses the same asdf-pinned interpreter, then provisions `testenv` and
-  runs the gates there. The root env contributes no CI step of its own.
+- **CI parity notes:** CI exercises the gates in `testenv`; the root utility env is a developer
+  convenience and contributes no CI step of its own.
 
 ---
 
@@ -255,8 +267,9 @@ declared workflow exists to enumerate (see §8).
   packaging `none`.
 - **Backend & rationale:** `micromamba` — `environment.yml` pins `python=3.12.13` from
   conda-forge for a byte-reproducible interpreter, and the ML stack (`torch` / `torchvision`)
-  resolves cleanly on conda-forge across macOS (Apple Silicon, first-class) and Linux. This is
-  the env to which `environment.yml` is re-pointed (see §3 reconfiguration note).
+  resolves cleanly on conda-forge across macOS (Apple Silicon, first-class) and Linux.
+  `environment.yml` is its manifest, declared via `pyve.toml [env.testenv] manifest` (see §3
+  config note).
 - **Test categories covered:** unit, integration, CLI, notebook smoke, plugin-contract,
   Hypothesis property tests, lint, type-check, formatting, coverage, packaging build-check
   (CPU; see §6).
@@ -264,20 +277,21 @@ declared workflow exists to enumerate (see §8).
   consistent with `.tool-versions`.
 - **Bootstrap (one-time):**
   ```bash
-  pyve testenv init --backend micromamba         # creates .pyve/envs/testenv/conda from environment.yml
+  pyve env init testenv                          # .pyve/envs/testenv/conda from environment.yml
   ```
-  Wiring `environment.yml` as the testenv manifest (per the §3 reconfiguration) uses a
-  `[tool.pyve.testenvs]` entry in `pyproject.toml` — schema per Pyve's "Named test
-  environments" docs, e.g.:
+  `environment.yml` is wired as the testenv manifest via `pyve.toml` (`pyve_schema = "3.0"`):
   ```toml
-  [tool.pyve.testenvs.testenv]
+  [env.testenv]
+  purpose  = "test"
+  default  = true
   backend  = "micromamba"
   manifest = "environment.yml"
   ```
-- **Install dependencies:**
+- **Install dependencies:** `pyve env install` skips conda-backed envs in 3.0.6 (provisioning
+  lands in a later pyve milestone), so pip installs run through `pyve env run`:
   ```bash
-  pyve testenv run pip install -e ".[pytorch]"   # editable package + base runtime + PyTorch plugin (CPU)
-  pyve testenv install -r requirements-dev.txt   # dev/test tooling
+  pyve env run testenv -- pip install -e ".[pytorch]"   # editable package + base runtime + PyTorch plugin (CPU)
+  pyve env run testenv -- pip install -r requirements-dev.txt   # dev/test tooling
   ```
 - **Managed dependencies (`pip` / `conda`):**
 
@@ -311,14 +325,14 @@ declared workflow exists to enumerate (see §8).
 - **How to run the tests this env owns:**
   ```bash
   pyve test                                      # full pytest suite (unit + integration + cli + notebook + contract)
-  pyve testenv run ruff check src tests
-  pyve testenv run ruff format --check src tests
-  pyve testenv run mypy src tests
+  pyve env run testenv -- ruff check src tests
+  pyve env run testenv -- ruff format --check src tests
+  pyve env run testenv -- mypy src tests
   ```
 - **Verification (smoke test):**
   ```bash
-  pyve testenv run pytest --version && pyve testenv run ruff --version && pyve testenv run mypy --version
-  pyve testenv run modelfoundry --version
+  pyve env run testenv -- pytest --version && pyve env run testenv -- ruff --version && pyve env run testenv -- mypy --version
+  pyve env run testenv -- modelfoundry --version
   ```
 - **CI parity notes:** `.github/workflows/ci.yml` (planned per `tech-spec.md` § CI/CD) stands
   up this env and runs `ruff check` + `ruff format --check` + `mypy --strict` + `pyve test` +
@@ -346,8 +360,8 @@ declared workflow exists to enumerate (see §8).
 
 **Completeness statement:** every test category the pre-production codebase requires is owned
 by exactly one environment (`testenv`); no category is split across redundant environments and
-none is missing. The `root` env (backend `none`) owns no test category — it is the bare-OS
-development host. GPU-accelerated and alternate-library (keras/HF) categories are
+none is missing. The `root` env (micromamba `utility`) owns no test category — it is the
+ad-hoc development host. GPU-accelerated and alternate-library (keras/HF) categories are
 out-of-scope-today and map to future `test` envs, not to a gap in the current set.
 
 ---
@@ -355,16 +369,18 @@ out-of-scope-today and map to future `test` envs, not to a gap in the current se
 ## 7. Reproducibility & Bootstrapping
 
 ```bash
-# Fresh-clone → fully testable, from the repo root:
+# Fresh-clone → fully testable, from the repo root. Both envs are micromamba,
+# declared in pyve.toml ([env.root] utility, [env.testenv] test).
 
-# 1. Root (bare OS): provision the pinned interpreter; host tooling is global.
-asdf install                                    # python 3.12.13 per .tool-versions
+# 1. Utility root (micromamba): the ad-hoc env to instantiate a ModelFoundry / run scripts.
+pyve env init root                              # .pyve/envs/root/conda from environment.yml (python=3.12.13)
+pyve run pip install -e ".[pytorch]"            # editable package + runtime closure (CPU)
 #   (pyve, project-guide, direnv, git installed globally — not pyve-managed)
 
-# 2. Test env (micromamba) — the single provisioned environment:
-pyve testenv init --backend micromamba          # .pyve/envs/testenv/conda from environment.yml (python=3.12.13)
-pyve testenv run pip install -e ".[pytorch]"    # editable package + PyTorch plugin (CPU)
-pyve testenv install -r requirements-dev.txt    # dev/test tooling
+# 2. Test env (micromamba): the default test env, full dep + tool stack.
+pyve env init testenv                           # .pyve/envs/testenv/conda from environment.yml
+pyve env run testenv -- pip install -e ".[pytorch]"          # editable package + PyTorch plugin (CPU)
+pyve env run testenv -- pip install -r requirements-dev.txt  # dev/test tooling
 pyve lock                                        # freeze conda-lock.yml (conda layer)
 
 # 3. System/vendored deps: none beyond Python 3.12.13 + a POSIX filesystem.
@@ -372,14 +388,14 @@ pyve lock                                        # freeze conda-lock.yml (conda 
 
 # 4. Verification smoke tests:
 pyve test
-pyve testenv run ruff check src tests
-pyve testenv run mypy src tests
-pyve testenv run modelfoundry --version
+pyve env run testenv -- ruff check src tests
+pyve env run testenv -- mypy src tests
+pyve run modelfoundry --version
 ```
 
-- **Files that must be committed for reproducibility:** `pyproject.toml`, `environment.yml`,
-  `conda-lock.yml` (once generated by `pyve lock`), `requirements-dev.txt`, `.tool-versions`,
-  `.envrc`, and the `[tool.pyve.testenvs]` config in `pyproject.toml`.
+- **Files that must be committed for reproducibility:** `pyproject.toml`, `pyve.toml` (the
+  `[env.<name>]` env spec), `environment.yml`, `conda-lock.yml` (once generated by `pyve lock`),
+  `requirements-dev.txt`, `.tool-versions`.
 - **Files that must NOT be committed:** `.pyve/envs/`, `.env`, build artifacts
   (`dist/`, `build/`, `*.egg-info/`), and the materialized cache roots (`./models/`,
   `./data/`).
@@ -390,13 +406,13 @@ pyve testenv run modelfoundry --version
 
 | Need | In closed vocab? | Status today | Action |
 |------|------------------|--------------|--------|
-| bare-OS root (no managed env) | yes (`none`) | **implemented** | Use backend `none`; no action. |
+| micromamba utility root | yes (`micromamba`) | **implemented** | Materialized by pyve; no action. |
 | micromamba test env | yes | **implemented** | Materialized by pyve; no action. |
 | Per-accelerator test envs (MPS / CUDA) | yes (`test` + distinct dep closures) | **not modeled yet** | Add `testenv-mps` / `testenv-cuda` in a future env-spec revision when GPU CI lands. No vocab gap — device is expressed via the env's dependency closure (torch build) + advisory `manual_steps` / `require_min_version`, not a new backend. |
 | Templated disposable test sandboxes | yes (`temp`) | **not modeled yet** | Enumerate a `temp` env once a concrete, declared, reproducible workflow exists (the `temp` purpose carries no materializing behavior today regardless). |
 
-**None — the closed vocabulary covers all needs.** The backends in use (`none`, `micromamba`)
-are implemented; the deferred surfaces above are expressible within the existing closed
+**None — the closed vocabulary covers all needs.** The backend in use (`micromamba`, both
+envs) is implemented; the deferred surfaces above are expressible within the existing closed
 vocabulary and need no Pyve change-request.
 
 ---
@@ -406,3 +422,4 @@ vocabulary and need no Pyve change-request.
 | Date | Version | Author | Change | Status |
 |------|---------|--------|--------|--------|
 | `2026-06-11` | `0.1` | Michael Smith | Initial draft | `Draft` |
+| `2026-06-12` | `0.2` | Michael Smith | Re-scoped root from bare-OS `none` to a micromamba `utility` env (two micromamba envs); pyve 3.0.6 / `pyve.toml` schema-3.0 mechanism; `pyve testenv`→`pyve env` (Story B.o) | `Draft` |

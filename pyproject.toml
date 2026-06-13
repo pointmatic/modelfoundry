@@ -104,6 +104,3 @@ pythonpath = ["src"]
 testpaths = ["tests"]
 addopts = "--cov=modelfoundry --cov-report=term-missing"
 
-[tool.pyve.testenvs.testenv]
-backend  = "micromamba"
-manifest = "environment.yml"

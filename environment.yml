@@ -1,14 +1,18 @@
 # Copyright (c) 2026 Pointmatic
 # SPDX-License-Identifier: Apache-2.0
 #
-# Dev-environment shell for pyve + micromamba. This file pins ONLY the Python
+# Conda manifest for this repo's two micromamba environments, declared in
+# pyve.toml ([env.root] utility + [env.testenv] test). It pins ONLY the Python
 # interpreter and pip; it does NOT ship with the PyPI wheel. The authoritative,
 # wheel-shipped dependency declaration lives in pyproject.toml ([project]
 # dependencies + optional-dependencies). Keeping deps in one place (pyproject)
 # avoids the conda/pip two-place drift the project-essentials warns about.
 #
 # After editing, run: pyve lock
-# Install the package + deps into this env with: pyve run pip install -e ".[pytorch]"
+# Provision the package + deps into an env (pyve env install skips conda envs in 3.0.6):
+#   root:    pyve run pip install -e ".[pytorch]"
+#   testenv: pyve env run testenv -- pip install -e ".[pytorch]"
+#            pyve env run testenv -- pip install -r requirements-dev.txt
 name: modelfoundry
 channels:
   - conda-forge
