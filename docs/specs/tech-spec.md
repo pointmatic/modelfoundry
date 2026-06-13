@@ -14,7 +14,7 @@ For the upstream contract ModelFoundry consumes (DataRefinery as vendor), see [`
 |---|---|---|
 | **Language** | Python 3.12.x | Pinned via `asdf` / `pyve`. Use `python`, never `python3`, to honor the `asdf` shim. |
 | **`requires-python`** (pyproject.toml) | `>=3.12,<3.14` | PyPI-friendly range. The exact `python=3.12.13` pin lives in `environment.yml` (env reproducibility). The `3.14` ceiling protects against ML-stack incompatibilities seen in adjacent projects. |
-| **Environment manager** | `pyve` (micromamba backend) | Two-environment model: runtime in `.venv/`, dev tools in `.pyve/testenv/venv/`. See `project-essentials.md` § Pyve Essentials. |
+| **Environment manager** | `pyve` (micromamba backend) | Two micromamba envs declared in `pyve.toml` (schema 3.0): a `purpose = "utility"` **root** (`.pyve/envs/root/conda`, ad-hoc runs / scripts) and a `default = true` **`testenv`** (`.pyve/envs/testenv/conda`; editable package + PyTorch plugin + dev tooling; `environment.yml` manifest). See [`env-dependencies.md`](env-dependencies.md) for the authoritative env spec and `project-essentials.md` § Pyve Essentials. |
 | **Build backend** | `hatchling` | Configured via `pyproject.toml`; no `setup.py`. |
 | **Package layout** | `src/` layout (`src/modelfoundry/...`) | Forces tests against the *installed* package, surfaces packaging bugs that flat layout hides. Mirrors DataRefinery and nbfoundry. |
 | **Linter / formatter** | `ruff` (check + format) | Single tool covers lint + format. Default rule set + `B`, `I`, `UP`, `SIM`, `RUF`. |
@@ -31,20 +31,21 @@ For the upstream contract ModelFoundry consumes (DataRefinery as vendor), see [`
 ```bash
 project-guide mode plan_stories                       # change mode after this spec is approved
 pyve test                                             # run the test suite
-pyve testenv run ruff check src tests
-pyve testenv run ruff format --check src tests
-pyve testenv run mypy src tests
+pyve env run testenv -- ruff check src tests
+pyve env run testenv -- ruff format --check src tests
+pyve env run testenv -- mypy src tests
 ```
 
 ### Two-environment install
 
-This project ships a **CLI** (`modelfoundry`), so per `go.md` § Pyve Essentials the testenv requires an editable install:
+Two micromamba envs are declared in `pyve.toml` (schema 3.0) — see [`env-dependencies.md`](env-dependencies.md) for the authoritative spec. The `utility` **root** carries the editable package for ad-hoc runs; the `test` **`testenv`** carries the package + PyTorch plugin + dev tooling and owns the suite. Because this project ships a **CLI** (`modelfoundry`), the testenv needs an editable install so its console-script entry points resolve. (`pyve env install` skips conda-backed envs in pyve 3.0.6, so pip installs into the micromamba envs run through `pyve env run`.)
 
 ```bash
-pyve run pip install -e .                       # main runtime editable install
-pyve testenv init                               # one-time testenv setup
-pyve testenv run pip install -e .               # testenv editable install (CLI entry points)
-pyve testenv install -r requirements-dev.txt    # dev tool pinset
+pyve env init root                                          # utility root: .pyve/envs/root/conda
+pyve run pip install -e ".[pytorch]"                        # editable package + runtime closure (root)
+pyve env init testenv                                       # test env: .pyve/envs/testenv/conda
+pyve env run testenv -- pip install -e ".[pytorch]"         # testenv editable install (CLI entry points)
+pyve env run testenv -- pip install -r requirements-dev.txt # dev tool pinset
 ```
 
 ### Invocation rules (LLM-internal vs. developer-facing)
@@ -110,8 +111,9 @@ Source layout, with one-line descriptions per file:
 ```
 modelfoundry/                                       # repo root
 ├── pyproject.toml                                  # build backend (hatchling), deps, console script, ruff/mypy/pytest config
+├── pyve.toml                                        # pyve 3.0 env spec: [env.root] utility + [env.testenv] test (both micromamba)
 ├── requirements-dev.txt                            # dev tools for testenv (ruff, mypy, pytest, pytest-cov, hypothesis, nbclient, ipykernel, types-pyyaml)
-├── environment.yml                                 # pinned pyve + micromamba runtime env (python=3.12.13 + ml stack)
+├── environment.yml                                 # shared conda manifest for both micromamba envs (python=3.12.13 + pip)
 ├── README.md                                       # quickstart: install, CIFAR-10 walkthrough, library + CLI usage
 ├── LICENSE                                         # Apache-2.0
 ├── .github/
