@@ -34,7 +34,16 @@ def render_report(artifacts: InstanceArtifacts) -> str:
         _expectations_section(artifacts),
         _warnings_section(artifacts),
     ]
+    if artifacts.stage_timings:
+        sections.append(_stages_section(artifacts.stage_timings))
     return "\n\n".join(sections) + "\n"
+
+
+def _stages_section(timings: dict[str, float]) -> str:
+    lines = ["## Stages", "| stage | seconds |", "| --- | --- |"]
+    for stage, seconds in timings.items():
+        lines.append(f"| {stage} | {seconds:.2f} |")
+    return "\n".join(lines)
 
 
 def _recipe_section(artifacts: InstanceArtifacts) -> str:

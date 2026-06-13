@@ -63,6 +63,7 @@ class InstanceArtifacts:
     class_names: list[str] | None = None
     recipe: Any = None  # the ModelRecipe (for the report's recipe summary)
     manifest: Any = None  # the Manifest (plugin / optimization / expectations / warnings)
+    stage_timings: dict[str, float] | None = None  # per-stage elapsed seconds (C.o)
 
 
 class OperationSpec(BaseModel):
