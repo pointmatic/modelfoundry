@@ -61,6 +61,8 @@ class InstanceArtifacts:
     predictions: Any = None  # evaluation/predictions.parquet as a DataFrame
     trials: Any = None  # optimization/trials.parquet as a DataFrame
     class_names: list[str] | None = None
+    recipe: Any = None  # the ModelRecipe (for the report's recipe summary)
+    manifest: Any = None  # the Manifest (plugin / optimization / expectations / warnings)
 
 
 class OperationSpec(BaseModel):
