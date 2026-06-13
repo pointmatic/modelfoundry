@@ -21,6 +21,8 @@ from modelfoundry.core.errors import (
     RecipeError,
     ValidationError,
 )
+from modelfoundry.core.instance import ModelInstance
+from modelfoundry.core.modelfoundry import ModelFoundry, materialize
 
 __all__ = [
     "CacheError",
@@ -30,10 +32,13 @@ __all__ = [
     "InstanceError",
     "MaterializeError",
     "ModelArtifactExistsError",
+    "ModelFoundry",
+    "ModelInstance",
     "ModelfoundryError",
     "OptimizationError",
     "PluginError",
     "RecipeError",
     "ValidationError",
     "__version__",
+    "materialize",
 ]

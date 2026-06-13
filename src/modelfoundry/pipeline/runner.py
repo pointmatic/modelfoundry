@@ -134,6 +134,7 @@ class MaterializeRunner:
         self._stage("output_expectations", lambda: _gate_expectations(outcomes))
 
         self._stage("persistence", lambda: self.plugin.save_model(model, temp_dir / "model"))
+        _persist_recipe(temp_dir, recipe)
 
         manifest = Manifest(
             plugin=self.plugin.name,
@@ -214,6 +215,15 @@ class MaterializeRunner:
 
 
 # --- helpers ---
+
+
+def _persist_recipe(temp_dir: Path, recipe: ModelRecipe) -> None:
+    """Write the (post-merge) recipe into the instance so it is self-contained (FR-23)."""
+    import yaml
+
+    (temp_dir / "recipe.yml").write_text(
+        yaml.safe_dump(recipe.model_dump(mode="json"), sort_keys=True), encoding="utf-8"
+    )
 
 
 def _gate_expectations(outcomes: list[Any]) -> None:
