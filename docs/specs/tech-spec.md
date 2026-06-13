@@ -351,6 +351,10 @@ class ModelInstance:
     def best_params(self) -> dict[str, Any] | None: ...      # optimization/best-params.json
     @cached_property
     def figures(self) -> dict[str, matplotlib.figure.Figure]: ...  # report/visualizations/*.png
+    @cached_property
+    def summary(self) -> dict[str, Any] | None: ...          # model/summary.json (FR-27)
+    @cached_property
+    def summary_text(self) -> str | None: ...                # model/summary.txt (FR-27)
 
     # --- Inference (substrate-neutral I/O) ---
     def predict(self, X: PredictInput) -> numpy.ndarray | pandas.Series: ...
@@ -608,6 +612,7 @@ Implements the Plugin Protocol against PyTorch. Key sub-modules:
   - `model/checkpoints/checkpoint-best.pt` — the pre-production checkpoint dict (FR-25 foundation; ready to grow optimizer_state later without a public-API change).
   `load_model(path)` reads `model/architecture.json`, rebuilds the `nn.Module` via the recursive builder, then `load_state_dict` from `model/weights/state_dict.pt`. No external config object required (TR-6 round-trip guarantee).
 - `determinism.py` — wraps `torch.use_deterministic_algorithms(True)` + sets `CUBLAS_WORKSPACE_CONFIG=:4096:8` in the environment; documents which ops hard-error under deterministic mode. The plugin's `health_check()` (FR-19) reports whether deterministic mode can be enabled on the installed backend.
+- `summary.py` — `torchinfo`-backed model summary (FR-27). `summarize(model, input_size) -> (ModelSummary, str)` runs `torchinfo.summary` once (eval-mode probe, training flag restored — no side effect on the persisted model) and returns the structured `ModelSummary` (ordered per-layer rows of `type` / `output_shape` / `param_count` / `trainable_params` / `mult_adds`, plus network totals `total_params` / `trainable_params` / `non_trainable_params` / `total_mult_adds`) and the text render. `write_summary(model, input_size, model_dir)` writes the byte-deterministic `model/summary.txt` + `model/summary.json` (no timestamps; canonical-sorted JSON). `derive_input_size(data_instance)` reads the bound instance's record-schema image shape (HWC → `(1, C, H, W)`), decoding one record through `data.py` as a fallback. The plugin's `write_model_summary(model, data, model_dir)` (an **optional** capability the materialize runner calls after Persistence by duck-typing) delegates here; plugins without it skip the step.
 
 ### `plugins.sklearn` (sklearn stub)
 

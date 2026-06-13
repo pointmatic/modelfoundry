@@ -200,6 +200,9 @@ def test_full_materialize_produces_complete_instance(tmp_path: Path) -> None:
     assert (inst / "training" / "history.parquet").is_file()
     assert (inst / "model" / "architecture.json").is_file()
     assert (inst / "model" / "weights" / "state_dict.pt").is_file()
+    assert (inst / "model" / "summary.txt").is_file()
+    summary = json.loads((inst / "model" / "summary.json").read_text())
+    assert summary["total_params"] > 0 and summary["input_size"] == [1, 3, 4, 4]
     assert (inst / "evaluation" / "metrics.json").is_file()
     assert (inst / "evaluation" / "predictions.parquet").is_file()
     assert (inst / "report" / "report.md").is_file()

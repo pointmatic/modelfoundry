@@ -98,6 +98,29 @@ class ModelInstance:
         params: dict[str, Any] | None = _read_json(path)
         return params
 
+    # --- model summary (FR-27, Story C.q) ---
+
+    @cached_property
+    def summary(self) -> dict[str, Any] | None:
+        """The structured model summary from `model/summary.json` (or `None`).
+
+        Shape: `{input_size, layers: [{type, depth, leaf, output_shape,
+        param_count, trainable_params, mult_adds}], total_params,
+        trainable_params, non_trainable_params, total_mult_adds}`.
+        """
+        payload: dict[str, Any] | None = _read_json(self.path / "model" / "summary.json")
+        return payload
+
+    @cached_property
+    def summary_text(self) -> str | None:
+        """The torchinfo text render from `model/summary.txt` (or `None`).
+
+        Substrate-neutral: `print(mi.summary_text)` renders in any notebook host;
+        the FR-17 `inspect --view model_summary` CLI surface (Story D.g) reads it.
+        """
+        path = self.path / "model" / "summary.txt"
+        return path.read_text(encoding="utf-8") if path.is_file() else None
+
     # --- figures ---
 
     @cached_property

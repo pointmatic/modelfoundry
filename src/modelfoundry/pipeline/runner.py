@@ -134,6 +134,7 @@ class MaterializeRunner:
         self._stage("output_expectations", lambda: _gate_expectations(outcomes))
 
         self._stage("persistence", lambda: self.plugin.save_model(model, temp_dir / "model"))
+        self._maybe_write_summary(temp_dir, model)
         _persist_recipe(temp_dir, recipe)
 
         manifest = Manifest(
@@ -159,6 +160,19 @@ class MaterializeRunner:
         self._stage("report", lambda: self._write_report(temp_dir, recipe, artifacts))
 
         return manifest
+
+    def _maybe_write_summary(self, temp_dir: Path, model: Any) -> None:
+        """Write the model summary (FR-27) when the plugin supports it.
+
+        Duck-typed and optional so the runner stays plugin-agnostic: the PyTorch
+        plugin writes a torchinfo summary; plugins without `write_model_summary`
+        (e.g. sklearn) skip the stage cleanly.
+        """
+        writer = getattr(self.plugin, "write_model_summary", None)
+        if writer is None:
+            self.logger.info("stage_skipped", extra={"stage": "model_summary"})
+            return
+        self._stage("model_summary", lambda: writer(model, self.data, temp_dir / "model"))
 
     def _write_report(
         self, temp_dir: Path, recipe: ModelRecipe, artifacts: InstanceArtifacts

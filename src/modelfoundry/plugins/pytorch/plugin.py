@@ -200,6 +200,17 @@ class PyTorchPlugin:
 
         persistence.save_model(model, path)
 
+    def write_model_summary(self, model: Any, data: DataRefineryInstance, model_dir: Path) -> Any:
+        """Write `model/summary.txt` + `model/summary.json` (FR-27, Story C.q).
+
+        The orchestrator calls this (duck-typed) after persistence; the input
+        shape is derived from the bound instance's record schema. Lazy import
+        keeps this module torch-free at discovery.
+        """
+        from modelfoundry.plugins.pytorch import summary
+
+        return summary.write_summary(model, summary.derive_input_size(data), model_dir)
+
     def load_model(self, path: Path) -> Any:
         from modelfoundry.plugins.pytorch import persistence
 

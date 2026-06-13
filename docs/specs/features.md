@@ -141,6 +141,8 @@ models/instances/<recipe-hash16>/<data-instance-hash16>/<seed>/
 ├── manifest.json                 # full hashes, plugin, plugin version, schema version, timings
 ├── model/
 │   ├── architecture.json         # plugin-agnostic architecture description (round-trip contract)
+│   ├── summary.txt               # torchinfo text render of the model (FR-27); plugin-provided
+│   ├── summary.json              # structured per-layer rows + network totals (FR-27)
 │   ├── weights/                  # plugin-preferred format (state_dict / SavedModel / joblib / ...)
 │   └── tokenizer/                # present only when the plugin needs one (HuggingFace plugin path)
 ├── training/
@@ -703,6 +705,25 @@ Documented future upgrade: tight-couple ModelFoundry's cache identity to DataRef
 3. The upgrade requires a ModelFoundry `schema_version` bump and a documented migration of existing cached ModelInstances.
 
 **Status in the pre-production release:** **deferred**. CR-15 explicitly locks loose-coupling for the pre-production release. This FR exists to forward-declare the contract evolution path for future tools (`modelmetrics`, `modelmachine`) that may want tighter guarantees.
+
+### FR-27: Model summary
+
+Generate a human- and machine-readable summary of the materialized model as a reproducible, from-disk artifact.
+
+**Behavior:**
+1. At materialize time, after Persistence, the plugin generates a model summary and writes two artifacts under the instance's `model/` directory:
+   - `model/summary.txt` — a text render of the model (the PyTorch plugin uses `torchinfo`): a per-layer table plus the network totals.
+   - `model/summary.json` — the structured form: an ordered list of per-layer rows and the network totals.
+2. Each per-layer row reports the layer **type**, the **output shape**, the **parameter count**, and the **mult-adds** (multiply-add operations). The network totals report **total parameters**, **trainable parameters**, **non-trainable parameters**, and **total mult-adds**.
+3. The input shape fed to the summary is derived from the bound DataRefinery instance's record schema (e.g. `(N, 3, 32, 32)` for CIFAR-10).
+4. Both artifacts are **byte-deterministic** for a fixed architecture + input size: the reported quantities are functions of the architecture, not of any probe input, and the artifacts carry no timestamp. Generating the summary does not mutate the persisted model (the probe runs in eval mode; the model's training flag is restored).
+5. The summary is surfaced to consumers via `ModelInstance.summary` (the structured `summary.json`, FR-22) and `ModelInstance.summary_text` (the text render); the CLI exposes it as `inspect --view model_summary` (FR-17), which renders the text summary. Substrate-neutral — `print(mi.summary_text)` renders in any notebook host.
+
+**Plugin model:** model-summary generation is an **optional** plugin capability. A plugin that exposes it (the `pytorch` plugin) gets the artifacts written automatically; a plugin that does not (the sklearn baseline, whose `MLPClassifier` has no torchinfo-style layer summary) skips the step cleanly without failing the materialization.
+
+**Edge Cases:**
+- Plugin does not provide a model summary -> the `model/summary.*` artifacts are absent; `ModelInstance.summary` / `summary_text` return `None`; not an error.
+- The bound DataRefinery instance's record schema declares no usable image shape -> the plugin falls back to decoding one record through its dataset adapter to learn the true `(C, H, W)`.
 
 ---
 

@@ -68,6 +68,14 @@ class CachePaths:
         return self.model_dir / "architecture.json"
 
     @property
+    def summary_txt(self) -> Path:
+        return self.model_dir / "summary.txt"
+
+    @property
+    def summary_json(self) -> Path:
+        return self.model_dir / "summary.json"
+
+    @property
     def tokenizer_dir(self) -> Path:
         return self.model_dir / "tokenizer"
 
