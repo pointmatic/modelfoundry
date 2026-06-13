@@ -414,14 +414,18 @@ def build_model(arch_spec: dict[str, Any]) -> Any:
             "num_classes": num_classes,
             "in_channels": arch_spec.get("in_channels", 3),
         })
-        return _kit().baselines[arch_type](params.num_classes, params.in_channels)
+        model = _kit().baselines[arch_type](params.num_classes, params.in_channels)
+    elif layers is not None:
+        model = _compose(layers)
+    else:
+        raise PluginError(
+            "Architecture must declare either 'type' (a baseline) or 'layers'", stage="build_model"
+        )
 
-    if layers is not None:
-        return _compose(layers)
-
-    raise PluginError(
-        "Architecture must declare either 'type' (a baseline) or 'layers'", stage="build_model"
-    )
+    # Make the module self-describing so the bare `save_model(model, path)` can
+    # write `model/architecture.json` for the FR-23 from-disk round-trip (C.l).
+    model.architecture_spec = dict(arch_spec)
+    return model
 
 
 def _compose(layers: Any) -> Any:

@@ -21,6 +21,7 @@ C.h-C.j, `InstanceArtifacts` in C.k/C.p). The owning stories tighten these.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, Protocol, runtime_checkable
 
@@ -42,7 +43,24 @@ type CheckReport = Any  # FR-19 / Story D.c
 type OptimizationResult = Any  # Story C.i
 type TrainingResult = Any  # Story C.h
 type EvaluationResult = Any  # Story C.j
-type InstanceArtifacts = Any  # Story C.k / C.p
+
+
+@dataclass(frozen=True)
+class InstanceArtifacts:
+    """A read-only snapshot of a ModelInstance's data, fed to viz renderers (C.k).
+
+    Every field is optional so a renderer can degrade gracefully (e.g.
+    `optimization_history` renders a placeholder when `trials is None`). The
+    `pandas`-typed fields are `Any` because pandas ships no type stubs. Story C.p
+    constructs these from an on-disk instance and may extend the snapshot
+    additively (figures, summary).
+    """
+
+    history: Any = None  # training/history.parquet as a DataFrame
+    evaluation: dict[str, dict[str, Any]] | None = None  # evaluation/metrics.json
+    predictions: Any = None  # evaluation/predictions.parquet as a DataFrame
+    trials: Any = None  # optimization/trials.parquet as a DataFrame
+    class_names: list[str] | None = None
 
 
 class OperationSpec(BaseModel):

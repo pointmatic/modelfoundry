@@ -6,10 +6,7 @@
 
 # Pyve-managed
 .pyve/
-.envrc
-.env
 .vscode/settings.json
-.venv
 
 # Python build and test artifacts
 __pycache__

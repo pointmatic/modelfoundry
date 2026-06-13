@@ -40,11 +40,11 @@ def test_health_check_reports_available_backend() -> None:
     assert report.documented_hard_error_ops == ()  # no CPU op trips the guard (C.a/C.e)
 
 
-def test_stub_methods_raise_not_implemented() -> None:
-    # build_model (C.c), run_training (C.h), run_optimization (C.i), run_evaluation
-    # (C.j) are implemented; visualization / persistence remain stubs.
-    pytorch = discover_plugins()["pytorch"]
-    with pytest.raises(NotImplementedError, match=r"C\.k"):
-        pytorch.render_visualization(None, None)  # type: ignore[arg-type]
-    with pytest.raises(NotImplementedError, match=r"C\.l"):
-        pytorch.save_model(None, None)  # type: ignore[arg-type]
+def test_no_plugin_method_is_a_not_implemented_stub() -> None:
+    # As of C.l every Protocol method is implemented (delegated to its module).
+    # A genuine stub raised NotImplementedError on call; the implemented methods
+    # instead fail with their own errors (e.g. PluginError) on bad input. Probing
+    # each here would require real artifacts, so assert the stub helper is gone.
+    import modelfoundry.plugins.pytorch.plugin as plugin_module
+
+    assert not hasattr(plugin_module, "_not_implemented")

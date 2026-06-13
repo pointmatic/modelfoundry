@@ -104,12 +104,6 @@ def _detect_accelerators() -> tuple[str, ...]:
     return tuple(accelerators)
 
 
-def _not_implemented(method: str, story: str) -> NotImplementedError:
-    return NotImplementedError(
-        f"PyTorchPlugin.{method} is not implemented yet (lands in Story {story})"
-    )
-
-
 class PyTorchPlugin:
     """The `pytorch` plugin. Vocabulary + execution land in Stories C.c-C.p."""
 
@@ -194,19 +188,32 @@ class PyTorchPlugin:
         viz: VisualizationSpec,
         instance_artifacts: InstanceArtifacts,
     ) -> bytes | None:
-        raise _not_implemented("render_visualization", "C.k")
+        # Lazy import keeps this module (loaded on every discovery) matplotlib-free.
+        from modelfoundry.plugins.pytorch.visualizations import (
+            render_visualization as _render,
+        )
+
+        return _render(viz, instance_artifacts)
 
     def save_model(self, model: Any, path: Path) -> None:
-        raise _not_implemented("save_model", "C.l")
+        from modelfoundry.plugins.pytorch import persistence
+
+        persistence.save_model(model, path)
 
     def load_model(self, path: Path) -> Any:
-        raise _not_implemented("load_model", "C.l")
+        from modelfoundry.plugins.pytorch import persistence
+
+        return persistence.load_model(path)
 
     def predict(self, model: Any, X: Any) -> numpy.ndarray | pandas.Series:
-        raise _not_implemented("predict", "C.l")
+        from modelfoundry.plugins.pytorch import persistence
+
+        return persistence.predict(model, X)
 
     def predict_proba(self, model: Any, X: Any) -> numpy.ndarray | pandas.DataFrame:
-        raise _not_implemented("predict_proba", "C.l")
+        from modelfoundry.plugins.pytorch import persistence
+
+        return persistence.predict_proba(model, X)
 
 
 # The singleton registered via the `modelfoundry.plugins` entry point. The

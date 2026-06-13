@@ -5,9 +5,7 @@ name = "modelfoundry"
 
 [env.root]
 purpose = "utility"
-backend = "none"
-languages = ["python"]
-frameworks = ["none"]
+backend = "micromamba"
 
 [env.testenv]
 purpose = "test"
