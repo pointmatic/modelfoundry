@@ -48,6 +48,7 @@ from modelfoundry.plugins.pytorch.determinism import (
 from modelfoundry.plugins.pytorch.losses import LOSS_OPERATIONS
 from modelfoundry.plugins.pytorch.optimizers import OPTIMIZER_OPERATIONS
 from modelfoundry.plugins.pytorch.schedules import SCHEDULE_OPERATIONS
+from modelfoundry.plugins.pytorch.visualization_specs import VISUALIZATION_OPERATIONS
 from modelfoundry.recipe.models import (
     EvaluationSpec,
     ModelRecipe,
@@ -111,15 +112,17 @@ class PyTorchPlugin:
     version: str = __version__
 
     def __init__(self) -> None:
-        # C.c architecture + C.d losses/optimizers/schedules; the
-        # visualization/evaluation stories extend this map further. (Lazy
-        # augmentations, C.g, are realized from the bound DataRefinery policy —
-        # not a ModelFoundry recipe op — so they are not registered here.)
+        # C.c architecture + C.d losses/optimizers/schedules + C.q.2 visualization
+        # specs (the matplotlib-free OperationSpec registry — the renderers stay a
+        # lazy import in `visualizations.py`). (Lazy augmentations, C.g, are realized
+        # from the bound DataRefinery policy — not a ModelFoundry recipe op — so they
+        # are not registered here.)
         self.operations: dict[str, OperationSpec] = {
             **ARCHITECTURE_OPERATIONS,
             **LOSS_OPERATIONS,
             **OPTIMIZER_OPERATIONS,
             **SCHEDULE_OPERATIONS,
+            **VISUALIZATION_OPERATIONS,
         }
 
     def health_check(self) -> PyTorchHealthReport:

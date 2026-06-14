@@ -8,6 +8,8 @@ Each renderer produces a nontrivial PNG that is byte-deterministic across reruns
 
 from __future__ import annotations
 
+from typing import Any
+
 import pandas as pd  # type: ignore[import-untyped]
 import pytest
 
@@ -109,3 +111,98 @@ def test_confusion_matrix_split_param_is_honored() -> None:
 def test_unknown_op_raises_plugin_error() -> None:
     with pytest.raises(PluginError, match="unknown visualization op"):
         render_visualization(VisualizationSpec(op="roc_curve"), _artifacts())
+
+
+# --- Story C.q.2: OperationSpec registration (validator check 3 / 17 repair) ---
+
+
+def _stub_instance() -> Any:
+    """Minimal `DataRefineryInstance` stand-in — only checks 3/17 are asserted."""
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    from modelfoundry.pipeline.data_binding import DataRefineryInstance
+
+    instance = DataRefineryInstance(
+        path=Path("/fixture"),
+        manifest=object(),
+        recipe=SimpleNamespace(schema_version=1),
+        splits=("train", "val", "test"),
+        label_schema={"field": "label"},
+        record_schema={},
+    )
+    object.__setattr__(instance, "instance_num_classes", lambda: 10)
+    return instance
+
+
+def _recipe_with_visualizations() -> Any:
+    from modelfoundry.recipe.models import ModelRecipe
+
+    return ModelRecipe.model_validate(
+        {
+            "schema_version": 1,
+            "plugin": "pytorch",
+            "seed": 1,
+            "Data": {"recipe": "dr.yml"},
+            "Architecture": {"type": "resnet20", "num_classes": 10},
+            "Loss": {"op": "cross_entropy"},
+            "Optimizer": {
+                "op": "adamw",
+                "learning_rate": 0.01,
+                "schedule": {"op": "reduce_on_plateau", "monitor": "val_loss"},
+            },
+            "Training": {"max_epochs": 1, "batch_size": 4},
+            "Evaluation": {
+                "splits": ["val"],
+                "primary_metric": "accuracy",
+                "metrics": ["accuracy"],
+            },
+            "Visualizations": [
+                {"op": "training_curves", "mode": "reporting"},
+                {"op": "confusion_matrix", "mode": "reporting", "split": "val"},
+                {"op": "predictions_grid", "mode": "reporting", "max_items": 8},
+            ],
+        }
+    )
+
+
+def test_visualization_ops_registered_in_plugin() -> None:
+    from modelfoundry.plugins.pytorch.plugin import PyTorchPlugin
+
+    ops = PyTorchPlugin().operations
+    for name in _OPS:
+        assert name in ops, f"viz op {name!r} not registered in plugin.operations"
+        assert ops[name].applies_to == "visualization"
+        assert ops[name].op_name == name
+
+
+def test_visualization_param_models_accept_real_params_and_reject_unknown() -> None:
+    from pydantic import ValidationError
+
+    from modelfoundry.plugins.pytorch.visualization_specs import VISUALIZATION_OPERATIONS
+
+    # confusion_matrix / calibration_curve honor an optional `split` (via _pick_split).
+    VISUALIZATION_OPERATIONS["confusion_matrix"].param_model.model_validate({"split": "val"})
+    VISUALIZATION_OPERATIONS["calibration_curve"].param_model.model_validate({"split": "test"})
+    # predictions_grid honors `max_items`.
+    VISUALIZATION_OPERATIONS["predictions_grid"].param_model.model_validate({"max_items": 8})
+    # Unknown params are rejected; param-free ops reject any extra.
+    for op, params in (
+        ("training_curves", {"bogus": 1}),
+        ("confusion_matrix", {"bogus": 1}),
+        ("predictions_grid", {"split": "val"}),  # predictions_grid does not pick a split
+    ):
+        with pytest.raises(ValidationError):
+            VISUALIZATION_OPERATIONS[op].param_model.model_validate(params)
+
+
+def test_validator_accepts_visualizations_with_real_plugin() -> None:
+    # Regression: check 3 (ops registered) + check 17 (op params) pass for a
+    # recipe declaring a Visualizations: section against the real PyTorch plugin.
+    from modelfoundry.plugins.pytorch.plugin import PyTorchPlugin
+    from modelfoundry.recipe.validator import validate
+
+    report = validate(_recipe_with_visualizations(), _stub_instance(), PyTorchPlugin())
+    by_id = {c.id: c for c in report.checks}
+    assert by_id[3].passed, by_id[3].message
+    assert by_id[17].passed, by_id[17].message
