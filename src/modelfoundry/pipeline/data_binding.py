@@ -16,26 +16,25 @@ library API (`datarefinery.Instance.load`) — it self-verifies the manifest's
 vendor-dep-spec asks consumers to enforce). The pre-production binding is loose
 per `project-essentials.md` § Loose-coupled DataRefinery binding.
 
-**Finding the instance.** ModelFoundry doesn't re-run DataRefinery's input
-hasher (that would require reading source bytes); instead, it computes the
-DataRefinery recipe's canonical hash from the recipe YAML and scans
-`<data-cache-root>/instances/<recipe-hash16>/` for matching seed directories.
-Exactly one match is required; zero raises "not materialized", multiple raises
-"ambiguous — re-materialize".
+**Finding the instance.** ModelFoundry does **not** re-derive DataRefinery's
+cache identity — that is forbidden by the vendor-dependency-spec § "Resolving a
+materialized instance" (a hand-rolled key silently breaks after any canonical-
+bytes change). It calls DataRefinery's blessed resolver,
+`datarefinery.resolve_instance(recipe_path, cache_root=…, seed=…, variant=…)`,
+which returns a `StatusReport` (`cache_status` hit/miss/corrupt + `instance_path`
++ `manifest`). The resolver hashes the recipe's declared inputs, so the source
+inputs must be present on the resolving host (vendor-spec § Host portability).
 """
 
 from __future__ import annotations
 
-import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import datarefinery as _dr
-import datarefinery.recipe.canonical as _dr_canonical
 import datarefinery.recipe.loader as _dr_loader
-import datarefinery.recipe.variants as _dr_variants
 
 from modelfoundry.core.config import RuntimeConfig
 from modelfoundry.core.errors import DataBindingError
@@ -100,21 +99,29 @@ def resolve_data_instance(
 ) -> DataRefineryInstance:
     """Resolve `data_spec` to a `DataRefineryInstance`; raise `DataBindingError` on any failure."""
     recipe_path = _resolve_recipe_path(data_spec)
-    dr_recipe = _load_dr_recipe(recipe_path, data_spec.variant)
-    _gate_dr_schema_version(dr_recipe, recipe_path)
-
-    recipe_hash = hashlib.sha256(_dr_canonical.to_canonical_bytes(dr_recipe)).hexdigest()
-    seed = data_spec.seed if data_spec.seed is not None else int(dr_recipe.seed)
-    cache_root = (
+    cache_root = Path(
         data_spec.cache_root
         if data_spec.cache_root is not None
         else runtime_config.data_cache_root
-    )
-    cache_root = Path(cache_root).resolve()
+    ).resolve()
 
-    instance_path = _find_instance(cache_root, recipe_hash[:16], seed, recipe_path)
+    report = _resolve_via_library(recipe_path, cache_root, data_spec.seed, data_spec.variant)
+    instance_path = report.instance_path
+    if report.cache_status == "miss":
+        raise DataBindingError(
+            f"no materialized DataRefinery instance for recipe {recipe_path}; "
+            f"expected at {instance_path} — run `datarefinery materialize` first",
+            detail={"recipe": str(recipe_path), "expected": str(instance_path)},
+        )
+    if report.cache_status == "corrupt":
+        raise DataBindingError(
+            f"DataRefinery instance at {instance_path} is corrupt: {report.note}",
+            detail={"instance": str(instance_path), "note": report.note},
+        )
+
     _refuse_partial(instance_path)
     dr_instance = _load_via_library(instance_path)
+    _gate_dr_schema_version(dr_instance.recipe, recipe_path)
     _verify_aggressive_sidecars(instance_path)
 
     return DataRefineryInstance(
@@ -141,22 +148,23 @@ def _resolve_recipe_path(data_spec: DataSpec) -> Path:
     return path
 
 
-def _load_dr_recipe(recipe_path: Path, variant: str | None) -> Any:
+def _resolve_via_library(
+    recipe_path: Path, cache_root: Path, seed: int | None, variant: str | None
+) -> Any:
+    """Resolve the instance via DataRefinery's blessed `resolve_instance`.
+
+    No cache-key re-derivation (vendor-dep-spec § "Resolving a materialized
+    instance"). `resolve_instance` composes `DataRefinery.status()` and hashes the
+    recipe's declared inputs, so the source inputs must be present on this host.
+    """
     try:
-        recipe = _dr_loader.load(recipe_path)
+        return _dr.resolve_instance(
+            recipe_path, cache_root=cache_root, seed=seed, variant=variant
+        )
     except Exception as exc:
         raise DataBindingError(
-            f"could not load DataRefinery recipe {recipe_path}: {exc}",
+            f"could not resolve DataRefinery instance for recipe {recipe_path}: {exc}",
             detail={"recipe": str(recipe_path)},
-        ) from exc
-    if variant is None:
-        return recipe
-    try:
-        return _dr_variants.apply_variant(recipe, variant)
-    except Exception as exc:
-        raise DataBindingError(
-            f"could not apply variant {variant!r} to DataRefinery recipe {recipe_path}: {exc}",
-            detail={"recipe": str(recipe_path), "variant": variant},
         ) from exc
 
 
@@ -169,38 +177,6 @@ def _gate_dr_schema_version(dr_recipe: Any, recipe_path: Path) -> None:
             f"higher than ModelFoundry's known max ({max_supported}); upgrade ml-modelfoundry",
             detail={"got": sv, "max_supported": max_supported},
         )
-
-
-def _find_instance(
-    cache_root: Path, recipe_hash16: str, seed: int, recipe_path: Path
-) -> Path:
-    bucket = cache_root / "instances" / recipe_hash16
-    if not bucket.is_dir():
-        raise DataBindingError(
-            f"no materialized DataRefinery instance for recipe {recipe_path}; "
-            f"expected under {bucket} — run `datarefinery materialize` first",
-            detail={"recipe": str(recipe_path), "expected_bucket": str(bucket)},
-        )
-    matches: list[Path] = []
-    for input_dir in sorted(bucket.iterdir()):
-        if not input_dir.is_dir():
-            continue
-        seed_dir = input_dir / str(seed)
-        if seed_dir.is_dir():
-            matches.append(seed_dir)
-    if not matches:
-        raise DataBindingError(
-            f"no DataRefinery instance found under {bucket} with seed={seed}",
-            detail={"recipe_hash16": recipe_hash16, "seed": seed},
-        )
-    if len(matches) > 1:
-        raise DataBindingError(
-            f"ambiguous bind: multiple DataRefinery instances match recipe+seed; "
-            f"input bytes have changed across runs — re-materialize. Candidates: "
-            f"{[str(m) for m in matches]}",
-            detail={"matches": [str(m) for m in matches]},
-        )
-    return matches[0]
 
 
 def _refuse_partial(instance_path: Path) -> None:

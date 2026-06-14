@@ -6,7 +6,10 @@
 
 # Pyve-managed
 .pyve/
+.envrc
+.env
 .vscode/settings.json
+.venv
 
 # Python build and test artifacts
 __pycache__
@@ -36,7 +39,7 @@ build/
 
 # ModelFoundry / DataRefinery content-addressed cache roots (materialized instances)
 models/
-data/
+#data/
 
 # Jupyter notebooks
 
@@ -51,3 +54,5 @@ data/
 
 # project
 do-not-commit*.md
+#recipes/cifar10*.yaml
+#scripts/data_refinery_materize.py

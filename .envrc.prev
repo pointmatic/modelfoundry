@@ -13,6 +13,10 @@ export PYVE_PROMPT_PREFIX="(micromamba:modelfoundry) "
 if [[ -f ".env" ]]; then
     dotenv
 fi
+
+# Prevent asdf Python plugin from reshimming venv-installed CLIs.
+# Override with PYVE_NO_ASDF_COMPAT=1 to restore default asdf reshim behavior.
+export ASDF_PYTHON_PLUGIN_DISABLE_RESHIM=1
 # <<< pyve:managed:end <<<
 
 # Add your own direnv configuration below this line.

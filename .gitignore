@@ -54,3 +54,5 @@ data/
 
 # project
 do-not-commit*.md
+recipes/cifar10*.yaml
+scripts/data_refinery_materize.py

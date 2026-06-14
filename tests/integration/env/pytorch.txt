@@ -1,0 +1,16 @@
+# Copyright (c) 2026 Pointmatic
+# SPDX-License-Identifier: Apache-2.0
+#
+# Dependency set for the PyTorch smoke env ([env.smoke-pytorch] in pyve.toml),
+# which runs the PyTorch-specific tests.
+#
+# The editable install pulls ModelFoundry's base runtime closure plus the
+# [pytorch] extra (torch / torchvision / torchmetrics / torchinfo) straight from
+# pyproject.toml — referenced, not hand-copied, so the two never drift. The pytest
+# tooling below is the test-runner subset of requirements-dev.txt (pytest-cov is
+# required because pyproject's [tool.pytest.ini_options] addopts enables --cov on
+# every run).
+-e .[pytorch]
+pytest
+pytest-cov
+hypothesis

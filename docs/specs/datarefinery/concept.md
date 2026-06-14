@@ -34,7 +34,8 @@ The problem persists because data prep sits at the intersection of three forces 
 ### Target Users
 - **Primary — deep-learning curriculum** (students and instructors) doing image classification. They need a reproducible, low-friction path from raw images to a training-ready dataset so the course can focus on modeling.
 - **Secondary — ML practitioners on tabular and text problems** who want the same recipe-driven discipline outside imagery; served first via plugin stubs, later via full plugins.
-- **Indirect beneficiaries — downstream tools** (ModelFoundry, ModelMetrics, ModelMachine, DataMachine) and their users, who consume DataRefinery instances and reports against a stable contract rather than hand-rolled outputs.
+- **Indirect beneficiaries — downstream tools** (ModelFoundry, ModelMetrics, ModelMachine, DataMachine) and their users, who consume DataRefinery instances and reports against a stable contract rather than hand-rolled outputs. The shape-binding contract is pinned in [`modelfoundry/vendor-dependency-spec.md`](modelfoundry/vendor-dependency-spec.md).
+- **Indirect beneficiaries — notebook framework** (NbFoundry) and its users, who drive DataRefinery as a library + CLI inside Marimo cells. The interaction-binding contract (library entry points, CLI verbs, notebook-output ergonomics) is pinned in [`nbfoundry/vendor-dependency-spec.md`](nbfoundry/vendor-dependency-spec.md).
 - **Adjacent — occasional data-prep practitioners** (data scientists, researchers) who don't do this daily and need the playbook captured in a tool rather than in muscle memory.
 - **Negatively impacted by the status quo (and helped indirectly)** — reviewers, collaborators, and future maintainers who today have to reverse-engineer prep work from notebooks.
 

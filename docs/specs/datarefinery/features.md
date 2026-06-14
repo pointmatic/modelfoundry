@@ -171,7 +171,7 @@ DataRefinery compiles a single YAML **recipe** — declaring data category, raw 
 
 ```
 data/instances/<recipe-hash>/<input-hash>/<seed>/
-├── recipe.yaml                  # the exact recipe used (post-normalization for the cache key, original preserved)
+├── recipe.json                  # canonical post-loader recipe (v2-shape, key-sorted, the bytes hashed for the cache key)
 ├── dataset/                     # the prepared dataset (parquet for tabular; plugin-defined layout for image/text)
 ├── fitted_statistics/           # statistics fitted on the training split (persisted, not pickled sidecars)
 ├── report/
@@ -255,6 +255,8 @@ Verify a recipe's correctness without running the pipeline. Covers schema correc
 ### FR-3: End-to-End Materialization (`materialize`)
 
 Execute the recipe end-to-end and produce a materialized instance.
+
+**Cross-repo contract — interaction-binding surfaces.** The library API (`DataRefinery.from_recipe`, `.materialize`, `.validate`, `.status`, `.inspect`, the top-level `materialize()` convenience, the `Instance` accessor) and the CLI surface (verb names, global + verb-specific flags, exit codes, error-message panel-title contracts, stdout/stderr discipline) are documented as cross-repo contract surfaces in [`nbfoundry/vendor-dependency-spec.md`](nbfoundry/vendor-dependency-spec.md). Changes to either follow the cross-repo coordination rule in [`project-essentials.md`](project-essentials.md) § "Recipe / manifest / report shape changes need a cross-repo coordination check."
 
 **Behavior:**
 1. Run `validate` (FR-2); fail fast on any failure.
@@ -452,7 +454,7 @@ Apply stochastic operations on the training split that expand the effective data
 
 **Aggressive-mode persistence (Story H.r.2):** each augmented variant's image bytes are written to a sidecar PNG at `dataset/<split>/images/<record_id>.png` using Pillow's `Image.save(format="PNG", optimize=False)` (deterministic encode), and the variant's JSONL line carries `image_path: str` (relative to the dataset directory) in place of the dropped numpy `image` array. Non-aggressive records — recognized by the absence of `source_record_id`/`variant_index` metadata — keep the existing "image bytes resolve via source `path`" behavior; no sidecars are written for lazy-only recipes. The detection rule lives in `pipeline.runner._is_aggressive_variant` and the write path in `pipeline.runner._prepare_record_for_persistence`. The materialized instance is self-contained: a consumer reading the JSONL can resolve every variant's image bytes without referring back to the (now-augmented-away) source image.
 
-**Cross-repo contract:** downstream consumers (ModelFoundry today, other tools tomorrow) bind against the augmentation surface — `AugmentationOp` fields, on-disk variant layout, and `record_counts` post-augmentation semantics — via [`modelfoundry/dependency-spec.md`](modelfoundry/dependency-spec.md). Changes to this surface follow the cross-repo coordination rule in [`project-essentials.md`](project-essentials.md) § "Recipe / manifest / report shape changes need a cross-repo coordination check."
+**Cross-repo contract:** downstream consumers (ModelFoundry today, other tools tomorrow) bind against the augmentation surface — `AugmentationOp` fields, on-disk variant layout, and `record_counts` post-augmentation semantics — via [`modelfoundry/vendor-dependency-spec.md`](modelfoundry/vendor-dependency-spec.md). Changes to this surface follow the cross-repo coordination rule in [`project-essentials.md`](project-essentials.md) § "Recipe / manifest / report shape changes need a cross-repo coordination check."
 
 ### FR-12: Featurizations
 
@@ -527,7 +529,7 @@ Emit a report describing the materialized instance and its preparation.
 - Reporting visualization fails to render -> materialization fails (FR-13).
 - Re-rendering a report against a stale fitted-statistics block -> hard error citing the inconsistency.
 
-**Cross-repo contract:** the report surface — `report.md` augmentation-policy summary, `drift.json` schema, and the `report/visualizations/<name>.png` (or `<name>_<key>.png` for multi-output viz ops such as `pixel_distribution`) layout — is part of the documented cross-repo contract in [`modelfoundry/dependency-spec.md`](modelfoundry/dependency-spec.md). Schema changes follow the coordination rule in [`project-essentials.md`](project-essentials.md) § "Recipe / manifest / report shape changes need a cross-repo coordination check."
+**Cross-repo contract:** the report surface — `report.md` augmentation-policy summary, `drift.json` schema, and the `report/visualizations/<name>.png` (or `<name>_<key>.png` for multi-output viz ops such as `pixel_distribution`) layout — is part of the documented cross-repo contract in [`modelfoundry/vendor-dependency-spec.md`](modelfoundry/vendor-dependency-spec.md). Schema changes follow the coordination rule in [`project-essentials.md`](project-essentials.md) § "Recipe / manifest / report shape changes need a cross-repo coordination check."
 
 ### FR-16: Plugin Interface
 

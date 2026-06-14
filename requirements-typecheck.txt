@@ -1,0 +1,16 @@
+# Copyright (c) 2026 Pointmatic
+# SPDX-License-Identifier: Apache-2.0
+#
+# Full type closure for `mypy --strict` over src + tests ([env.typecheck] in
+# pyve.toml). It combines:
+#   * the editable package's [pytorch] extra — the only framework imported at module
+#     scope today (add .[...,huggingface,keras] here as those plugins land), which
+#     pulls torch / pydantic / numpy / ml-datarefinery / … with their bundled types;
+#   * requirements-dev.txt — mypy itself + types-pyyaml + pytest/hypothesis, so mypy
+#     can also resolve the imports in tests/.
+#
+# mypy *reads* (never runs) these deps, so torch and a future Keras/TF stack can
+# coexist here safely — unlike the per-framework runtime smoke envs that must stay
+# isolated to avoid the Metal SIGFAULT.
+-e .[pytorch]
+-r requirements-dev.txt

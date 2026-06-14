@@ -675,6 +675,10 @@ class Manifest(pydantic.BaseModel):
     record_counts: dict[str, int]      # split name -> count
     warnings: list[Warning]
     sinks: dict[str, SinkManifestEntry] # Story I.d: per-sink stage/format/files_written/bytes_total/path_template_resolved_root
+    sinks_skipped: dict[str, str]      # Story I.f.1: sinks whose host stage was not reached under partial --stage
+    class_balance: str | dict | None   # Story I.s / G10: hint copied verbatim from Splits.class_balance
+    sample: SampleManifestEntry | None # Story J.a / FR-J-1: SampleData runtime emission summary; None when no SampleData declared
+    label_classes: list[Any] | None    # Story J.f / FR-J-2: canonical class set (distinct labels, sorted ascending); None when fully-unlabeled
 ```
 
 ### Drift schema (FR-15 placeholder for v1)
@@ -742,7 +746,7 @@ Recipe semantics never read from CLI/env. The only field where CLI flag override
 │   ├── <recipe-hash16>/
 │   │   └── <input-hash16>/
 │   │       └── <seed>/
-│   │           ├── recipe.yaml
+│   │           ├── recipe.json                       # canonical post-loader form (the bytes hashed for the cache key)
 │   │           ├── dataset/
 │   │           │   ├── train.jsonl                  # one record per line
 │   │           │   ├── val.jsonl

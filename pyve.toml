@@ -5,14 +5,42 @@ name = "modelfoundry"
 
 [env.root]
 purpose = "utility"
-backend = "micromamba"
-languages = ["python"]
-frameworks = ["none"]
+backend = "venv"
 
+# Light: routine CI tests, ruff, mypy, pytest. Default for every `pyve test`.
 [env.testenv]
 purpose = "test"
+backend = "venv"
 default = true
-backend = "micromamba"
-manifest = "environment.yml"
-languages = ["python"]
-frameworks = ["pytest", "ruff", "mypy"]
+requirements = ["requirements-dev.txt"]
+
+# Focused, lazy: hardware smokes, one env per framework. venv — every dep is a pip
+# wheel on macOS arm64 (torch MPS, Apple tf-macos/tf-metal, HF stack), so conda buys
+# nothing here; the smoke envs are decoupled from the conda bundled-payload manifest.
+[env.smoke-pytorch]
+purpose = "test"
+backend = "venv"
+requirements = ["tests/integration/env/pytorch.txt"]   # torch + numpy + pytest only
+lazy = true
+
+[env.smoke-tensorflow]
+purpose = "test"
+backend = "venv"
+requirements = ["tests/integration/env/tensorflow.txt"]   # tf-macos + tf-metal + numpy + pytest
+lazy = true                                               # serves F.c TF AND F.e Keras (bundled)
+
+[env.smoke-huggingface]
+purpose = "test"
+backend = "venv"
+requirements = ["tests/integration/env/huggingface.txt"]  # transformers + datasets + peft + torch + numpy + pytest
+lazy = true
+
+# Full type closure for `mypy --strict` over the whole repo. mypy reads (never runs)
+# the deps' bundled types, so torch + a future Keras/HF stack can coexist here safely
+# — unlike the runtime smoke envs that must stay isolated to avoid the Metal SIGFAULT.
+# purpose=test so `pyve test --env typecheck` resolves it (gates on purpose==test).
+[env.typecheck]
+purpose = "test"
+backend = "venv"
+requirements = ["requirements-typecheck.txt"]
+lazy = true
