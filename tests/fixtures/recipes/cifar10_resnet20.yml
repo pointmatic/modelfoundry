@@ -46,8 +46,8 @@ Training:
   num_workers: 0
   device: cpu
   early_stopping:
-    monitor: val_accuracy
-    mode: max
+    monitor: val_loss   # the one monitor both validator check 6 and the trainer accept
+    mode: min
     patience: 2
 
 Optimization:

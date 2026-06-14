@@ -98,8 +98,12 @@ Training:
   num_workers: 2
   device: cpu          # CPU deliverable; canonical-bytes-participating (B.n)
   early_stopping:
-    monitor: val_accuracy
-    mode: max
+    # val_loss is the one monitor the validator (check 6: Evaluation.metrics ∪
+    # {train_loss, val_loss}) AND the trainer (per-epoch keys train_loss /
+    # val_loss / val_accuracy) both recognize. The Optuna study optimizes
+    # `accuracy` (→ val_accuracy, maximize) independently of this.
+    monitor: val_loss
+    mode: min
     patience: 10
 
 Optimization:
