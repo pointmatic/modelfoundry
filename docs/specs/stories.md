@@ -657,14 +657,14 @@ Out of scope (recorded as the D.g.1 follow-up below):
 - [x] Tests: each accessor returns the expected artifact / PNG; unfilled-stage accessors raise `InspectionError`; `view_predictions(split, n)` honors `n`. ([tests/unit/test_inspection_view.py](../../tests/unit/test_inspection_view.py): 11 tests. Data accessors (`view_manifest`/`view_trials`/`view_predictions`) are torch/matplotlib-free; the three PNG accessors `importorskip("matplotlib")` and assert the PNG signature. Fixture instance hand-built from artifact files (metrics.json + predictions/trials parquet) — no real training; toggles `with_eval`/`with_predictions`/`with_trials` to exercise the `InspectionError` paths.)
 - [x] Verify: `pyve test --env smoke-pytorch` green; `ruff` + `mypy` clean. (Full suite **472 passed** in `smoke-pytorch`; `ruff check src tests` + `mypy src tests` clean (106 files).)
 
-### Story D.h: `clean` command [Planned]
+### Story D.h: `clean` command [Done]
 
 `features.md` FR-20.
 
-- [ ] Create `src/modelfoundry/cli/commands/clean_cmd.py`: `--recipe-hash`, `--older-than`, `--failed`, `--orphans`, `--dry-run` selectors per `features.md` FR-20.
-- [ ] `cache.cleaner` module implementation: `src/modelfoundry/cache/cleaner.py` with the selector logic.
-- [ ] CLI smoke tests for each selector.
-- [ ] Verify: `pyve run modelfoundry clean --dry-run --older-than 7d` works.
+- [x] Create `src/modelfoundry/cli/commands/clean_cmd.py`: `--recipe-hash`, `--older-than`, `--failed`, `--orphans`, `--dry-run` selectors per `features.md` FR-20. (`run(config, *, recipe_hash, older_than, failed, orphans, dry_run)` validates the combo (`--orphans` requires `--older-than`; at least one selector required — both raise `CacheError` → exit 2), parses the duration, selects targets, and either reports (`--dry-run`) or removes them. "no matches" → exit 0 "nothing to clean"; a removal failure → exit 2 with the partial state reported, per the FR-20 edge case.)
+- [x] `cache.cleaner` module implementation: `src/modelfoundry/cache/cleaner.py` with the selector logic. (`parse_duration("7d")` → `timedelta` (units `s/m/h/d/w`; invalid → `CacheError`); `select_targets(...)` enumerates promoted instances (`instances/<rh16>/<dh16>/<seed>/manifest.json`), temp dirs (`instances/.tmp/<run-id>/` ± `FAILED`), and trash (`.trash/<ts>/`), applying each active selector and unioning the results; `_prune_descendants` drops any target nested under another (so a `--recipe-hash` tree supersedes a per-instance `--older-than` hit). Age source: `manifest.created_at` for promoted instances (per spec), directory mtime for trash / orphan temp dirs. `remove_targets(..., dry_run=...)` deletes via `shutil.rmtree`, collecting per-dir failures into a `CleanResult`.)
+- [x] CLI smoke tests for each selector. ([tests/unit/test_cache_cleaner.py](../../tests/unit/test_cache_cleaner.py): 20 tests — `parse_duration` units + invalid; each selector's target set (recipe-hash tree, old promoted, old trash, failed-only, orphan-only excluding failed/recent); dedup; dry-run-removes-nothing + real removal. [tests/cli/test_clean_cmd.py](../../tests/cli/test_clean_cmd.py): 9 tests — `run()` per selector + exit codes + validation raises, and `CliRunner` smokes (dry-run `--older-than`, `--failed`, no-selector errors). Note: `CliRunner` surfaces a raised `CacheError` as generic exit 1; the `CacheError`→2 mapping is covered by `exit_code_for` in test_app.py and confirmed manually below.)
+- [x] Verify: `pyve run modelfoundry clean --dry-run --older-than 7d` works. (Manual end-to-end via the full env: empty cache → "nothing to clean" exit 0; `--failed --dry-run` → "would remove: …/failed-run (failed)" exit 0 (nothing removed); no-selector → "error: specify at least one selector…" exit **2** in the real CLI. Full suite **501 passed** in `smoke-pytorch`; `ruff check src tests` + `mypy src tests` clean (110 files).)
 
 ### Story D.i: v0.5.0 `init` deterministic scaffolder [Planned]
 

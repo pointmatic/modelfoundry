@@ -316,9 +316,40 @@ def _cmd_inspect(
 
 
 @app.command("clean")
-def _cmd_clean(ctx: typer.Context) -> None:
+def _cmd_clean(
+    ctx: typer.Context,
+    recipe_hash: Annotated[
+        str | None,
+        typer.Option("--recipe-hash", help="Remove every instance under this recipe hash."),
+    ] = None,
+    older_than: Annotated[
+        str | None,
+        typer.Option("--older-than", help="Remove instances older than this duration (e.g. 7d)."),
+    ] = None,
+    failed: Annotated[
+        bool, typer.Option("--failed", help="Remove temp dirs carrying a FAILED marker.")
+    ] = False,
+    orphans: Annotated[
+        bool,
+        typer.Option("--orphans", help="Remove un-marked temp dirs older than --older-than."),
+    ] = False,
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", help="Report what would be removed; remove nothing.")
+    ] = False,
+) -> None:
     """Cache management (FR-20)."""
-    _not_implemented("clean", "D.h")
+    from modelfoundry.cli.commands import clean_cmd
+
+    raise typer.Exit(
+        clean_cmd.run(
+            _config(ctx),
+            recipe_hash=recipe_hash,
+            older_than=older_than,
+            failed=failed,
+            orphans=orphans,
+            dry_run=dry_run,
+        )
+    )
 
 
 def invoke(typer_app: typer.Typer, argv: list[str] | None = None) -> int:
