@@ -227,9 +227,21 @@ def _not_implemented(verb: str, story: str) -> None:
 
 
 @app.command("init")
-def _cmd_init(ctx: typer.Context) -> None:
+def _cmd_init(
+    ctx: typer.Context,
+    recipe: Annotated[Path, typer.Argument(help="Path to write the scaffolded recipe.")],
+    data: Annotated[
+        Path, typer.Option("--data", help="Path to the bound DataRefinery recipe (YAML).")
+    ],
+    plugin: Annotated[str, typer.Option("--plugin", help="Target plugin.")] = "pytorch",
+    force: Annotated[
+        bool, typer.Option("--force", help="Overwrite the recipe path if it exists.")
+    ] = False,
+) -> None:
     """Scaffold a starter recipe (FR-21)."""
-    _not_implemented("init", "D.i")
+    from modelfoundry.cli.commands import init_cmd
+
+    raise typer.Exit(init_cmd.run(recipe, data, _config(ctx), plugin=plugin, force=force))
 
 
 @app.command("validate")
