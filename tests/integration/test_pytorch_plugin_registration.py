@@ -30,7 +30,12 @@ def test_health_check_reports_available_backend() -> None:
     # Integration env carries the [pytorch] extra (env-dependencies.md §5.1);
     # skip cleanly anywhere torch is genuinely absent.
     pytest.importorskip("torch")
+    from modelfoundry.plugins.pytorch.plugin import PyTorchHealthReport
+
     report = discover_plugins()["pytorch"].health_check()
+    # `health_check()` is typed to the structural `CheckReport` (FR-19/D.c); narrow
+    # to the concrete report to read the pytorch-specific version/determinism fields.
+    assert isinstance(report, PyTorchHealthReport)
     assert report.plugin == "pytorch"
     assert report.available is True
     assert report.torch_version is not None

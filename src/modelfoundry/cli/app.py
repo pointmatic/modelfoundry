@@ -246,7 +246,9 @@ def _cmd_validate(
 @app.command("check")
 def _cmd_check(ctx: typer.Context) -> None:
     """Report environment + plugin health (FR-19)."""
-    _not_implemented("check", "D.c")
+    from modelfoundry.cli.commands import check_cmd
+
+    raise typer.Exit(check_cmd.run(_config(ctx)))
 
 
 @app.command("status")

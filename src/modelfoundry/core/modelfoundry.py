@@ -129,13 +129,37 @@ class ModelFoundry:
         return trash_existing(self.config.cache_root, self.key)
 
     def check(self) -> dict[str, Any]:
-        """Environment / plugin health summary."""
+        """Environment / plugin health summary for *this* recipe's bound plugin."""
         from modelfoundry._version import __version__
 
         return {
             "modelfoundry_version": __version__,
             "plugin": self.plugin.name,
             "health": self.plugin.health_check(),
+        }
+
+    @classmethod
+    def check_environment(cls, config: RuntimeConfig | None = None) -> dict[str, Any]:
+        """Recipe-free environment probe (FR-19, the `check` verb).
+
+        Reports the Python version, the installed ModelFoundry version, and — for
+        every discovered plugin (no recipe binding required) — the plugin's
+        `health_check()` self-report. `ok` is `False` when any discovered plugin
+        is unavailable (its extras are missing), so the CLI exits non-zero; a
+        CPU-only machine is not itself an error (CPU is always functional).
+        """
+        import platform
+
+        from modelfoundry._version import __version__
+
+        config = config or RuntimeConfig()
+        plugins = discover_plugins(config.plugin_path)
+        reports = [plugins[name].health_check() for name in sorted(plugins)]
+        return {
+            "python_version": platform.python_version(),
+            "modelfoundry_version": __version__,
+            "plugins": reports,
+            "ok": all(getattr(report, "available", False) for report in reports),
         }
 
     # --- internals ---

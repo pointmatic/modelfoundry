@@ -14,9 +14,10 @@ Evaluation / Visualization op they expose; the recipe validator (FR-2 check 17)
 validates the recipe's op params against `OperationSpec.param_model`.
 
 Several Protocol return types are aliased to `Any` here as forward stubs
-(`DataRefineryInstance` lands in B.i, `CheckReport` in the FR-19 / D.c CLI
-check story, `OptimizationResult` / `TrainingResult` / `EvaluationResult` in
-C.h-C.j, `InstanceArtifacts` in C.k/C.p). The owning stories tighten these.
+(`DataRefineryInstance` lands in B.i, `OptimizationResult` / `TrainingResult` /
+`EvaluationResult` in C.h-C.j, `InstanceArtifacts` in C.k/C.p). The owning
+stories tighten these. `CheckReport` is refined to a structural Protocol below
+(Story D.c) — the common health-report subset the FR-19 `check` verb reads.
 """
 
 from __future__ import annotations
@@ -39,10 +40,26 @@ from modelfoundry.recipe.models import (
 
 # Forward-declared types, refined in their owning stories.
 type DataRefineryInstance = Any  # Story B.i
-type CheckReport = Any  # FR-19 / Story D.c
 type OptimizationResult = Any  # Story C.i
 type TrainingResult = Any  # Story C.h
 type EvaluationResult = Any  # Story C.j
+
+
+@runtime_checkable
+class CheckReport(Protocol):
+    """The common subset every plugin's `health_check()` self-report exposes (FR-19).
+
+    Concrete plugins return richer pydantic models (`PyTorchHealthReport`,
+    `SklearnHealthReport`); the `check` verb depends only on these three fields to
+    render its table and decide the exit code. `available` is `False` when the
+    plugin's extras are not installed (→ non-zero exit). `accelerators` uses the
+    `Training.device` vocabulary (`cpu` / `cuda` / `mps`) and is empty when the
+    backend is absent — a CPU-only machine is healthy, not an error (QR-5).
+    """
+
+    plugin: str
+    available: bool
+    accelerators: tuple[str, ...]
 
 
 @dataclass(frozen=True)
