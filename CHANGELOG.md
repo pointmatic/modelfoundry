@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-06-15
+
+Phase E release — the complete test & quality suite, capped by the CIFAR-10
+end-to-end smoke. Every contract surface now has dedicated coverage: the
+loose-coupling guarantee, the PyTorch plugin (metric goldens, sampler
+determinism, augmentation-equivalence property tests), OutputExpectations, the
+plugin Protocol contract, the full CLI verb surface, the notebook-substrate
+smoke, and a downsized CIFAR-10 capstone that exercises optimization → training →
+evaluation → expectations → predictions → from-disk round-trip on a CPU budget.
+
+### Added
+
+- v0.6.0 CIFAR-10 end-to-end smoke (Story E.l, TR-12 / AC-2): `tests/integration/test_cifar10_smoke.py` materializes a downsized, CPU-budget CIFAR-10-shaped vertical (`simple_cnn`, a real 2-trial Optuna study + multi-epoch fit, eval on val/test) over the new synthesized `tests/fixtures/datarefinery_instances/cifar10_smoke/builder.py` instance (10 classes, 32x32 RGB, ~500/100/100, a 10-colour learnable palette) and `tests/fixtures/recipes/cifar10_smoke.yml`, asserting the val `macro_f1` floor, all OutputExpectations passing, the persisted `predictions.parquet` shape, and the FR-23 from-disk `predict` round-trip. **Owns the Phase E v0.6.0 bump.**
+- Loose-coupling guarantee test (Story E.f, TR-7): `tests/integration/test_loose_coupling.py` pins that re-materializing DataRefinery with the same shape/seed leaves ModelFoundry's cache identity unchanged (a recognized cache hit), a changed DR seed is a correct cache miss, and ModelFoundry never writes into DataRefinery's cache tree.
+- PyTorch plugin tests (Story E.g, TR-9 / TR-10): `tests/unit/test_pytorch_metrics.py` (hand-computed goldens for all eight metrics), expanded `tests/integration/test_pytorch_optimization.py` (Random + Grid sampler determinism, `n_jobs > 1` rejection), and expanded `tests/unit/test_pytorch_augmentations.py` (Hypothesis cross-realizer visual-semantic equivalence vs DataRefinery's aggressive realizers).
+- OutputExpectations tests (Story E.h, TR-11): `tests/unit/test_output_expectations.py` (gate-level surfacing of every failure, validate-time catch of dangling metrics) + `tests/integration/test_failing_expectations.py` (a failing expectation aborts to a `FAILED` marker).
+- Plugin contract tests (Story E.i): `tests/plugin_contract/` pins both plugins' exhaustive `OperationSpec` sets, runtime + static `Plugin` Protocol conformance, `health_check()` shape, and the sklearn `MLPClassifier` end-to-end.
+- CLI smoke tests (Story E.j): `tests/cli/test_cli_<verb>.py` drive all eight verbs end-to-end through `CliRunner`, asserting exit codes, `rich` output, and the JSON-lines log channel.
+- Notebook Jupyter smoke (Story E.k, TR-8): `tests/notebook/test_jupyter_smoke.py` executes a `materialize` in a real `nbclient`/`ipykernel` kernel and asserts the notebook-shaped accessors; the `smoke-pytorch` env carries the `[notebook-smokes]` extra.
+- Test fixture foundation + property/round-trip/determinism suites (Stories E.a–E.e.1): shared `conftest`, the synthesized DataRefinery builder, validator-check tests, Hypothesis cache-identity properties, atomic-promote / checkpoint tests, and determinism + round-trip integration tests (including the E.e.1 weight-init-before-`build_model` determinism repair).
+
 ## [0.5.0] - 2026-06-15
 
 Phase D release — the complete Typer-based CLI surface. All eight verbs

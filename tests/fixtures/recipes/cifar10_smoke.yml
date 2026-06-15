@@ -1,0 +1,70 @@
+# Copyright (c) 2026 Pointmatic
+# SPDX-License-Identifier: Apache-2.0
+#
+# Phase E capstone smoke (Story E.l, TR-12 / AC-2): the full ModelFoundry vertical
+# — Optimization -> Training -> Evaluation -> OutputExpectations -> Persistence ->
+# Report — over a downsized, CPU-budget CIFAR-10-shaped instance (10 classes,
+# 32x32 RGB, ~500/100/100). Bound in-test against the synthesized
+# `cifar10_smoke/builder.py` instance (see that module for why it is hand-built
+# rather than a real `dr.materialize`). `simple_cnn` keeps the budget small while
+# still exercising a real Optuna study + a real multi-epoch fit.
+schema_version: 1
+plugin: pytorch
+seed: 20260613
+
+Data:
+  # Bound via the DataRefineryInstance object in the test, so this path is a
+  # placeholder (it is not resolved when an instance object is passed to
+  # ModelFoundry.from_recipe(data=...)).
+  recipe: dr_recipe.yml
+
+Architecture:
+  type: simple_cnn
+  num_classes: 10
+  in_channels: 3
+
+Loss:
+  op: cross_entropy
+
+Optimizer:
+  op: adamw
+  learning_rate: 0.001
+  schedule:
+    op: reduce_on_plateau
+    monitor: val_loss
+
+Training:
+  max_epochs: 3
+  batch_size: 32
+  num_workers: 0
+  device: cpu
+  early_stopping:
+    monitor: val_loss
+    mode: min
+    patience: 2
+
+Optimization:
+  sampler: tpe
+  pruner: median
+  n_trials: 2
+  n_jobs: 1
+  baseline_trial: enqueue_recipe_defaults
+  objective_metric: accuracy
+  max_epochs_per_trial: 1
+  search_space:
+    Optimizer.learning_rate: {log_uniform: [1.0e-4, 1.0e-2]}
+    Training.batch_size: {categorical: [32, 64]}
+
+Evaluation:
+  splits: [val, test]
+  primary_metric: accuracy
+  metrics: [accuracy, macro_f1, confusion_matrix, calibration_curve]
+
+OutputExpectations:
+  # Floor calibrated below the observed val macro_f1 with margin (the 10-colour
+  # palette is trivially separable, so a healthy fit lands near 1.0).
+  - {metric: macro_f1, split: val, op: gte, value: 0.80}
+
+Visualizations:
+  - {op: training_curves, mode: reporting}
+  - {op: confusion_matrix, mode: reporting}

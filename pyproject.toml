@@ -98,6 +98,16 @@ python_version = "3.12"
 strict = true
 plugins = ["pydantic.mypy"]
 files = ["src", "tests"]
+# `src` is the package base, so its files map to `modelfoundry.*` (not the
+# ambiguous `src.modelfoundry.*`). Combined with explicit_package_bases below,
+# test files map from the repo root (e.g. `tests.cli.conftest`).
+mypy_path = "src"
+# Derive each test file's module name from its full path (e.g. tests.cli.conftest,
+# tests.fixtures.datarefinery_instances.cifar10_smoke.builder) so the pytest tree's
+# duplicate basenames — multiple conftest.py, the two synthesized-instance
+# builder.py files — don't collide under mypy's default flat module resolution.
+explicit_package_bases = true
+namespace_packages = true
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
