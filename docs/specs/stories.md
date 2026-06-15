@@ -805,12 +805,12 @@ Build the test suite. By end of Phase E, the project has: a synthesized DataRefi
 
 Polish the documentation surface for the first release. README quickstart with the CIFAR-10 walkthrough, docstring + FR-note pass, CHANGELOG curation, pyproject.toml metadata audit. By end of Phase F the project is ready for a tagged release; the actual PyPI publish happens in Phase G after `publish.yml` is wired.
 
-### Story F.a: README — quickstart + CIFAR-10 walkthrough + library/CLI usage [Planned]
+### Story F.a: README — quickstart + CIFAR-10 walkthrough + library/CLI usage [Done]
 
 `features.md` UR-6 (CIFAR-10 quickstart). Replaces the A.a placeholder README.
 
-- [ ] Replace the placeholder `README.md` with the full release-ready document: project name, one-paragraph summary, install (`pip install ml-modelfoundry[pytorch]`), CIFAR-10 quickstart walkthrough (assuming a materialized DataRefinery CIFAR-10 instance), library API example (`ModelFoundry.from_recipe(...).materialize()`), CLI example (`modelfoundry materialize <recipe>`), notebook-substrate-neutrality note (works identically in Jupyter / Marimo / IPython / `.py`), pointers to `docs/specs/` for deeper docs.
-- [ ] Verify: README renders cleanly on GitHub; quickstart steps are reproducible by an external reader.
+- [x] Replace the placeholder `README.md` with the full release-ready document: project name, one-paragraph summary, install (`pip install ml-modelfoundry[pytorch]`), CIFAR-10 quickstart walkthrough (assuming a materialized DataRefinery CIFAR-10 instance), library API example (`ModelFoundry.from_recipe(...).materialize()`), CLI example (`modelfoundry materialize <recipe>`), notebook-substrate-neutrality note (works identically in Jupyter / Marimo / IPython / `.py`), pointers to `docs/specs/` for deeper docs. (Two-step quickstart over the bundled `recipes/cifar10-base.yaml` → `recipes/cifar10_resnet20.yml`; the `./data` → `./models` default cache flow is hidden-flag-free, since DataRefinery and ModelFoundry both default their roots there. Added a dedicated Library-API + full eight-verb CLI section + a notebook-neutral `IPython.display.Image(mi.figures[...])` example, and a pointer to `project-essentials.md`. **Corrected** the carried-over `model.metrics  # pd.DataFrame indexed by epoch` comment — `.metrics` is an alias for `.evaluation` (a `{split: {metric: value}}` dict), and `.figures` returns PNG `bytes`, not `matplotlib.figure.Figure`.)
+- [x] Verify: README renders cleanly on GitHub; quickstart steps are reproducible by an external reader. (Valid Markdown; verified against the codebase: `from modelfoundry import ModelFoundry, ModelInstance` imports, all five linked `docs/specs/*` + `LICENSE` + both `recipes/*` exist, `DataRefinery.from_recipe(...).materialize()` is a real API, and both tools default their cache roots to `./data` / `./models`.)
 
 ### Story F.b: Documentation polish — docstrings + FR notes + typo pass [Planned]
 
