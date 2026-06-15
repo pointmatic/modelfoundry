@@ -1,0 +1,35 @@
+# Copyright (c) 2026 Pointmatic
+# SPDX-License-Identifier: Apache-2.0
+#
+# check 16: variant references an undeclared section
+schema_version: 1
+plugin: pytorch
+seed: 7
+Data:
+  recipe: dr_recipe.yml
+Architecture:
+  type: resnet20
+  num_classes: 3
+  in_channels: 3
+Loss:
+  op: cross_entropy
+Optimizer:
+  op: adamw
+  learning_rate: 0.01
+Training:
+  max_epochs: 2
+  batch_size: 8
+  num_workers: 0
+  device: cpu
+Evaluation:
+  splits:
+  - val
+  primary_metric: accuracy
+  metrics:
+  - accuracy
+  - macro_f1
+  - confusion_matrix
+variants:
+  bad:
+    NonexistentSection:
+      foo: 1
