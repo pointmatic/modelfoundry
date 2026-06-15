@@ -24,6 +24,7 @@ from modelfoundry.core.config import RuntimeConfig
 from modelfoundry.core.errors import InstanceError, PluginError
 from modelfoundry.core.instance import ModelInstance
 from modelfoundry.pipeline.data_binding import DataRefineryInstance, resolve_data_instance
+from modelfoundry.pipeline.progress import StageObserver
 from modelfoundry.pipeline.runner import MaterializeRunner
 from modelfoundry.plugins.base import Plugin
 from modelfoundry.plugins.discovery import discover_plugins
@@ -91,14 +92,20 @@ class ModelFoundry:
 
         return validate_recipe(self.recipe, self.data, self.plugin)
 
-    def materialize(self) -> ModelInstance:
-        """Materialize the recipe and return the resulting `ModelInstance`."""
+    def materialize(self, *, stage_observer: StageObserver | None = None) -> ModelInstance:
+        """Materialize the recipe and return the resulting `ModelInstance`.
+
+        `stage_observer` is the optional rendering-agnostic progress hook (FR-3);
+        the CLI attaches a `rich`-based observer, library callers may pass their
+        own or omit it.
+        """
         MaterializeRunner(
             recipe=self.recipe,
             data_instance=self.data,
             plugin=self.plugin,
             runtime_config=self.config,
             variant=self.variant,
+            stage_observer=stage_observer,
         ).run()
         return ModelInstance.load(self.paths.instance_dir, plugin=self.plugin)
 

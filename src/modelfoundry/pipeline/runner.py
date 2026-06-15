@@ -38,6 +38,7 @@ from modelfoundry.core.manifest import Manifest, ManifestWarning, OptimizationMa
 from modelfoundry.logging import get_logger
 from modelfoundry.pipeline.data_binding import DataRefineryInstance
 from modelfoundry.pipeline.expectations import evaluate_expectations
+from modelfoundry.pipeline.progress import StageObserver
 from modelfoundry.plugins.base import InstanceArtifacts, Plugin
 from modelfoundry.recipe.canonical import recipe_hash
 from modelfoundry.recipe.models import ModelRecipe
@@ -57,6 +58,7 @@ class MaterializeRunner:
         plugin: Plugin,
         runtime_config: RuntimeConfig,
         variant: str | None = None,
+        stage_observer: StageObserver | None = None,
     ) -> None:
         self.recipe = recipe
         self.data = data_instance
@@ -64,6 +66,7 @@ class MaterializeRunner:
         self.config = runtime_config
         self.variant = variant if variant is not None else runtime_config.variant
         self.seed = recipe.seed
+        self.observer = stage_observer
         self.logger = get_logger(
             "modelfoundry.runner", target=runtime_config.log_target, level=runtime_config.log_level
         )
@@ -128,7 +131,7 @@ class MaterializeRunner:
             eval_metrics = dict(eval_result.metrics)
             warnings = list(getattr(eval_result, "warnings", []))
         else:
-            self.logger.info("stage_skipped", extra={"stage": "evaluation"})
+            self._skip_stage("evaluation")
 
         outcomes = evaluate_expectations(recipe.OutputExpectations, eval_metrics)
         self._stage("output_expectations", lambda: _gate_expectations(outcomes))
@@ -170,7 +173,7 @@ class MaterializeRunner:
         """
         writer = getattr(self.plugin, "write_model_summary", None)
         if writer is None:
-            self.logger.info("stage_skipped", extra={"stage": "model_summary"})
+            self._skip_stage("model_summary")
             return
         self._stage("model_summary", lambda: writer(model, self.data, temp_dir / "model"))
 
@@ -211,6 +214,8 @@ class MaterializeRunner:
     def _stage(self, name: str, fn: Any) -> Any:
         t0 = time.monotonic()
         self.logger.info("stage_start", extra={"stage": name})
+        if self.observer is not None:
+            self.observer.on_stage_start(name)
         try:
             result = fn()
         except ModelfoundryError as exc:
@@ -225,7 +230,14 @@ class MaterializeRunner:
         elapsed = time.monotonic() - t0
         self.stage_timings[name] = elapsed
         self.logger.info("stage_done", extra={"stage": name, "elapsed_seconds": elapsed})
+        if self.observer is not None:
+            self.observer.on_stage_done(name, elapsed)
         return result
+
+    def _skip_stage(self, name: str) -> None:
+        self.logger.info("stage_skipped", extra={"stage": name})
+        if self.observer is not None:
+            self.observer.on_stage_skipped(name)
 
 
 # --- helpers ---

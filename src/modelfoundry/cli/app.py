@@ -263,9 +263,31 @@ def _cmd_status(
 
 
 @app.command("materialize")
-def _cmd_materialize(ctx: typer.Context) -> None:
+def _cmd_materialize(
+    ctx: typer.Context,
+    recipe: Annotated[Path, typer.Argument(help="Path to the ModelFoundry recipe (YAML).")],
+    variant: Annotated[
+        str | None, typer.Option("--variant", help="Recipe variant overlay to apply.")
+    ] = None,
+    seed: Annotated[
+        int | None, typer.Option("--seed", help="Override the recipe's master seed.")
+    ] = None,
+    overwrite: Annotated[
+        bool, typer.Option("--overwrite", help="Trash and re-materialize an existing instance.")
+    ] = False,
+    progress: Annotated[
+        bool, typer.Option("--progress/--no-progress", help="Stream stage-level progress.")
+    ] = True,
+) -> None:
     """Train + optimize + evaluate end-to-end (FR-3)."""
-    _not_implemented("materialize", "D.e")
+    from modelfoundry.cli.commands import materialize_cmd
+
+    raise typer.Exit(
+        materialize_cmd.run(
+            recipe, _config(ctx), variant=variant, seed=seed,
+            overwrite=overwrite, progress=progress,
+        )
+    )
 
 
 @app.command("report")
