@@ -28,6 +28,9 @@ class _StubPlugin:
     def health_check(self) -> Any:
         return None
 
+    def prepare_for_build(self, seed: int) -> None:
+        return None
+
     def build_model(self, arch: dict[str, Any]) -> Any:
         return None
 
@@ -189,6 +192,7 @@ _PLUGIN_FILE = textwrap.dedent(
         version = "1"
         operations = {}
         def health_check(self): return None
+        def prepare_for_build(self, seed): return None
         def build_model(self, arch): return None
         def run_optimization(self, *a, **k): return None
         def run_training(self, *a, **k): return None

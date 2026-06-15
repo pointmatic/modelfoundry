@@ -59,12 +59,17 @@ def save_model(model: nn.Module, model_dir: str | Path) -> None:
 
     torch.save(model.state_dict(), model_dir / _STATE_DICT)
     (model_dir / _ARCHITECTURE).write_text(_canonical_json(architecture), encoding="utf-8")
-    Checkpoint(
-        epoch=-1,  # provenance: a re-persist outside the training loop has no epoch
-        weights=model.state_dict(),
-        metric_value=float("nan"),
-        recipe_hash16="",
-    ).save(model_dir / _BEST_CHECKPOINT)
+    # torch.save (not Checkpoint.save's pickle) for byte-stable, deterministic
+    # tensor serialization — see trainer._write_checkpoint and FR-25.
+    torch.save(
+        Checkpoint(
+            epoch=-1,  # provenance: a re-persist outside the training loop has no epoch
+            weights=model.state_dict(),
+            metric_value=float("nan"),
+            recipe_hash16="",
+        ).model_dump(),
+        model_dir / _BEST_CHECKPOINT,
+    )
 
 
 def load_model(model_dir: str | Path) -> nn.Module:

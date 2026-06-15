@@ -251,6 +251,11 @@ def test_best_weights_track_the_monitor(tmp_path: Path) -> None:
     out = tmp_path / "instance"
     result = _train_once(_recipe(), data, out)
 
-    best = Checkpoint.load(out / "model" / "checkpoints" / "checkpoint-best.pt")
+    # Checkpoints are persisted via torch.save (deterministic tensor bytes), so
+    # read them back through torch.load + the Checkpoint schema.
+    payload = torch.load(
+        out / "model" / "checkpoints" / "checkpoint-best.pt", weights_only=False
+    )
+    best = Checkpoint.model_validate(payload)
     assert best.epoch == result.best_epoch  # type: ignore[attr-defined]
     assert best.metric_value == pytest.approx(result.best_metric_value)  # type: ignore[attr-defined]

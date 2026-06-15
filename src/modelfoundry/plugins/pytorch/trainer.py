@@ -385,12 +385,17 @@ def _write_checkpoint(
     metric_value: float,
     recipe_hash16: str,
 ) -> None:
-    Checkpoint(
+    # Persist via torch.save (not Checkpoint.save's pickle): raw-pickling torch
+    # tensors is non-deterministic across equal-but-distinct tensors, while
+    # torch.save is byte-stable — required for the FR-25 byte-identity contract.
+    # Matches the stacking pattern documented in pipeline.checkpoint.
+    checkpoint = Checkpoint(
         epoch=epoch,
         weights=model.state_dict(),
         metric_value=metric_value,
         recipe_hash16=recipe_hash16,
-    ).save(path)
+    )
+    torch.save(checkpoint.model_dump(), path)
 
 
 def _write_history(history: Iterable[dict[str, float]], path: Path) -> None:

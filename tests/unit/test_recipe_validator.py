@@ -87,6 +87,7 @@ class _Plugin:
 
     def health_check(self) -> Any:
         return {"accelerators": ["cpu", "mps", "cuda"]}
+    def prepare_for_build(self, seed: int) -> None: return None
     def build_model(self, arch: dict[str, Any]) -> Any: return None
     def run_optimization(self, *a: Any, **k: Any) -> Any: return None
     def run_training(self, *a: Any, **k: Any) -> Any: return None

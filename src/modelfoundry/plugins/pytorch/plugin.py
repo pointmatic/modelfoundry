@@ -27,6 +27,7 @@ from pydantic import BaseModel, ConfigDict
 
 from modelfoundry._version import __version__
 from modelfoundry.pipeline.progress import ProgressReporter
+from modelfoundry.pipeline.seeding import derive_seed
 from modelfoundry.plugins.base import (
     DataRefineryInstance,
     EvaluationResult,
@@ -45,6 +46,7 @@ from modelfoundry.plugins.pytorch.architecture import (
 from modelfoundry.plugins.pytorch.determinism import (
     deterministic_mode_supported,
     documented_hard_error_ops,
+    enable_deterministic_algorithms,
 )
 from modelfoundry.plugins.pytorch.losses import LOSS_OPERATIONS
 from modelfoundry.plugins.pytorch.optimizers import OPTIMIZER_OPERATIONS
@@ -140,6 +142,17 @@ class PyTorchPlugin:
             deterministic_algorithms_available=deterministic_mode_supported(),
             documented_hard_error_ops=documented_hard_error_ops,
         )
+
+    def prepare_for_build(self, seed: int) -> None:
+        """Enable deterministic mode and seed weight-init RNG before `build_model`.
+
+        The runner calls this immediately before constructing the model that will
+        be trained, so weight initialization is reproducible across runs (FR-25).
+        Mirrors the per-trial `enable_deterministic_algorithms(...)` in
+        `optimization.py`; without it, `build_model` draws from the process's
+        entropy-seeded RNG and the same recipe yields different weights each run.
+        """
+        enable_deterministic_algorithms(derive_seed(seed, "weight_init"))
 
     def build_model(self, arch: dict[str, Any]) -> Any:
         return _build_model(arch)

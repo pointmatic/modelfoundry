@@ -96,6 +96,9 @@ class MaterializeRunner:
             self.observer if isinstance(self.observer, ProgressReporter) else None
         )
 
+        # Seed weight-init RNG before building the model (FR-25): the runner is
+        # plugin-agnostic, so it delegates RNG seeding to the plugin's hook.
+        self.plugin.prepare_for_build(self.seed)
         model = self._stage("architecture", lambda: self.plugin.build_model(recipe.Architecture))
 
         opt_manifest: OptimizationManifest | None = None
@@ -110,6 +113,9 @@ class MaterializeRunner:
             )
             recipe = apply_params(recipe, opt_result.best_params)
             # Rebuild the model from the merged recipe (best params may touch arch).
+            # Re-seed weight-init so the final trained model is reproducible
+            # regardless of how much RNG the optimization stage consumed (FR-25).
+            self.plugin.prepare_for_build(self.seed)
             model = self.plugin.build_model(recipe.Architecture)
             opt_manifest = OptimizationManifest(
                 sampler=opt_spec.sampler,

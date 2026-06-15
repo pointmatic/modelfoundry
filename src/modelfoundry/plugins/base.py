@@ -114,6 +114,15 @@ class Plugin(Protocol):
 
     def health_check(self) -> CheckReport: ...
 
+    def prepare_for_build(self, seed: int) -> None:
+        """Seed RNG state before `build_model` so weight init is reproducible (FR-25).
+
+        The materialize runner is plugin-agnostic, so it calls this hook
+        immediately before constructing the model that will be trained; the plugin
+        seeds whatever backend RNG governs weight initialization.
+        """
+        ...
+
     def build_model(self, arch: dict[str, Any]) -> Any: ...
 
     def run_optimization(

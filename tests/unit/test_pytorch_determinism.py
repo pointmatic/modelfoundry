@@ -68,3 +68,22 @@ def test_seeding_is_reproducible(restore_determinism: None) -> None:
     enable_deterministic_algorithms(seed=7)
     second = torch.rand(8)
     assert torch.equal(first, second)
+
+
+def test_prepare_for_build_makes_weight_init_reproducible(restore_determinism: None) -> None:
+    # Regression guard (FR-25): the runner calls `prepare_for_build(seed)` before
+    # building the to-be-trained model so weight init is reproducible. Without it,
+    # `build_model` draws from the process's entropy-seeded RNG and two runs of the
+    # same recipe produce different weights (the determinism bug E.e surfaced).
+    from modelfoundry.plugins.pytorch.plugin import PyTorchPlugin
+
+    plugin = PyTorchPlugin()
+    arch = {
+        "num_classes": 3,
+        "layers": [{"op": "Flatten"}, {"op": "Linear", "in_features": 12, "out_features": 3}],
+    }
+    plugin.prepare_for_build(7)
+    first = [p.detach().clone() for p in plugin.build_model(arch).parameters()]
+    plugin.prepare_for_build(7)
+    second = [p.detach().clone() for p in plugin.build_model(arch).parameters()]
+    assert first and all(torch.equal(a, b) for a, b in zip(first, second, strict=True))

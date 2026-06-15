@@ -113,6 +113,15 @@ class SklearnPlugin:
             numpy_version=_safe_version("numpy"),
         )
 
+    def prepare_for_build(self, seed: int) -> None:
+        """No-op: the estimator's RNG is seeded via `random_state` at fit time.
+
+        `run_training` sets `random_state=derive_seed(seed, "weight_init")` on the
+        estimator before `.fit()`, so weight init does not depend on global RNG
+        state and needs no pre-build seeding (FR-25). Present for `Plugin` Protocol
+        conformance with the runner's `prepare_for_build` hook.
+        """
+
     def build_model(self, arch: dict[str, Any]) -> Any:
         params = _validate_architecture(arch)
         from sklearn.neural_network import MLPClassifier  # type: ignore[import-untyped]
