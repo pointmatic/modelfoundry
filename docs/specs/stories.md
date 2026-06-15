@@ -558,9 +558,9 @@ Bugfix for a latent defect surfaced while wiring C.r's deliverable recipe. The P
 - [x] Update CHANGELOG.md (Phase C `[0.4.0]` summary + the C.r deliverable + the C.q.2 viz-registration fix entries).
 - [x] Verify: `pyve test --env smoke-pytorch tests/integration/test_cifar10_resnet20.py` → **3 passed** (≈57 s); full suite **370 passed**; `ruff check` clean (testenv); `mypy src tests` clean — **90 source files** (typecheck env). (Note: the canonical runner is now `pyve test --env smoke-pytorch` — the torch/numpy/matplotlib closure — per the env revamp noted under C.q.1; ruff in `testenv`, mypy in `typecheck`.)
 
-Out of scope (recommended follow-ups, not actioned):
-- **Search-space op-choice dimensions.** A grouped/conditional search-space mechanism (e.g. an optimizer-group categorical that swaps the whole `Optimizer` sub-block; defaulting `CosineParams.T_max`) so optimizer/schedule op-choice can be genuine Optuna dimensions rather than variants. A C.i-level plugin enhancement.
-- **B.o / B.p / `env-dependencies.md` reconcile** to the current venv `testenv` + lazy `smoke-pytorch` + `typecheck` topology (flagged under C.q.1; the two-micromamba design is stale).
+Out of scope (recommended follow-ups, now recorded):
+- **Search-space op-choice dimensions** — a grouped/conditional search-space mechanism so optimizer/schedule op-choice can be genuine Optuna dimensions rather than variants. Recorded in the **`## Future`** section ("Search-space op-choice dimensions", sibling to Parallel Optuna trials).
+- **Env-layout doc reconcile** to the current venv `testenv` + lazy `smoke-pytorch` + `typecheck` topology (the two-micromamba B.o/B.p design is stale). Recorded as **Story F.b.1** (Phase F, doc-only).
 
 ---
 
@@ -568,15 +568,15 @@ Out of scope (recommended follow-ups, not actioned):
 
 Wrap the library API in a Typer-based CLI exposing all eight verbs (`init`, `validate`, `check`, `status`, `materialize`, `report`, `inspect`, `clean`). Each verb emits `rich`-styled user output to stdout and structured JSON-lines operational logs to the configured log target. The CLI is co-equal with the library API — both go through the same `ModelFoundry` class. By end of Phase D, a developer can drive the full workflow from the shell against a real DataRefinery instance.
 
-### Story D.a: CLI scaffolding — `cli.app` + shared options + exit-code mapping [Planned]
+### Story D.a: CLI scaffolding — `cli.app` + shared options + exit-code mapping [Done]
 
 `tech-spec.md` § CLI Design.
 
-- [ ] Create `src/modelfoundry/cli/__init__.py`, `src/modelfoundry/cli/app.py` with the root `typer.Typer()` instance + `main()` entry point + shared options (`--cache-root`, `--data-cache-root`, `--log-level`, `--log-target`, `--plugin-path`, `--verbose`, `--quiet`).
-- [ ] Exit-code mapping: `0` success, `1` user/recipe/contract error (catches `RecipeError` / `ValidationError` / `DataBindingError` / `ExpectationError` / `ModelArtifactExistsError`), `2` system/plugin error (`PluginError` / `MaterializeError` / `CacheError` / `OptimizationError`), `130` SIGINT.
-- [ ] Wire shared options into a per-invocation `RuntimeConfig` that is passed to every verb.
-- [ ] Re-point the placeholder console script from A.a to the real `cli.app:main`.
-- [ ] Verify: `pyve run modelfoundry --help` lists the scaffolded `init`/`validate`/`check`/`status`/`materialize`/`report`/`inspect`/`clean` placeholders; exit codes work for a deliberately-raised error.
+- [x] Create `src/modelfoundry/cli/__init__.py`, `src/modelfoundry/cli/app.py` with the root `typer.Typer()` instance + `main()` entry point + shared options (`--cache-root`, `--data-cache-root`, `--log-level`, `--log-target`, `--plugin-path`, `--verbose`, `--quiet`). (Modern `Annotated[... , typer.Option(...)]` style; also added an eager `--version` flag so the project-wide `modelfoundry --version` smoke that the A.b placeholder provided keeps working. `--verbose`/`--quiet` are `log_level` shorthands; supplying both is a usage error.)
+- [x] Exit-code mapping: `0` success, `1` user/recipe/contract error (catches `RecipeError` / `ValidationError` / `DataBindingError` / `ExpectationError` / `ModelArtifactExistsError`), `2` system/plugin error (`PluginError` / `MaterializeError` / `CacheError` / `OptimizationError`), `130` SIGINT. (Pure `exit_code_for(exc)` function — also folds in `InstanceError`→1 and `InspectionError`→2 (the two domain classes the story didn't enumerate), defaults any other `ModelfoundryError`→1 and unexpected exceptions→2. `invoke`/`main` run the app with `standalone_mode=False` so this module owns rendering + exit codes; SIGINT arrives as typer's `130` return value, honored.)
+- [x] Wire shared options into a per-invocation `RuntimeConfig` that is passed to every verb. (`build_runtime_config(...)` → `RuntimeConfig.from_env(**overrides)` so only explicitly-set flags override env→defaults; stored on `ctx.obj` by the callback for the verbs to read.)
+- [x] Re-point the placeholder console script from A.a to the real `cli.app:main`. (The `pyproject.toml` entry already targeted `cli.app:main`; `main()` is now the real Typer entry.)
+- [x] Verify: `pyve run modelfoundry --help` lists the scaffolded `init`/`validate`/`check`/`status`/`materialize`/`report`/`inspect`/`clean` placeholders; exit codes work for a deliberately-raised error. (All 8 verbs listed; `--help`→0, unknown-command→2, stub verb→0, `--version`→`modelfoundry 0.4.0`. [tests/cli/test_app.py](../../tests/cli/test_app.py): **33 passed**; full suite **403 passed**; `ruff check` + `mypy src tests` clean — 91 files.)
 
 ### Story D.b: `validate` command [Planned]
 
@@ -774,6 +774,16 @@ Polish the documentation surface for the first release. README quickstart with t
 - [ ] Pass through `concept.md`, `features.md`, `tech-spec.md`, `project-essentials.md` for typos, outdated pointers, broken cross-references.
 - [ ] Verify: `pydocstyle` (or `ruff` doc rules) clean; no broken `docs/specs/*` cross-links.
 
+### Story F.b.1: Env-layout doc reconcile — B.o / B.p / `env-dependencies.md` repair [Planned]
+
+The Pyve env topology was revamped (again) by the developer to a **venv**-based multi-env layout under `pyve.toml` (`pyve_schema = "3.0"`): a `purpose = "utility"` **`root`**, a light `default = true` **`testenv`** (ruff / mypy / pytest from `requirements-dev.txt`), a lazy **`smoke-pytorch`** carrying the full PyTorch closure (`-e .[pytorch]` from `tests/integration/env/pytorch.txt` — where the real test suite runs), lazy **`smoke-tensorflow`** / **`smoke-huggingface`** framework smokes, and a lazy **`typecheck`** env for `mypy --strict`. All are `backend = venv` — this **supersedes** B.o's two-micromamba design (utility root + conda testenv) and B.p's reconcile of it. `env-dependencies.md` §3–§5, the B.o / B.p story prose, and `tech-spec.md`'s env sections still describe the obsolete micromamba topology and actively mislead (flagged in the C.q.1 env note). Doc-only — rides the Phase F release; no version bump of its own.
+
+- [ ] Rewrite [`env-dependencies.md`](env-dependencies.md) §3–§5 to the venv `root` / `testenv` + lazy `smoke-pytorch` / `smoke-tensorflow` / `smoke-huggingface` / `typecheck` topology as declared in `pyve.toml` (per-env `backend = venv`, `requirements`, `lazy` / `default` flags). Record **why venv** (every dep is a pip wheel on macOS arm64 — torch MPS, tf-macos/tf-metal, HF — so conda buys nothing, and the smoke envs stay isolated to dodge the Metal SIGFAULT) and the canonical commands: `pyve test --env smoke-pytorch` (the real suite — plain `pyve test` runs the light `testenv` and skips torch), `pyve env run testenv -- ruff …`, `pyve env run typecheck -- mypy …`.
+- [ ] Reconcile [`tech-spec.md`](tech-spec.md) § Runtime & Tooling — rewrite the Environment-manager row + the Two-environment-install command block away from the B.o/B.p micromamba `pyve env init root`/`testenv` prose to the venv multi-env layout; point to `env-dependencies.md` as authoritative.
+- [ ] Add a short "**superseded by F.b.1** — see `env-dependencies.md`" note to the B.o and B.p story bodies so they read as historical record, not current state.
+- [ ] Sweep for residual obsolete references: no remaining "two micromamba envs", `.pyve/testenvs/`, `pyve testenv …`, or `manifest = "environment.yml"` test-env prose outside explicitly-historical context.
+- [ ] Verify: no doc cross-reference points at the obsolete topology; `ruff check` (testenv) + `mypy src tests` (typecheck) still clean.
+
 ### Story F.c: v0.7.0 Release prep — CHANGELOG curation + pyproject.toml metadata audit [Planned]
 
 Owns the Phase F v0.7.0 bump.
@@ -831,6 +841,7 @@ The `archive_stories` mode preserves this section verbatim when archiving storie
 - **Tight-coupled DataRefinery binding (FR-26)** — `schema_version` bump that mixes the bound DataRefinery instance's `recipe_hash` into ModelFoundry's cache identity, so upstream re-materialization auto-invalidates downstream. Requires a documented migration of existing cached ModelInstances.
 - **Marimo + IPython substrate-neutral smokes** — the Jupyter smoke in E.k is the canonical substrate-neutral test; Marimo headless and IPython REPL smokes extend the contract.
 - **Parallel Optuna trials** — `n_jobs > 1` with a deterministic trial-ordering protocol on top of the parallel harness. Requires the determinism contract to extend cleanly.
+- **Search-space op-choice dimensions** — a grouped/conditional Optuna search-space mechanism so optimizer (AdamW / SGD+momentum) and LR schedule (`reduce_on_plateau` / `cosine`) can be **genuine search dimensions** rather than `variants:`. The current flat `recipe.search_space.suggest_params` + per-op `extra="forbid"` param models can't carry op-conditional params: a single `Optimizer.schedule` block can't validate for both ops (`cosine` *requires* `T_max`, which `reduce_on_plateau` rejects), and SGD's `momentum` breaks an AdamW trial the same way. Likely an `optimizer`/`schedule` group categorical that swaps the whole sub-block as a unit (plus a default for `CosineParams.T_max`). A `plugins.pytorch.optimization` + `recipe.search_space` enhancement touching the determinism-sensitive trial path. Surfaced by the C.r CIFAR-10/ResNet-20 deliverable (R5), which ships these comparisons as `variants:` instead. Sibling to **Parallel Optuna trials** above.
 - **`modelfoundry.toml` per-project config** — currently no per-project config file (recipe + CLI flags + env vars cover execution context). If recurring patterns emerge, a project config lands as its own FR.
 - **Cross-platform first-class Linux** — currently Linux is best-effort pre-production; post-production gates require first-class status.
 - **Codecov / Coveralls coverage upload** — deferred from Phase G; coverage produced locally via `pyve test --cov`.

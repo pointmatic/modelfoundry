@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- CLI scaffolding (Story D.a, `tech-spec.md` § CLI Design): `modelfoundry.cli.app` is now the real `typer` application backing the `modelfoundry` console script (replacing the A.b version-print placeholder). A root `typer.Typer()` with an `@app.callback()` that turns the **shared options** — `--cache-root`, `--data-cache-root`, `--log-level`, `--log-target`, `--plugin-path`, `--verbose` / `-v`, `--quiet` / `-q`, plus `--version` — into a per-invocation `RuntimeConfig` on the Typer context (precedence CLI > env > defaults via `RuntimeConfig.from_env`; `--verbose` / `--quiet` are `log_level` shorthands and conflict as a usage error). `exit_code_for(exc)` maps exceptions to the documented exit codes — `0` success, `1` user/recipe/contract error (`RecipeError` / `ValidationError` / `DataBindingError` / `ExpectationError` / `ModelArtifactExistsError` / `InstanceError`), `2` system/plugin error (`PluginError` / `MaterializeError` / `CacheError` / `OptimizationError` / `InspectionError`) and unexpected exceptions, `130` SIGINT — and `invoke` / `main` run the app with `standalone_mode=False` so the CLI (not click) owns error rendering + the process exit code. All eight verbs (`init` / `validate` / `check` / `status` / `materialize` / `report` / `inspect` / `clean`) are registered as stubs, each fleshed out by its own Phase D story. Unversioned — rides the Phase D release bundle.
+
 ## [0.4.0] - 2026-06-14
 
 Phase C release — the end-to-end PyTorch plugin vertical: architecture vocabulary
