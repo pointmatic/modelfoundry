@@ -291,9 +291,14 @@ def _cmd_materialize(
 
 
 @app.command("report")
-def _cmd_report(ctx: typer.Context) -> None:
+def _cmd_report(
+    ctx: typer.Context,
+    instance: Annotated[Path, typer.Argument(help="Path to a materialized ModelInstance dir.")],
+) -> None:
     """Re-render an instance's report (FR-18)."""
-    _not_implemented("report", "D.f")
+    from modelfoundry.cli.commands import report_cmd
+
+    raise typer.Exit(report_cmd.run(instance, _config(ctx)))
 
 
 @app.command("inspect")

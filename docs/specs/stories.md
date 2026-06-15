@@ -629,13 +629,13 @@ Out of scope (deferred to **Story D.e.1**):
 - [x] Tests: trainer emits per-epoch rows when progress on (and is silent when off); optimization suppresses trial > 0 fd output while trial 0 prints; CLI smoke asserts per-epoch lines appear under `--progress`. ([tests/cli/test_materialize_cmd.py](../../tests/cli/test_materialize_cmd.py) grew to 18 tests: `RichStageProgress.on_epoch`/`on_trial_*` rendering (no torch); direct `run_training(progress=recorder)` → `epochs == [1,2,3]` + silent-without-progress; direct `run_optimization(progress=recorder)` → `trials_started/done == [0,1]`; and the existing real 3-epoch/2-trial e2e now also asserts `epoch` + `trial` appear in the streamed output. fd-suppression mechanics are pinned by D.e's standalone `suppress_fd_output` test.)
 - [x] Verify: `pyve test --env smoke-pytorch` green; `ruff` + `mypy` clean. (Full suite **447 passed** in `smoke-pytorch`; `ruff check src tests` + `mypy src tests` clean (101 files). No import cycle from `plugins/base.py` → `pipeline/progress.py` — the latter is stdlib-only.)
 
-### Story D.f: `report` command [Planned]
+### Story D.f: `report` command [Done]
 
 `features.md` FR-18.
 
-- [ ] Create `src/modelfoundry/cli/commands/report_cmd.py`: takes an instance path; calls `ModelInstance.load(path).render_report()`; prints final path on success.
-- [ ] CLI smoke test against a fixture instance.
-- [ ] Verify: `pyve run modelfoundry report <instance>` re-renders report/.
+- [x] Create `src/modelfoundry/cli/commands/report_cmd.py`: takes an instance path; calls `ModelInstance.load(path).render_report()`; prints final path on success. (Operates on a self-contained instance dir — no recipe/binding. Resolves the plugin from the manifest via `discover_plugins(config.plugin_path)` so `--plugin-path` is honored, then `ModelInstance.load(path, plugin=…).render_report()` re-renders `report/` atomically and the command prints the `report/report.md` path. A path with no `manifest.json` raises `InstanceError` → exit 1; an undiscoverable manifest plugin raises `PluginError` → exit 2, both mapped by `cli.app`.)
+- [x] CLI smoke test against a fixture instance. ([tests/cli/test_report_cmd.py](../../tests/cli/test_report_cmd.py): 5 tests. The fixture instance declares **no** `Visualizations`, so `rerender_report` never calls `plugin.render_visualization` — the whole path is torch-free (markdown re-render is pure pandas/string), and the fixture is hand-built (manifest + recipe + a stale `report.md`). Covers: `run()` re-renders + replaces the stale report + returns 0; `run()` on a non-instance path raises `InstanceError`; end-to-end `CliRunner` exit 0 + path printed; missing instance → exit 1; missing arg → usage error 2.)
+- [x] Verify: `pyve run modelfoundry report <instance>` re-renders report/. (Exercised end-to-end via the `CliRunner` smoke; full suite **452 passed** in `smoke-pytorch`; `ruff check src tests` + `mypy src tests` clean (103 files).)
 
 ### Story D.g: `inspect` command [Planned]
 
