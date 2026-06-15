@@ -240,3 +240,92 @@ def test_best_params_merge_back_takes_effect(tmp_path: Path) -> None:
     assert merged.Training.early_stopping is not None
     assert merged.Training.early_stopping.patience in {2, 3, 4}
     assert 1e-4 <= merged.Optimizer.model_extra["learning_rate"] <= 1e-2  # type: ignore[index]
+
+
+# --- E.g: sampler determinism across reruns (TR-10) ---
+#
+# C.i covered TPE determinism (test_study_is_deterministic_across_reruns); E.g
+# expands to the other two samplers in the FR-2 check-9 vocabulary. Each must
+# reproduce its full trial table byte-for-byte from a fixed seed — the sampler is
+# seeded from `derive_seed(master_seed, "optuna_sampler")` and `n_jobs` is locked
+# to 1 (`project-essentials.md` § Determinism contract).
+
+
+def _recipe_random() -> ModelRecipe:
+    """The TPE recipe with the sampler swapped to `random` (same search space)."""
+    recipe = _recipe()
+    random_opt = recipe.Optimization.model_copy(update={"sampler": "random"})  # type: ignore[union-attr]
+    return recipe.model_copy(update={"Optimization": random_opt})
+
+
+def _recipe_grid() -> ModelRecipe:
+    """A categorical-only search space (GridSampler rejects continuous distributions)."""
+    recipe = _recipe()
+    grid_opt = OptimizationSpec(
+        sampler="grid",
+        pruner="none",
+        n_trials=4,  # the full 2x2 grid
+        baseline_trial="enqueue_recipe_defaults",
+        max_epochs_per_trial=2,
+        search_space={
+            "Training.batch_size": SearchSpaceSpec(categorical=[2, 4]),
+            "Training.early_stopping.patience": SearchSpaceSpec(categorical=[2, 3]),
+        },
+    )
+    return recipe.model_copy(update={"Optimization": grid_opt})
+
+
+def _assert_study_reproducible(recipe: ModelRecipe, tmp_path: Path) -> None:
+    data = _build_instance(tmp_path)
+    run_a, run_b = tmp_path / "a", tmp_path / "b"
+    result_a = run_optimization(recipe.Optimization, recipe, data, _SEED, run_a)  # type: ignore[arg-type]
+    result_b = run_optimization(recipe.Optimization, recipe, data, _SEED, run_b)  # type: ignore[arg-type]
+
+    assert result_a.best_params == result_b.best_params
+    assert result_a.best_value == pytest.approx(result_b.best_value)
+    assert _params_columns(run_a / "optimization" / "trials.parquet") == _params_columns(
+        run_b / "optimization" / "trials.parquet"
+    )
+
+
+def test_random_sampler_deterministic_across_reruns(tmp_path: Path) -> None:
+    _assert_study_reproducible(_recipe_random(), tmp_path)
+
+
+def test_grid_sampler_deterministic_across_reruns(tmp_path: Path) -> None:
+    _assert_study_reproducible(_recipe_grid(), tmp_path)
+
+
+# --- E.g: n_jobs > 1 rejected (TR-10 / FR-2 check 10 / QR-3) ---
+
+
+def test_n_jobs_above_one_rejected_at_construction() -> None:
+    # Parallel trials make trial ordering — and thus best-params selection —
+    # non-deterministic, so the recipe schema forbids n_jobs != 1 outright
+    # (`n_jobs: Literal[1]`). This is the user-facing rejection: a recipe is
+    # validated when loaded, so the parallel-trials footgun never reaches the
+    # study. (E.b covers the same gate at the validator level.)
+    from pydantic import ValidationError as PydanticValidationError
+
+    with pytest.raises(PydanticValidationError):
+        OptimizationSpec(
+            n_jobs=2,
+            n_trials=3,
+            search_space={"Training.batch_size": SearchSpaceSpec(categorical=[2, 4])},
+        )
+
+
+def test_validator_check_10_flags_nonunit_n_jobs() -> None:
+    # Defense in depth: even a recipe whose n_jobs was set past the pydantic gate
+    # (e.g. via a non-validating copy) is caught by the validator's check 10. This
+    # exercises the failure branch the construction-rejection test cannot reach.
+    from modelfoundry.recipe.validator import _check_10_n_jobs
+
+    recipe = _recipe()
+    bad_opt = recipe.Optimization.model_copy(update={"n_jobs": 2})  # type: ignore[union-attr]
+    bad_recipe = recipe.model_copy(update={"Optimization": bad_opt})
+
+    check = _check_10_n_jobs(bad_recipe)
+    assert check.id == 10
+    assert check.passed is False
+    assert "n_jobs" in (check.message or "")
