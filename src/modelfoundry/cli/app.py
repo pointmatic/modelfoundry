@@ -211,6 +211,12 @@ def _root(
     )
 
 
+def _config(ctx: typer.Context) -> RuntimeConfig:
+    """The per-invocation `RuntimeConfig` the callback stored on the context."""
+    obj = ctx.obj
+    return obj if isinstance(obj, RuntimeConfig) else RuntimeConfig.from_env()
+
+
 def _not_implemented(verb: str, story: str) -> None:
     _err_console.print(
         f"[yellow]modelfoundry {verb}[/yellow]: not yet implemented (lands in Story {story})."
@@ -227,9 +233,14 @@ def _cmd_init(ctx: typer.Context) -> None:
 
 
 @app.command("validate")
-def _cmd_validate(ctx: typer.Context) -> None:
-    """Run the FR-2 static recipe checks."""
-    _not_implemented("validate", "D.b")
+def _cmd_validate(
+    ctx: typer.Context,
+    recipe: Annotated[Path, typer.Argument(help="Path to the ModelFoundry recipe (YAML).")],
+) -> None:
+    """Run the FR-2 static recipe checks; exit 0 if all pass, 1 otherwise."""
+    from modelfoundry.cli.commands import validate_cmd
+
+    raise typer.Exit(validate_cmd.run(recipe, _config(ctx)))
 
 
 @app.command("check")

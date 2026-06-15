@@ -578,13 +578,13 @@ Wrap the library API in a Typer-based CLI exposing all eight verbs (`init`, `val
 - [x] Re-point the placeholder console script from A.a to the real `cli.app:main`. (The `pyproject.toml` entry already targeted `cli.app:main`; `main()` is now the real Typer entry.)
 - [x] Verify: `pyve run modelfoundry --help` lists the scaffolded `init`/`validate`/`check`/`status`/`materialize`/`report`/`inspect`/`clean` placeholders; exit codes work for a deliberately-raised error. (All 8 verbs listed; `--help`→0, unknown-command→2, stub verb→0, `--version`→`modelfoundry 0.4.0`. [tests/cli/test_app.py](../../tests/cli/test_app.py): **33 passed**; full suite **403 passed**; `ruff check` + `mypy src tests` clean — 91 files.)
 
-### Story D.b: `validate` command [Planned]
+### Story D.b: `validate` command [Done]
 
 `features.md` FR-2.
 
-- [ ] Create `src/modelfoundry/cli/commands/validate_cmd.py`: takes a recipe path; calls `ModelFoundry.from_recipe(...).validate()`; renders the `ValidationReport` as a `rich` table; exits 0 if all checks pass, 1 otherwise.
-- [ ] CLI smoke test against a valid recipe + a failing recipe.
-- [ ] Verify: `pyve run modelfoundry validate <fixture-recipe>` works.
+- [x] Create `src/modelfoundry/cli/commands/validate_cmd.py`: takes a recipe path; calls `ModelFoundry.from_recipe(...).validate()`; renders the `ValidationReport` as a `rich` table; exits 0 if all checks pass, 1 otherwise. (New `cli/commands/` package; `run(recipe, config)` binds via `config.data_cache_root` and returns 0/1, `render_validation(report, recipe)` draws the per-check table + summary. `app.py`'s `validate` verb gains the recipe `Argument` and delegates via a `_config(ctx)` helper that reads the shared-option `RuntimeConfig` off `ctx.obj`.)
+- [x] CLI smoke test against a valid recipe + a failing recipe. ([tests/cli/test_validate_cmd.py](../../tests/cli/test_validate_cmd.py): `render_validation` unit tests (pass + fail summaries) and end-to-end CliRunner smokes binding the real DR-1 instance — the deliverable recipe → exit 0, a `primary_metric: ece`-broken copy (check 12) → exit 1, missing-arg → usage error 2; **skips if the DR-1 instance is absent**. 5 tests.)
+- [x] Verify: `pyve run modelfoundry validate <fixture-recipe>` works. (Runs + renders the 20-check table. **Env caveat:** the utility `root` env has no `torch`, so check 20 (`device_available`) honestly fails there — `device: cpu` is unavailable when the plugin can't import torch; in `smoke-pytorch` (and a real `pip install ml-modelfoundry[pytorch]`) all 20 pass and it exits 0. Correct behavior, not a defect. `ruff` + `mypy` clean (94 files); full suite **408 passed**.)
 
 ### Story D.c: `check` command [Planned]
 
