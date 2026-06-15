@@ -19,7 +19,7 @@ import json
 from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
-from typing import Any
+from typing import Any, overload
 
 import numpy as np
 
@@ -147,18 +147,30 @@ class ModelInstance:
 
     # --- inspection ---
 
-    def inspect(self, *, view: str) -> bytes | Manifest:
-        """Render a single named view on demand (FR-17, exploration mode — no persist).
+    @overload
+    def inspect(self, *, view: None = ...) -> InspectionView: ...
+    @overload
+    def inspect(self, *, view: str) -> bytes | Manifest: ...
 
-        `view="view_manifest"` (or `"manifest"`) returns the `Manifest`; any other
-        name is treated as a plugin visualization op and returns its PNG bytes.
-        An unknown view, or one that cannot render, raises `InspectionError`.
+    def inspect(self, *, view: str | None = None) -> InspectionView | bytes | Manifest:
+        """Inspect the instance (FR-17, exploration mode — nothing is persisted).
+
+        With no `view`, returns an `InspectionView` exposing the notebook-facing
+        accessors (behavior 1). With `view="view_manifest"` (or `"manifest"`)
+        returns the `Manifest`; any other `view` name is a plugin visualization op
+        whose PNG bytes are returned (behavior 2). An unknown / unrenderable view
+        raises `InspectionError`.
         """
-        from modelfoundry.core.errors import InspectionError, PluginError
-        from modelfoundry.recipe.models import VisualizationSpec
-
+        if view is None:
+            return InspectionView(self)
         if view in ("view_manifest", "manifest"):
             return self.manifest
+        return self._render_view(view)
+
+    def _render_view(self, view: str, **params: Any) -> bytes:
+        """Render a plugin visualization op `view` (with extra `params`) to PNG bytes."""
+        from modelfoundry.core.errors import InspectionError, PluginError
+        from modelfoundry.recipe.models import VisualizationSpec
 
         recipe = self._load_recipe()
         if recipe is None:
@@ -168,12 +180,10 @@ class ModelInstance:
             )
         try:
             png = self.plugin.render_visualization(
-                VisualizationSpec(op=view, mode="interactive"), self._artifacts(recipe)
+                VisualizationSpec(op=view, mode="interactive", **params), self._artifacts(recipe)
             )
         except PluginError as exc:
-            raise InspectionError(
-                f"unknown view {view!r}", detail={"view": view}
-            ) from exc
+            raise InspectionError(f"unknown view {view!r}", detail={"view": view}) from exc
         if png is None:
             raise InspectionError(
                 f"view {view!r} produced nothing to render", detail={"view": view}
@@ -211,6 +221,75 @@ class ModelInstance:
             recipe=recipe,
             manifest=self.manifest,
         )
+
+
+@dataclass(frozen=True)
+class InspectionView:
+    """Notebook-facing exploration accessors over a materialized instance (FR-17 behavior 1).
+
+    Each accessor renders or returns one artifact on demand; accessors that depend
+    on an unfilled stage (e.g. `view_trials()` with no Optimization stage, or any
+    accessor on a partial instance whose artifact is absent) raise `InspectionError`
+    with a clear message rather than returning empty data.
+    """
+
+    instance: ModelInstance
+
+    def view_manifest(self) -> Manifest:
+        """The instance `Manifest`."""
+        return self.instance.manifest
+
+    def view_training_curves(self) -> bytes:
+        """The training-curves visualization (PNG bytes)."""
+        return self.instance._render_view("training_curves")
+
+    def view_confusion_matrix(self, split: str) -> bytes:
+        """The confusion-matrix visualization for `split` (PNG bytes)."""
+        self._require_eval_split(split)
+        return self.instance._render_view("confusion_matrix", split=split)
+
+    def view_calibration(self, split: str) -> bytes:
+        """The calibration-curve visualization for `split` (PNG bytes)."""
+        self._require_eval_split(split)
+        return self.instance._render_view("calibration_curve", split=split)
+
+    def view_predictions(self, split: str, n: int = 16) -> Any:
+        """The first `n` per-record predictions for `split` (a DataFrame)."""
+        from modelfoundry.core.errors import InspectionError
+
+        predictions = self.instance.predictions
+        if predictions is None:
+            raise InspectionError(
+                "no predictions: the evaluation stage did not run",
+                detail={"instance_dir": str(self.instance.path)},
+            )
+        rows = predictions[predictions["split"] == split] if "split" in predictions else predictions
+        if len(rows) == 0:
+            raise InspectionError(
+                f"no predictions for split {split!r}", detail={"split": split}
+            )
+        return rows.head(n)
+
+    def view_trials(self) -> Any:
+        """The Optuna trials DataFrame (raises if no Optimization stage ran)."""
+        from modelfoundry.core.errors import InspectionError
+
+        trials = self.instance.trials
+        if trials is None:
+            raise InspectionError(
+                "no trials: the instance has no Optimization stage",
+                detail={"instance_dir": str(self.instance.path)},
+            )
+        return trials
+
+    def _require_eval_split(self, split: str) -> None:
+        from modelfoundry.core.errors import InspectionError
+
+        if split not in self.instance.evaluation:
+            raise InspectionError(
+                f"no evaluation for split {split!r}; available: {sorted(self.instance.evaluation)}",
+                detail={"split": split},
+            )
 
 
 def _read_json(path: Path) -> Any:
