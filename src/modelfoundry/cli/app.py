@@ -252,9 +252,14 @@ def _cmd_check(ctx: typer.Context) -> None:
 
 
 @app.command("status")
-def _cmd_status(ctx: typer.Context) -> None:
+def _cmd_status(
+    ctx: typer.Context,
+    recipe: Annotated[Path, typer.Argument(help="Path to the ModelFoundry recipe (YAML).")],
+) -> None:
     """Summarize an instance's lifecycle / cache state (FR-16)."""
-    _not_implemented("status", "D.d")
+    from modelfoundry.cli.commands import status_cmd
+
+    raise typer.Exit(status_cmd.run(recipe, _config(ctx)))
 
 
 @app.command("materialize")
