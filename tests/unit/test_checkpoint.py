@@ -90,3 +90,35 @@ def test_save_creates_parent_dirs(tmp_path: Path) -> None:
     nested = tmp_path / "a" / "b" / "ckpt.pt"
     Checkpoint(**_present_keys()).save(nested)
     assert nested.is_file()
+
+
+# --- E.d: per-required-key rejection + persistence byte-stability ---
+
+
+@pytest.mark.parametrize("missing", ["epoch", "weights", "metric_value", "recipe_hash16"])
+def test_each_required_key_missing_raises(tmp_path: Path, missing: str) -> None:
+    # schema_version has a default (covered by test_schema_version_defaults_to_one);
+    # every other field is required, so dropping any one fails validation on load.
+    payload = _present_keys()
+    del payload[missing]
+    path = tmp_path / "bad.pt"
+    with path.open("wb") as fh:
+        pickle.dump(payload, fh)
+    with pytest.raises(ValidationError):
+        Checkpoint.load(path)
+
+
+def test_persistence_is_byte_stable(tmp_path: Path) -> None:
+    # B.k persists via pickle (NOT parquet — pickle round-trips arbitrary tensor
+    # state_dicts, which a columnar format cannot). Persisting the same checkpoint
+    # twice is byte-identical, and a save -> load -> save cycle reproduces the
+    # original bytes.
+    ck = Checkpoint(**_present_keys(), optimizer_state={"momentum": 0.9})
+    first, second = tmp_path / "a.pt", tmp_path / "b.pt"
+    ck.save(first)
+    ck.save(second)
+    assert first.read_bytes() == second.read_bytes()
+
+    round_tripped = tmp_path / "c.pt"
+    Checkpoint.load(first).save(round_tripped)
+    assert round_tripped.read_bytes() == first.read_bytes()

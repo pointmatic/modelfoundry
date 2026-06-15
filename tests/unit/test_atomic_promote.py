@@ -131,3 +131,57 @@ def test_explicit_run_id_used(tmp_path: Path) -> None:
     ):
         assert temp == paths.tmp_dir("run-xyz")
         raise ValueError("stop")
+
+
+# --- E.d: FAILED marker records every materialize stage ---
+
+# The canonical stage vocabulary stamped by `pipeline.runner._stage` (C.o). The
+# atomic layer is decoupled from the runner — it records whatever `exc.stage`
+# the pipeline reports — so we assert it faithfully captures each stage name and
+# never touches the final path on failure, across the full stage vocabulary.
+MATERIALIZE_STAGES = [
+    "architecture",
+    "optimization",
+    "training",
+    "evaluation",
+    "output_expectations",
+    "persistence",
+    "model_summary",
+    "report",
+]
+
+
+@pytest.mark.parametrize("stage", MATERIALIZE_STAGES)
+def test_failed_marker_records_each_materialize_stage(tmp_path: Path, stage: str) -> None:
+    paths = CachePaths(tmp_path, KEY)
+    captured: dict[str, Path] = {}
+    with (
+        pytest.raises(MaterializeError),
+        materialize_temp_dir(tmp_path, KEY) as temp,
+    ):
+        captured["temp"] = temp
+        (temp / "partial.bin").write_text("half-written", encoding="utf-8")
+        raise MaterializeError(f"{stage} blew up", stage=stage)
+
+    temp = captured["temp"]
+    marker = json.loads((temp / FAILED_MARKER).read_text())
+    assert marker["stage"] == stage
+    assert marker["error_class"] == "MaterializeError"
+    assert temp.is_dir()  # left intact for diagnosis
+    assert not paths.instance_dir.exists()  # final path never touched on failure
+
+
+def test_overwrite_flow_trashes_then_repromotes(tmp_path: Path) -> None:
+    # Mirrors the CLI --overwrite path: the displaced instance is moved to .trash
+    # (recoverable), then a fresh one is promoted under the same key.
+    paths = CachePaths(tmp_path, KEY)
+    with materialize_temp_dir(tmp_path, KEY) as temp:
+        (temp / "manifest.json").write_text('{"v":1}', encoding="utf-8")
+
+    dest = trash_existing(tmp_path, KEY)  # --overwrite displaces the existing instance
+    with materialize_temp_dir(tmp_path, KEY) as temp:
+        (temp / "manifest.json").write_text('{"v":2}', encoding="utf-8")
+
+    assert (paths.instance_dir / "manifest.json").read_text() == '{"v":2}'  # new is live
+    assert (dest / "manifest.json").read_text() == '{"v":1}'  # old recoverable from trash
+    assert dest.is_relative_to(paths.cache_root / ".trash")
