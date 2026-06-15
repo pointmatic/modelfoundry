@@ -302,9 +302,17 @@ def _cmd_report(
 
 
 @app.command("inspect")
-def _cmd_inspect(ctx: typer.Context) -> None:
+def _cmd_inspect(
+    ctx: typer.Context,
+    instance: Annotated[Path, typer.Argument(help="Path to a materialized ModelInstance dir.")],
+    view: Annotated[
+        str, typer.Option("--view", help="View to render (e.g. training_curves, view_manifest).")
+    ],
+) -> None:
     """Render an exploration-mode view of an instance (FR-17)."""
-    _not_implemented("inspect", "D.g")
+    from modelfoundry.cli.commands import inspect_cmd
+
+    raise typer.Exit(inspect_cmd.run(instance, _config(ctx), view=view))
 
 
 @app.command("clean")

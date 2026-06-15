@@ -145,6 +145,41 @@ class ModelInstance:
         """Per-class probabilities for `X` (delegated to the plugin)."""
         return self.plugin.predict_proba(self._model, X)
 
+    # --- inspection ---
+
+    def inspect(self, *, view: str) -> bytes | Manifest:
+        """Render a single named view on demand (FR-17, exploration mode — no persist).
+
+        `view="view_manifest"` (or `"manifest"`) returns the `Manifest`; any other
+        name is treated as a plugin visualization op and returns its PNG bytes.
+        An unknown view, or one that cannot render, raises `InspectionError`.
+        """
+        from modelfoundry.core.errors import InspectionError, PluginError
+        from modelfoundry.recipe.models import VisualizationSpec
+
+        if view in ("view_manifest", "manifest"):
+            return self.manifest
+
+        recipe = self._load_recipe()
+        if recipe is None:
+            raise InspectionError(
+                f"cannot render view {view!r}: instance has no recipe.yml",
+                detail={"view": view, "instance_dir": str(self.path)},
+            )
+        try:
+            png = self.plugin.render_visualization(
+                VisualizationSpec(op=view, mode="interactive"), self._artifacts(recipe)
+            )
+        except PluginError as exc:
+            raise InspectionError(
+                f"unknown view {view!r}", detail={"view": view}
+            ) from exc
+        if png is None:
+            raise InspectionError(
+                f"view {view!r} produced nothing to render", detail={"view": view}
+            )
+        return png
+
     # --- report ---
 
     def render_report(self) -> str:

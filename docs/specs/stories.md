@@ -637,13 +637,25 @@ Out of scope (deferred to **Story D.e.1**):
 - [x] CLI smoke test against a fixture instance. ([tests/cli/test_report_cmd.py](../../tests/cli/test_report_cmd.py): 5 tests. The fixture instance declares **no** `Visualizations`, so `rerender_report` never calls `plugin.render_visualization` — the whole path is torch-free (markdown re-render is pure pandas/string), and the fixture is hand-built (manifest + recipe + a stale `report.md`). Covers: `run()` re-renders + replaces the stale report + returns 0; `run()` on a non-instance path raises `InstanceError`; end-to-end `CliRunner` exit 0 + path printed; missing instance → exit 1; missing arg → usage error 2.)
 - [x] Verify: `pyve run modelfoundry report <instance>` re-renders report/. (Exercised end-to-end via the `CliRunner` smoke; full suite **452 passed** in `smoke-pytorch`; `ruff check src tests` + `mypy src tests` clean (103 files).)
 
-### Story D.g: `inspect` command [Planned]
+### Story D.g: `inspect` command [Done]
 
 `features.md` FR-17.
 
-- [ ] Create `src/modelfoundry/cli/commands/inspect_cmd.py`: takes an instance path + `--view <name>`; calls `ModelInstance.load(path).inspect(view=...)`; renders the requested view (writes PNG to a temp file for PNG views and prints the path; renders a `rich` table for text views like `view_manifest`).
-- [ ] CLI smoke test.
-- [ ] Verify: `pyve run modelfoundry inspect <instance> --view training_curves` works.
+- [x] Create `src/modelfoundry/cli/commands/inspect_cmd.py`: takes an instance path + `--view <name>`; calls `ModelInstance.load(path).inspect(view=...)`; renders the requested view (writes PNG to a temp file for PNG views and prints the path; renders a `rich` table for text views like `view_manifest`). (Added the FR-17 **behavior-2** on-demand path: `ModelInstance.inspect(*, view)` returns the `Manifest` for `view_manifest`/`manifest`, else dispatches the name as a plugin visualization op (`training_curves` / `optimization_history` / `confusion_matrix` / `calibration_curve` / `predictions_grid`) via `plugin.render_visualization` → PNG `bytes`. Unknown view → `InspectionError` (wraps the plugin's `PluginError`); no `recipe.yml` → `InspectionError`. The command resolves the plugin from the manifest honoring `--plugin-path`, writes PNG bytes to `mkdtemp()/<view>.png` and prints the path, or renders a two-column `rich` field/value table for the manifest. `InstanceError` (exit 1) for a non-instance path.)
+- [x] CLI smoke test. ([tests/cli/test_inspect_cmd.py](../../tests/cli/test_inspect_cmd.py): 9 tests. `inspect()` unit (manifest view → `Manifest`; unknown view → `InspectionError`; PNG view → bytes with the PNG signature); `run()` (manifest → table; PNG → temp file exists + non-empty; non-instance → `InstanceError`); CLI (`view_manifest` exit 0; unknown view exit ≠ 0; missing arg → usage error 2). PNG tests `importorskip("matplotlib")` and use placeholder rendering — no torch / real training needed.)
+- [x] Verify: `pyve run modelfoundry inspect <instance> --view training_curves` works. (End-to-end exercised via `CliRunner` + direct `run(view="training_curves")` against fixture instances — PNG written to a temp path, manifest rendered as a table. Full suite **461 passed** in `smoke-pytorch`; `ruff check src tests` + `mypy src tests` clean (105 files).)
+
+Out of scope (recorded as the D.g.1 follow-up below):
+- FR-17 **behavior 1** — the no-arg `inspect()` returning an `InspectionView` object with the six notebook-facing accessors (`view_training_curves()`, `view_confusion_matrix(split)`, `view_calibration(split)`, `view_predictions(split, n)`, `view_trials()`, `view_manifest()`) and the unfilled-stage `InspectionError` edge cases. Primarily an nbfoundry-consumer convenience, not exercised by the CLI verb.
+
+### Story D.g.1: `InspectionView` accessor object (FR-17 behavior 1) [Planned]
+
+`features.md` FR-17 (behavior 1); consumer-facing exploration surface deferred from D.g. Builds on D.g's `ModelInstance.inspect(view=...)` on-demand renderer. No version bump (Phase D bundles into D.i v0.5.0).
+
+- [ ] Add `ModelInstance.inspect()` (no-arg) returning an `InspectionView` bound to the instance, with accessors `view_training_curves()`, `view_confusion_matrix(split)`, `view_calibration(split)`, `view_predictions(split, n)`, `view_trials()`, `view_manifest()` — each a thin wrapper over `inspect(view=...)` / the existing data accessors, threading the `split` / `n` params into the `VisualizationSpec`.
+- [ ] Raise `InspectionError` with a clear message when an accessor depends on an unfilled stage (e.g. `view_trials()` on an instance with no Optimization stage; partial-instance views per `is_partial`).
+- [ ] Tests: each accessor returns the expected artifact / PNG; unfilled-stage accessors raise `InspectionError`; `view_predictions(split, n)` honors `n`.
+- [ ] Verify: `pyve test --env smoke-pytorch` green; `ruff` + `mypy` clean.
 
 ### Story D.h: `clean` command [Planned]
 
