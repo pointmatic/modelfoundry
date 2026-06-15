@@ -37,6 +37,25 @@ class StageObserver(Protocol):
     def on_stage_skipped(self, stage: str) -> None: ...
 
 
+@runtime_checkable
+class ProgressReporter(Protocol):
+    """Fine-grained progress hooks the plugins call during a materialize (Story D.e.1).
+
+    `on_epoch` fires from the trainer after each epoch's metrics are produced;
+    `on_trial_start` / `on_trial_done` bracket each Optuna trial during the
+    Optimization stage. The runner forwards a `ProgressReporter` to the plugins
+    only when its `StageObserver` also satisfies this Protocol (the CLI's
+    `RichStageProgress` implements both); library callers that pass a bare
+    `StageObserver` get stage-level progress only.
+    """
+
+    def on_epoch(self, epoch: int, record: dict[str, float]) -> None: ...
+
+    def on_trial_start(self, trial: int) -> None: ...
+
+    def on_trial_done(self, trial: int, value: float | None) -> None: ...
+
+
 @contextmanager
 def suppress_fd_output() -> Iterator[None]:
     """Redirect fds 1 and 2 to the null device for the duration of the block.

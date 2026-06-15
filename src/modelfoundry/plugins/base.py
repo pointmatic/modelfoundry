@@ -30,6 +30,7 @@ import numpy
 import pandas  # type: ignore[import-untyped]
 from pydantic import BaseModel, ConfigDict
 
+from modelfoundry.pipeline.progress import ProgressReporter
 from modelfoundry.recipe.models import (
     EvaluationSpec,
     ModelRecipe,
@@ -122,6 +123,8 @@ class Plugin(Protocol):
         data: DataRefineryInstance,
         seed: int,
         temp_dir: Path,
+        *,
+        progress: ProgressReporter | None = None,
     ) -> OptimizationResult: ...
 
     def run_training(
@@ -132,6 +135,8 @@ class Plugin(Protocol):
         data: DataRefineryInstance,
         seed: int,
         temp_dir: Path,
+        *,
+        progress: ProgressReporter | None = None,
     ) -> TrainingResult: ...
 
     def run_evaluation(

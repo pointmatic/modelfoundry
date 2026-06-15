@@ -27,11 +27,17 @@ from modelfoundry.core.instance import ModelInstance
 
 
 class RichStageProgress:
-    """A `StageObserver` that streams one `rich` line per materialization stage."""
+    """Streams `rich` progress: one line per stage, plus per-epoch / per-trial rows.
+
+    Implements both `StageObserver` (stage lifecycle, D.e) and `ProgressReporter`
+    (epoch / trial detail, D.e.1) so the runner can use one object — and one
+    console — for the whole materialize.
+    """
 
     def __init__(self, console: Console) -> None:
         self._console = console
 
+    # StageObserver
     def on_stage_start(self, stage: str) -> None:
         self._console.print(f"[cyan]▶[/cyan] {stage} …")
 
@@ -40,6 +46,22 @@ class RichStageProgress:
 
     def on_stage_skipped(self, stage: str) -> None:
         self._console.print(f"[dim]· {stage} (skipped)[/dim]")
+
+    # ProgressReporter
+    def on_epoch(self, epoch: int, record: dict[str, float]) -> None:
+        metrics = ", ".join(
+            f"{key}={_fmt(value)}"
+            for key, value in record.items()
+            if key != "epoch"
+        )
+        self._console.print(f"    [dim]epoch[/dim] {epoch}: {metrics}")
+
+    def on_trial_start(self, trial: int) -> None:
+        self._console.print(f"  [cyan]▸[/cyan] trial {trial} …")
+
+    def on_trial_done(self, trial: int, value: float | None) -> None:
+        rendered = "—" if value is None else _fmt(value)
+        self._console.print(f"  [green]✓[/green] trial {trial}: [dim]{rendered}[/dim]")
 
 
 def run(

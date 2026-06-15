@@ -32,6 +32,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 from modelfoundry._version import __version__
 from modelfoundry.core.errors import InstanceError, PluginError
 from modelfoundry.pipeline.data_binding import DataRefineryInstance
+from modelfoundry.pipeline.progress import ProgressReporter
 from modelfoundry.pipeline.seeding import derive_seed
 from modelfoundry.plugins.base import OperationSpec, Plugin
 from modelfoundry.plugins.sklearn import metrics
@@ -132,7 +133,11 @@ class SklearnPlugin:
         data: DataRefineryInstance,
         seed: int,
         temp_dir: Path,
+        *,
+        progress: ProgressReporter | None = None,
     ) -> SklearnTrainingResult:
+        # The sklearn baseline fits in one `.fit()` call — no per-epoch loop — so
+        # `progress` is accepted for Protocol conformance and intentionally unused.
         from modelfoundry.plugins.sklearn.data import feature_matrix
 
         x, y, classes = feature_matrix(data, "train")
@@ -261,6 +266,8 @@ class SklearnPlugin:
         data: DataRefineryInstance,
         seed: int,
         temp_dir: Path,
+        *,
+        progress: ProgressReporter | None = None,
     ) -> Any:
         raise NotImplementedError(
             "the sklearn baseline is a fixed comparison model and does not support "

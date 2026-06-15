@@ -39,6 +39,39 @@ from modelfoundry.core.modelfoundry import ModelFoundry
 from modelfoundry.pipeline.progress import suppress_fd_output
 
 
+@pytest.fixture(autouse=True)
+def _restore_determinism() -> Any:
+    yield
+    try:
+        import torch
+
+        torch.use_deterministic_algorithms(False)
+    except ImportError:
+        pass
+
+
+class _ProgressRecorder:
+    """A `ProgressReporter` (+ `StageObserver`) that records the events it receives."""
+
+    def __init__(self) -> None:
+        self.epochs: list[int] = []
+        self.trials_started: list[int] = []
+        self.trials_done: list[int] = []
+
+    def on_stage_start(self, stage: str) -> None: ...
+    def on_stage_done(self, stage: str, elapsed: float) -> None: ...
+    def on_stage_skipped(self, stage: str) -> None: ...
+
+    def on_epoch(self, epoch: int, record: dict[str, float]) -> None:
+        self.epochs.append(epoch)
+
+    def on_trial_start(self, trial: int) -> None:
+        self.trials_started.append(trial)
+
+    def on_trial_done(self, trial: int, value: float | None) -> None:
+        self.trials_done.append(trial)
+
+
 def _manifest(**overrides: Any) -> Manifest:
     base: dict[str, Any] = {
         "plugin": "pytorch",
@@ -85,6 +118,26 @@ def test_stage_observer_renders_skipped() -> None:
     out = _drain(RichStageProgress(Console(file=buf, width=120)), buf)
     assert "evaluation" in out
     assert "skip" in out.lower()
+
+
+def test_stage_observer_renders_epoch_row() -> None:
+    buf = io.StringIO()
+    RichStageProgress(Console(file=buf, width=120)).on_epoch(
+        2, {"epoch": 2.0, "train_loss": 0.4321, "val_accuracy": 0.75}
+    )
+    out = buf.getvalue()
+    assert "epoch" in out.lower() and "2" in out
+    assert "0.4321" in out
+
+
+def test_stage_observer_renders_trial_events() -> None:
+    buf = io.StringIO()
+    progress = RichStageProgress(Console(file=buf, width=120))
+    progress.on_trial_start(0)
+    progress.on_trial_done(0, 0.9123)
+    out = buf.getvalue()
+    assert "trial" in out.lower() and "0" in out
+    assert "0.9123" in out
 
 
 # --- suppress_fd_output: fd-level os.dup2 redirect ---
@@ -353,16 +406,17 @@ def _write_model_recipe(tmp_path: Path, *, max_epochs: int, n_trials: int) -> Pa
         "Loss": {"op": "cross_entropy"},
         "Optimizer": {"op": "adamw", "learning_rate": 0.01},
         "Training": {"max_epochs": max_epochs, "batch_size": 4, "num_workers": 0, "device": "cpu"},
-        "Optimization": {
-            "sampler": "tpe", "pruner": "none", "n_trials": n_trials,
-            "max_epochs_per_trial": 1,
-            "search_space": {"Optimizer.learning_rate": {"log_uniform": [1e-4, 1e-2]}},
-        },
         "Evaluation": {
             "splits": ["val"], "primary_metric": "accuracy",
             "metrics": ["accuracy", "macro_f1", "confusion_matrix"],
         },
     }
+    if n_trials > 0:
+        recipe["Optimization"] = {
+            "sampler": "tpe", "pruner": "none", "n_trials": n_trials,
+            "max_epochs_per_trial": 1,
+            "search_space": {"Optimizer.learning_rate": {"log_uniform": [1e-4, 1e-2]}},
+        }
     path = tmp_path / "recipe.yml"
     path.write_text(yaml.safe_dump(recipe), encoding="utf-8")
     return path
@@ -387,3 +441,53 @@ def test_cli_materialize_end_to_end_creates_instance(
     out = buf.getvalue()
     assert "materialized" in out.lower()
     assert "training" in out  # stage progress streamed
+    assert "epoch" in out.lower()  # D.e.1 per-epoch rows
+    assert "trial" in out.lower()  # D.e.1 per-trial events
+
+
+# --- D.e.1: per-epoch / per-trial progress reaches the plugins ---
+
+
+def test_run_training_reports_each_epoch(tmp_path: Path) -> None:
+    pytest.importorskip("torch")
+    from modelfoundry.plugins.discovery import discover_plugins
+    from modelfoundry.plugins.pytorch.trainer import run_training
+    from modelfoundry.recipe.loader import load_recipe
+
+    data = _build_dr_instance(tmp_path)
+    recipe = load_recipe(_write_model_recipe(tmp_path, max_epochs=3, n_trials=0))
+    model = discover_plugins()["pytorch"].build_model(recipe.Architecture)
+
+    recorder = _ProgressRecorder()
+    run_training(recipe.Training, model, recipe, data, 7, tmp_path / "t", progress=recorder)
+    assert recorder.epochs == [1, 2, 3]
+
+
+def test_run_training_silent_without_progress(tmp_path: Path) -> None:
+    pytest.importorskip("torch")
+    from modelfoundry.plugins.discovery import discover_plugins
+    from modelfoundry.plugins.pytorch.trainer import run_training
+    from modelfoundry.recipe.loader import load_recipe
+
+    data = _build_dr_instance(tmp_path)
+    recipe = load_recipe(_write_model_recipe(tmp_path, max_epochs=2, n_trials=0))
+    model = discover_plugins()["pytorch"].build_model(recipe.Architecture)
+
+    # No progress reporter → trainer runs to completion without raising.
+    result = run_training(recipe.Training, model, recipe, data, 7, tmp_path / "t")
+    assert result.epochs_run == 2
+
+
+def test_run_optimization_reports_each_trial(tmp_path: Path) -> None:
+    pytest.importorskip("torch")
+    from modelfoundry.plugins.pytorch.optimization import run_optimization
+    from modelfoundry.recipe.loader import load_recipe
+
+    data = _build_dr_instance(tmp_path)
+    recipe = load_recipe(_write_model_recipe(tmp_path, max_epochs=1, n_trials=2))
+    assert recipe.Optimization is not None
+
+    recorder = _ProgressRecorder()
+    run_optimization(recipe.Optimization, recipe, data, 7, tmp_path / "o", progress=recorder)
+    assert recorder.trials_started == [0, 1]
+    assert recorder.trials_done == [0, 1]

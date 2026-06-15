@@ -39,6 +39,7 @@ from torch.utils.data import DataLoader
 from modelfoundry.core.errors import PluginError
 from modelfoundry.pipeline.checkpoint import Checkpoint
 from modelfoundry.pipeline.data_binding import DataRefineryInstance
+from modelfoundry.pipeline.progress import ProgressReporter
 from modelfoundry.pipeline.seeding import derive_seed
 from modelfoundry.plugins.pytorch.augmentations import AugmentationOp, compose_augmentations
 from modelfoundry.plugins.pytorch.data import DataRefineryDataset, build_dataloader
@@ -77,12 +78,15 @@ def run_training(
     temp_dir: Path,
     *,
     epoch_callback: Callable[[int, dict[str, float]], None] | None = None,
+    progress: ProgressReporter | None = None,
 ) -> TrainingResult:
     """Train `model` over the bound instance, writing artifacts under `temp_dir`.
 
     `epoch_callback(epoch, record)` runs after each epoch's metrics are produced
     (before checkpointing) — the Optuna optimization stage (C.i) uses it to report
     intermediate values and raise `optuna.TrialPruned` to prune a trial early.
+    `progress`, when supplied, receives a per-epoch `on_epoch(epoch, record)` for
+    user-facing rendering (Story D.e.1); it is independent of `epoch_callback`.
     """
     enable_deterministic_algorithms()
     torch.manual_seed(derive_seed(seed, "dropout"))
@@ -143,6 +147,8 @@ def run_training(
             record["val_accuracy"] = val_accuracy
         history.append(record)
 
+        if progress is not None:
+            progress.on_epoch(epoch, record)
         if epoch_callback is not None:
             epoch_callback(epoch, record)
 

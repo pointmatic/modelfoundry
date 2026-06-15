@@ -22,12 +22,14 @@ plugin discovery; the plugin delegates here through a lazy import.
 from __future__ import annotations
 
 import json
+from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from modelfoundry.core.errors import OptimizationError
 from modelfoundry.pipeline.data_binding import DataRefineryInstance
+from modelfoundry.pipeline.progress import ProgressReporter, suppress_fd_output
 from modelfoundry.pipeline.seeding import derive_seed
 from modelfoundry.plugins.pytorch.architecture import build_model
 from modelfoundry.plugins.pytorch.determinism import enable_deterministic_algorithms
@@ -66,6 +68,8 @@ def run_optimization(
     data: DataRefineryInstance,
     seed: int,
     temp_dir: Path,
+    *,
+    progress: ProgressReporter | None = None,
 ) -> OptimizationResult:
     """Run the Optuna study and persist `trials.parquet` + `best-params.json`."""
     import optuna
@@ -91,7 +95,7 @@ def run_optimization(
     if opt.baseline_trial == "enqueue_recipe_defaults":
         study.enqueue_trial(baseline_params(recipe), skip_if_exists=True)
 
-    objective = _make_objective(opt, recipe, data, seed, metric_key, direction, opt_dir)
+    objective = _make_objective(opt, recipe, data, seed, metric_key, direction, opt_dir, progress)
     study.optimize(objective, n_trials=opt.n_trials, n_jobs=1)
 
     trials_parquet = opt_dir / "trials.parquet"
@@ -153,6 +157,7 @@ def _make_objective(
     metric_key: str,
     direction: str,
     opt_dir: Path,
+    progress: ProgressReporter | None,
 ) -> Any:
     import optuna
 
@@ -175,15 +180,25 @@ def _make_objective(
                 if trial.should_prune():
                     raise optuna.TrialPruned()
 
-        result = run_training(
-            training,
-            model,
-            trial_recipe,
-            data,
-            trial_seed,
-            opt_dir / "trials" / str(trial.number),
-            epoch_callback=report,
-        )
+        if progress is not None:
+            progress.on_trial_start(trial.number)
+
+        # Per-epoch progress is intentionally NOT forwarded to the inner trial
+        # training (it would drown the per-trial view). Trial 0 prints normally so
+        # the user can verify the recipe-defaults baseline; trials > 0 suppress
+        # backend fd 1/2 output (tech-spec § Optimization sub-process suppression).
+        suppress = progress is not None and trial.number > 0
+        with suppress_fd_output() if suppress else nullcontext():
+            result = run_training(
+                training,
+                model,
+                trial_recipe,
+                data,
+                trial_seed,
+                opt_dir / "trials" / str(trial.number),
+                epoch_callback=report,
+            )
+
         values = [rec[metric_key] for rec in result.history if metric_key in rec]
         if not values:
             raise OptimizationError(
@@ -191,6 +206,9 @@ def _make_objective(
                 stage="run_optimization",
                 detail={"metric": metric_key},
             )
-        return max(values) if direction == "maximize" else min(values)
+        best = max(values) if direction == "maximize" else min(values)
+        if progress is not None:
+            progress.on_trial_done(trial.number, best)
+        return best
 
     return objective

@@ -26,6 +26,7 @@ import pandas  # type: ignore[import-untyped]
 from pydantic import BaseModel, ConfigDict
 
 from modelfoundry._version import __version__
+from modelfoundry.pipeline.progress import ProgressReporter
 from modelfoundry.plugins.base import (
     DataRefineryInstance,
     EvaluationResult,
@@ -150,13 +151,15 @@ class PyTorchPlugin:
         data: DataRefineryInstance,
         seed: int,
         temp_dir: Path,
+        *,
+        progress: ProgressReporter | None = None,
     ) -> OptimizationResult:
         # Lazy import keeps this module (loaded on every discovery) torch-free.
         from modelfoundry.plugins.pytorch.optimization import (
             run_optimization as _run_optimization,
         )
 
-        return _run_optimization(opt, recipe, data, seed, temp_dir)
+        return _run_optimization(opt, recipe, data, seed, temp_dir, progress=progress)
 
     def run_training(
         self,
@@ -166,11 +169,13 @@ class PyTorchPlugin:
         data: DataRefineryInstance,
         seed: int,
         temp_dir: Path,
+        *,
+        progress: ProgressReporter | None = None,
     ) -> TrainingResult:
         # Lazy import keeps this module (loaded on every discovery) torch-free.
         from modelfoundry.plugins.pytorch.trainer import run_training as _run_training
 
-        return _run_training(training, model, recipe, data, seed, temp_dir)
+        return _run_training(training, model, recipe, data, seed, temp_dir, progress=progress)
 
     def run_evaluation(
         self,

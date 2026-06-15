@@ -38,7 +38,7 @@ from modelfoundry.core.manifest import Manifest, ManifestWarning, OptimizationMa
 from modelfoundry.logging import get_logger
 from modelfoundry.pipeline.data_binding import DataRefineryInstance
 from modelfoundry.pipeline.expectations import evaluate_expectations
-from modelfoundry.pipeline.progress import StageObserver
+from modelfoundry.pipeline.progress import ProgressReporter, StageObserver
 from modelfoundry.plugins.base import InstanceArtifacts, Plugin
 from modelfoundry.recipe.canonical import recipe_hash
 from modelfoundry.recipe.models import ModelRecipe
@@ -89,6 +89,12 @@ class MaterializeRunner:
 
     def _materialize(self, temp_dir: Path, key: CacheKey, started: float) -> Manifest:
         recipe = self.recipe
+        # Fine-grained (epoch/trial) progress is opt-in: forwarded to the plugins
+        # only when the stage observer also satisfies the ProgressReporter Protocol
+        # (the CLI's RichStageProgress does; a bare StageObserver does not).
+        progress: ProgressReporter | None = (
+            self.observer if isinstance(self.observer, ProgressReporter) else None
+        )
 
         model = self._stage("architecture", lambda: self.plugin.build_model(recipe.Architecture))
 
@@ -99,7 +105,7 @@ class MaterializeRunner:
             opt_result = self._stage(
                 "optimization",
                 lambda: self.plugin.run_optimization(
-                    opt_spec, base_recipe, self.data, self.seed, temp_dir
+                    opt_spec, base_recipe, self.data, self.seed, temp_dir, progress=progress
                 ),
             )
             recipe = apply_params(recipe, opt_result.best_params)
@@ -115,7 +121,7 @@ class MaterializeRunner:
         training_result = self._stage(
             "training",
             lambda: self.plugin.run_training(
-                recipe.Training, model, recipe, self.data, self.seed, temp_dir
+                recipe.Training, model, recipe, self.data, self.seed, temp_dir, progress=progress
             ),
         )
 
