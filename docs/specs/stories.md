@@ -739,13 +739,13 @@ Build the test suite. By end of Phase E, the project has: a synthesized DataRefi
 - [x] (Housekeeping — triaged) `num_workers` (a pure-performance knob) participates in canonical cache identity, so changing it forks the cache despite producing identical output. **Decision (2026-06-15): deferred** to `## Future` → "`num_workers` cache-identity reclassification", which scopes both options (reclassify as execution context vs. exclude from canonical bytes) with LOE. Not blocking PyPI publication.
 - [x] Verify: `pyve test --env smoke-pytorch` → **584 passed, 1 xfailed**; `ruff check src tests` clean; `mypy src tests` clean (120 files). **Cache-output note:** this changes materialized weight bytes (now deterministic) and the checkpoint format (pickle → `torch.save`) — pre-prod acceptable per OR-9 (users re-materialize). No recipe canonical-bytes change, so cache identity / `recipe_hash` is unaffected.
 
-### Story E.f: Loose-coupling guarantee test [Planned]
+### Story E.f: Loose-coupling guarantee test [Done]
 
 `features.md` TR-7. **Validates `project-essentials.md` § Loose-coupled DataRefinery binding.**
 
-- [ ] `tests/integration/test_loose_coupling.py`: build a DataRefinery fixture instance; materialize a ModelFoundry recipe against it. Re-build the DataRefinery fixture (same shape, same seed → same triple, so `data_instance_hash16` is unchanged) and assert the ModelFoundry cache is unchanged; the second `materialize()` returns a cache hit.
-- [ ] Also test: change the DataRefinery fixture's seed → different triple → `data_instance_hash16` changes → ModelFoundry's cache miss is correct.
-- [ ] Verify: integration test passes; assertion explicitly checks that ModelFoundry never wrote to DataRefinery's cache tree.
+- [x] `tests/integration/test_loose_coupling.py`: build a DataRefinery fixture instance; materialize a ModelFoundry recipe against it. Re-build the DataRefinery fixture (same shape, same seed → same triple, so `data_instance_hash16` is unchanged) and assert the ModelFoundry cache is unchanged; the second `materialize()` returns a cache hit. (Reconciliation: the pre-production model has no "skip-and-return-existing" short-circuit — `cache.atomic` refuses to clobber a promoted instance, so a re-`materialize()` without `--overwrite` raises `ModelArtifactExistsError` rather than returning. The "cache hit" guarantee is therefore pinned as: unchanged `CacheKey` + unchanged `instance_dir` + `status()` reporting the instance already materialized at the same directory + the re-`materialize()` refused with the promoted bytes left byte-identical. An actual cache-hit short-circuit would be a runner behavior change beyond this test-only story and conflicts with `test_existing_instance_blocks_without_overwrite`.)
+- [x] Also test: change the DataRefinery fixture's seed → different triple → `data_instance_hash16` changes → ModelFoundry's cache miss is correct. (Both seeds materialize into their own distinct, non-colliding instance directories.)
+- [x] Verify: integration test passes; assertion explicitly checks that ModelFoundry never wrote to DataRefinery's cache tree. (Dedicated `test_materialize_never_writes_to_datarefinery_cache`: the DataRefinery tree is byte-for-byte unchanged across a full materialize, and the ModelInstance dir resolves under ModelFoundry's own cache root, never under the DataRefinery root.)
 
 ### Story E.g: PyTorch plugin tests — metrics + optimization + augmentation equivalence [Planned]
 
