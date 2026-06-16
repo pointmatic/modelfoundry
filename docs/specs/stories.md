@@ -842,15 +842,15 @@ F.b.1 documented the light `testenv` as "lint/format only," but the intended des
 - [x] Extend the topology guard [tests/unit/test_env_docs_topology.py](../../tests/unit/test_env_docs_topology.py) to assert `testenv` is described as a test runner (not lint-only) — the new `test_testenv_is_described_as_the_framework_agnostic_test_runner` asserts the §6 coverage-matrix Unit-tests row attributes the framework-agnostic suite to `testenv` (red under F.b.1's docs → green after this correction).
 - [x] Verify: `pyve test` (testenv) green (framework-agnostic suite + 39 torch/CLI skips), `pyve test --env smoke-pytorch` green (full suite incl. torch), `pyve env run testenv -- ruff check src tests` + `pyve env run typecheck -- mypy src tests` clean. (`pyve test` → **479 passed, 39 skipped, 1 xfailed**; `pyve test --env smoke-pytorch` → **646 passed, 1 xfailed**; ruff check + `ruff format --check` clean; mypy clean (140 files).)
 
-### Story F.c: v0.7.0 Release prep — CHANGELOG curation + pyproject.toml metadata audit [Planned]
+### Story F.c: v0.7.0 Release prep — CHANGELOG curation + pyproject.toml metadata audit [Done]
 
 Owns the Phase F v0.7.0 bump.
 
-- [ ] Curate `CHANGELOG.md`: per-phase summary entries with the right semver headers; add the v0.1.0 → v0.7.0 changelog history if any phase summaries were skipped during work.
-- [ ] Audit `pyproject.toml` metadata: project description, keywords, classifiers (`Development Status :: 3 - Alpha`, `License :: OSI Approved :: Apache Software License`, `Programming Language :: Python :: 3.12`, etc.), `urls` (homepage, repository, issues), `readme = "README.md"`, `license-file = "LICENSE"`, `[project.urls]`.
-- [ ] Bump version to v0.7.0.
-- [ ] Update CHANGELOG.md (Phase F summary: release-ready README + docstring pass + metadata audit).
-- [ ] Verify: `pyve run python -m build` produces a clean sdist + wheel; `pyve run twine check dist/*` passes; `pyve env run typecheck -- mypy src tests` clean; `pyve env run testenv -- ruff check src tests` clean.
+- [x] Curate `CHANGELOG.md`: per-phase summary entries with the right semver headers; add the v0.1.0 → v0.7.0 changelog history if any phase summaries were skipped during work. (History was already complete v0.1.0 → v0.6.0; added the **[0.7.0]** Phase F entry summarizing F.a / F.b / F.b.1 / F.b.2 / F.c with Added / Changed / Fixed sections. Historical entries left intact — the obsolete-topology prose in the [0.4.0] "Changed" rows is correct as a record of what those releases did.)
+- [x] Audit `pyproject.toml` metadata: project description, keywords, classifiers, `urls` (homepage, repository, issues), `readme = "README.md"`, license + `[project.urls]`. (Metadata was already strong; added `Programming Language :: Python :: 3 :: Only`. **Note:** the project uses the modern PEP 639 `license = "Apache-2.0"` SPDX expression + `license-files = ["LICENSE"]`, so the deprecated `License :: OSI Approved :: Apache Software License` classifier from the task text is intentionally **omitted** — `twine check` rejects an SPDX expression alongside a `License ::` classifier. Pinned both invariants in [tests/unit/test_release_metadata.py](../../tests/unit/test_release_metadata.py).)
+- [x] Bump version to v0.7.0. ([src/modelfoundry/_version.py](../../src/modelfoundry/_version.py) `0.6.0 → 0.7.0`; the built artifacts are `ml_modelfoundry-0.7.0`.)
+- [x] Update CHANGELOG.md (Phase F summary: release-ready README + docstring pass + env reconcile + testenv wiring + metadata audit).
+- [x] Verify: `pyve run python -m build` produces a clean sdist + wheel; `pyve run twine check dist/*` passes; `pyve env run typecheck -- mypy src tests` clean; `pyve env run testenv -- ruff check src tests` clean. (`python -m build` → `ml_modelfoundry-0.7.0.tar.gz` + wheel; `twine check dist/*` → **both PASSED**; `mypy` clean (141 files); `ruff check` + `ruff format --check` clean. `twine` added to `requirements-dev.txt` for the release gate. Suites: `pyve test` → **481 passed, 39 skipped, 1 xfailed**; `pyve test --env smoke-pytorch` → **648 passed, 1 xfailed**. New TDD guard: CHANGELOG-top-version == `__version__` (red after the bump → green after the [0.7.0] entry).)
 
 ---
 

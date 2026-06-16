@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-06-15
+
+Phase F release — documentation polish and release prep. A release-ready README with the
+CIFAR-10 quickstart, a public-API docstring pass backed by a permanent docstring-quality +
+cross-link gate, a reconciliation of the env-topology docs (and the `testenv` itself) to the
+live venv multi-env layout, and a CHANGELOG + `pyproject.toml` metadata audit. No runtime
+behavior changed; the package is ready for its first tagged release (the PyPI publish lands in
+Phase G).
+
+### Added
+
+- README quickstart + walkthrough (Story F.a, UR-6): replaced the A.a placeholder `README.md` with the release-ready document — install, the two-step CIFAR-10 quickstart over the bundled recipes, the `ModelFoundry.from_recipe(...).materialize()` library example, the eight-verb CLI surface, the notebook-substrate-neutral `IPython.display.Image(mi.figures[...])` example, and pointers into `docs/specs/`.
+- Docstring-quality + cross-link gates (Story F.b): enabled ruff's pydocstyle (`D`) quality rules (`convention = "google"`, the `D1xx` missing-docstring mandates excluded) so the public-API docstrings are checked on every lint; new `tests/unit/test_docs_crosslinks.py` validates every relative link in the first-party `docs/specs/*.md` resolves (vendored sibling-project copies excluded).
+- Env-topology + release-metadata guard tests (Stories F.b.1 / F.b.2 / F.c): `tests/unit/test_env_docs_topology.py` pins the docs to the live venv multi-env layout (and that `testenv` is described as the framework-agnostic test runner); `tests/unit/test_release_metadata.py` pins the CHANGELOG-top-version == `__version__` and the PEP 639 SPDX-license invariants.
+- `requirements-test.txt` (Story F.b.2): the `[env.testenv]` dependency set — base `-e .` (no torch) + `-r requirements-dev.txt` — so plain `pyve test` runs the framework-agnostic suite (the torch tests skip via `importorskip` and run in `smoke-pytorch`).
+
+### Changed
+
+- Public-API docstrings tightened to release quality (Story F.b): full one-line-summary + Args/Returns/Raises (+ FR references) on `ModelFoundry`, `ModelInstance`, the top-level `materialize`, and the `InspectionView` accessors. Corrected the stale `ModelInstance` accessor contract across `concept.md` / `features.md` / `tech-spec.md` to the shipped shape — `.metrics` is an alias for `.evaluation` (a per-split dict, not a per-epoch DataFrame), `.figures` returns PNG `bytes` (not `matplotlib.figure.Figure`), and `.calibration` / `.predictions` are a single `DataFrame | None`.
+- Env-topology docs reconciled to the venv multi-env layout (Story F.b.1, supersedes B.o / B.p): rewrote `docs/specs/env-dependencies.md` (and the env sections of `tech-spec.md` / `concept.md`) from the obsolete two-micromamba design to the `pyve.toml` venv layout — `root` / `testenv` + lazy `smoke-pytorch` / `smoke-tensorflow` / `smoke-huggingface` / `typecheck` (all `backend = venv`); the B.o / B.p story bodies are marked superseded.
+- `testenv` re-described and re-wired as the framework-agnostic test runner (Story F.b.2): `[env.testenv]` now installs the base package closure (`requirements-test.txt`), so the default `pyve test` runs every test that doesn't need a framework extra; `smoke-pytorch` owns the torch tests. The coverage matrix and env specs were corrected accordingly.
+- Release metadata audit (Story F.c): `pyproject.toml` classifiers add `Programming Language :: Python :: 3 :: Only`; `twine` added to `requirements-dev.txt` for the `twine check` release gate. **Owns the Phase F v0.7.0 bump.**
+
+### Fixed
+
+- Three torch-dependent CLI tests now skip cleanly in the torch-free `testenv` (Story F.b.2): `test_app.py::test_shared_flag_reaches_the_callback` and `test_validate_cmd.py::test_cli_validate_passing_recipe_exits_0` were failing (the `check` verb / pytorch-recipe validation need the pytorch plugin), and `::test_cli_validate_failing_recipe_exits_1` was passing for the wrong reason (a missing-plugin check 2 masking the intended check 12) — all three gained `pytest.importorskip("torch")`.
+- Seven broken first-party cross-links in `stories.md` (Story F.b): repo-root-relative test/source links that 404 from `docs/specs/` were corrected to the established `../../` relative form.
+
 ## [0.6.0] - 2026-06-15
 
 Phase E release — the complete test & quality suite, capped by the CIFAR-10

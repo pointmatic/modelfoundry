@@ -1,8 +1,9 @@
 # Copyright (c) 2026 Pointmatic
 # SPDX-License-Identifier: Apache-2.0
 #
-# Dev tooling for the pyve testenv. Reproduce with:
-#   pyve testenv init && pyve testenv install -r requirements-dev.txt
+# Shared dev/test tooling, folded into requirements-test.txt ([env.testenv]) and
+# requirements-typecheck.txt ([env.typecheck]). Reproduce the default test env with:
+#   pyve env init testenv && pyve env run testenv -- pip install -r requirements-test.txt
 ruff
 mypy
 pytest
@@ -12,3 +13,4 @@ nbclient
 ipykernel
 types-pyyaml
 build
+twine
