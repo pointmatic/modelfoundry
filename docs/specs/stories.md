@@ -889,6 +889,20 @@ Wire up CI/CD automation. `ci.yml` runs lint + types + tests + CIFAR-10 smoke on
 - [x] Push the `v0.8.0` tag → `publish.yml` triggers → `ml-modelfoundry==0.8.0` lands on PyPI. — **developer release action**
 - [ ] Verify: workflow file syntactically valid; tagged release publishes successfully; `pip install ml-modelfoundry[pytorch]` from a clean Python 3.12 venv installs cleanly and `modelfoundry --version` prints `0.8.0`. — **Syntactic validity + structural guards confirmed locally** (valid YAML; `tests/unit/test_publish_workflow.py` green; `ruff check` + `mypy` clean). The "tagged release publishes / clean-venv install" halves are confirmable only post-publish by the developer.
 
+### Story G.c: v0.8.1 — CI clean-checkout reproducibility fixes [Done]
+
+Bugfix patch. The G.a CI workflow's first run on a clean GitHub checkout surfaced five failures invisible in a working dev tree: two files present locally but excluded from git, plus a Homebrew-only pyve install the ubuntu (stretch) runner can't satisfy. No runtime behavior changed; owns the v0.8.1 patch bump (bugfix per Version Cadence).
+
+- [x] Un-ignore the bundled DataRefinery base recipe. `.gitignore`'s `recipes/cifar10*.yaml` pattern swallowed `recipes/cifar10-base.yaml` — bound by [tests/cli/test_validate_cmd.py](../../tests/cli/test_validate_cmd.py), [tests/integration/test_cifar10_resnet20.py](../../tests/integration/test_cifar10_resnet20.py), the README quickstart, and the tracked `cifar10_resnet20.yml` data binding — so CI hit `FileNotFoundError`. Added a `!recipes/cifar10-base.yaml` negation; new guard [tests/unit/test_bundled_recipes_committed.py](../../tests/unit/test_bundled_recipes_committed.py) (exists / not-ignored / tracked) — **red→green**.
+- [x] **Developer action:** commit the staged `recipes/cifar10-base.yaml` with this story (already `git add`ed). The .gitignore negation alone doesn't track the file — without the commit, CI's clean checkout still lacks it.
+- [x] Make the cross-link guard tolerate install output. [tests/unit/test_docs_crosslinks.py](../../tests/unit/test_docs_crosslinks.py) flagged spec links into `docs/project-guide/` (e.g. `../project-guide/go.md`) as broken on a clean checkout — that tree is tool-generated install output (`project-guide init`), intentionally uncommitted. Added the same exclusion the vendored sibling-project copies use; verified by moving `docs/project-guide/` aside (simulated clean checkout → guard passes) — **reproduced→fixed**.
+- [x] Install pyve cross-platform in CI instead of Homebrew. The ubuntu (stretch) runner died at `brew install pointmatic/tap/pyve` (`brew: command not found` — no Homebrew on GitHub's ubuntu image). [.github/workflows/ci.yml](../../.github/workflows/ci.yml) now clones `pointmatic/pyve` and runs `pyve.sh self install` (→ `~/.local/bin`, appended to `$GITHUB_PATH`), which works on macOS + Linux; Linux stays a non-blocking stretch entry. Guarded by [tests/unit/test_ci_workflow.py](../../tests/unit/test_ci_workflow.py) (`self install` present, `brew install` absent).
+- [x] Bump version to v0.8.1. ([src/modelfoundry/_version.py](../../src/modelfoundry/_version.py) `0.8.0 → 0.8.1`.)
+- [x] Update CHANGELOG.md. (New top `## [0.8.1] - 2026-06-15` entry, three Fixed bullets: bundled recipe, cross-link guard, cross-platform pyve install.)
+- [ ] Verify: clean-checkout reproduction green. (Local: full suite **497 passed, 39 skipped, 1 xfailed**; `ruff check` + `ruff format --check` clean; `mypy` clean (144 files); the new/updated guards red→green; crosslink fix verified with `docs/project-guide/` moved aside. **Post-commit:** confirmable only once the staged recipe + workflow reach a CI run — macOS green, Linux stretch installs pyve.)
+
+**Open question:** `recipes/cifar10c-eval.yaml` (CIFAR-10-C corruption-eval recipe) is also `.gitignore`d and referenced by nothing in the suite / README / deliverable. Left ignored — if it's meant to be a bundled example, say so and I'll un-ignore + track it alongside the base recipe.
+
 ---
 
 ## Future

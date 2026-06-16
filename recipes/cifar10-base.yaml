@@ -1,0 +1,337 @@
+# Copyright (c) 2026 Michael Smith
+# SPDX-License-Identifier: Apache-2.0
+#
+# Story B.b (v0.2.0) — canonical CIFAR-10 base recipe for Phase B / Task 2.
+# Balanced 300-per-class subsample of the 50K-record CIFAR-10 train set →
+# 3,000 surviving records, three-way stratified into train=1700, val=300,
+# test=1000 (170/30/100 per class). Normalize per-channel is fitted on train
+# and applied to all splits; lazy augmentations run train-only. Variants for
+# downstream modules (mlp_flat, random_erasing, imbalanced*, no_augment) are
+# declared here as the canonical forward-looking contract; Task 2 only
+# materializes the default variant, and several variants reference DR v1
+# gaps (see Recipe-vs-DR-v1 list below) — they are intentionally aspirational
+# and will become materializable when upstream catches up.
+#
+# Recipe-vs-DataRefinery-0.16.0-runtime gaps documented in CHANGELOG. These are
+# runtime implementation gaps in datarefinery 0.16.0, NOT recipe schema gaps —
+# every section referenced below is part of `schema_version: 1`. The fixes are
+# upstream code in the datarefinery package (plugin op registration, validator
+# semantics, contracts evaluator) and won't bump the recipe schema:
+#  - Featurizations.categorical_encode is not in the image_classification
+#    plugin's _FEATURIZATION_OPS table (0.16.0 ships only `label_from_path`
+#    and `image_size_stats`). label_id derivation deferred until the plugin
+#    adds the op or downstream consumers derive label_id at JSONL-read time.
+#  - OutputExpectations evaluator (pipeline/contracts.py in 0.16.0) supports
+#    flat-record kinds only: record_count, required_field, dtype, range, and a
+#    distributional placeholder. Per-split, per-class, and tensor value-range
+#    kinds are not yet implemented; manifest reports per-split counts, project
+#    verifies per-class out-of-band. Adding kinds is a contracts-evaluator
+#    change; the schema's `assertion: dict[str, Any]` already accepts them.
+#  - Visualizations stage is `str` in the schema model; 0.16.0 runs every
+#    reporting visualization at post_pipeline. The phase plan's pre- vs
+#    post-normalize sample_grid distinction collapses to one sample_grid op.
+#  - Splits.applies_to: validator check 20 in 0.16.0 binds `applies_to` to
+#    `InputSource.partition` names, so a `sample_per_class_tags`-based
+#    disjoint-pool design (applies_to: train_pool) is rejected. The schema
+#    field is just `str`; broadening the semantics is a validator-side change.
+#    Workaround: collapse to a single destructive `sample_per_class n=300` +
+#    three-way stratified Splits (train=17/30, val=3/30, test=10/30). Outcome
+#    counts and per-class balance match (1700/300/1000, 170/30/100 per class);
+#    Recipe B (Story B.c) replays the same filter+Splits config to inherit
+#    the same test selection.
+#  - Transformations.cast_dtype is registered in the plugin's OperationSpec
+#    table (validator check 18 passes) but missing from _TRANSFORMATION_OPS in
+#    0.16.0 (NotImplementedError at materialize time). The recipe omits the
+#    cast step; NormalizeOp auto-promotes uint8 → float64 during fit/apply.
+#    Image dtype lands as float64, not the phase plan's float32.
+#  - Featurizations.label_from_path conflicts with image_flat+label_from when
+#    Labels.source.kind=direct: the loader has already attached `label`, so
+#    the Featurization's output_field='label' collides. This is a runtime
+#    interaction, not a schema gap; the Featurization is omitted entirely.
+#  - Augmentations + augmented_sample_grid viz: 0.16.0's PIL-backed
+#    augmentation realizers assume uint8 input, but visualizations run on
+#    post-normalize float64 images, raising TypeError. Dropped from this
+#    recipe; augmentations remain declared as lazy policy.
+
+schema_version: 1
+plugin: image_classification
+seed: 20260509
+
+Input:
+  sources:
+    - name: cifar10_train
+      type: image_flat
+      path: data/raw/cifar-10/train
+      label_from:
+        path: data/raw/cifar-10/trainLabels.csv
+        join: by_id
+        id_field: id
+        label_field: label
+
+Labels:
+  field: label
+  source:
+    kind: direct
+
+Output:
+  record_schema:
+    image:
+      dtype: float64
+      shape: [32, 32, 3]
+    label:
+      dtype: str
+    path:
+      dtype: str
+
+InputContracts:
+  - assertion:
+      kind: record_count
+      min: 50000
+      max: 50000
+    severity: error
+  - field: label
+    assertion:
+      kind: required_field
+    severity: error
+  - field: path
+    assertion:
+      kind: required_field
+    severity: error
+
+Filters:
+  - name: balanced_subset_300_per_class
+    predicate:
+      op: sample_per_class
+      n_per_class: 300
+      seed: 11
+    stages: [pre_split]
+    seed: 11
+
+Splits:
+  ratios:
+    train: 0.5666666666666667
+    val: 0.1
+    test: 0.3333333333333333
+  stratify_by: label
+  seed: 11
+
+Transformations:
+  - name: normalize_per_channel
+    op: normalize
+    fit_source: train
+    splits: [train, val, test]
+
+OutputExpectations:
+  - assertion:
+      kind: record_count
+      min: 3000
+      max: 3000
+    severity: error
+  - field: label
+    assertion:
+      kind: required_field
+    severity: error
+  - field: path
+    assertion:
+      kind: required_field
+    severity: error
+
+Sinks:
+  # Persist uint8 RGB images per record to the cache instance directory at
+  # materialize time. Capture point is `post_Splits` — records are still
+  # uint8 (Transformations.normalize runs later and would stomp to float64).
+  # Story B.g's export step rsyncs <cache>/exports/cifar-10/ into
+  # data/materialized/cifar-10-seed11/ verbatim; no project-side image
+  # decode/encode round-trip.
+  - name: cifar10_base_uint8
+    stage: post_Splits
+    splits: [train, val, test]
+    field: image
+    format: png_per_record
+    # `{record_id}` is loader-stamped as `<source_name>/<filename>` (carries
+    # the source PNG's extension), so `{record_id}.png` produces a
+    # `<id>.png.png` double-extension. `{path|stem}` strips the extension
+    # and source-name prefix, yielding a clean filename.
+    path_template: "exports/cifar-10/{split}/{label}/{path|stem}.png"
+
+Visualizations:
+  - name: class_distribution
+    op: class_distribution_histogram
+    stage: post_pipeline
+    mode: reporting
+  - name: sample_grid
+    op: sample_grid
+    params:
+      n: 20
+      per_class: true
+    stage: post_pipeline
+    mode: reporting
+  - name: pixel_distribution
+    op: pixel_distribution
+    params:
+      bins: 64
+      splits: [train, val, test]
+    stage: post_pipeline
+    mode: reporting
+
+Augmentations:
+  - name: random_crop
+    op: random_crop
+    params:
+      size: 32
+      padding: 4
+      padding_mode: reflect
+    splits: [train]
+    seed: 101
+  - name: horizontal_flip
+    op: horizontal_flip
+    params:
+      p: 0.5
+    splits: [train]
+    seed: 102
+  - name: color_jitter
+    op: color_jitter
+    params:
+      brightness: 0.2
+      contrast: 0.2
+      saturation: 0.2
+      hue: 0.0
+    splits: [train]
+    seed: 103
+
+variants:
+  no_augment:
+    Augmentations: []
+  mlp_flat:
+    # Module 3 (sklearn MLP). Flattening + label_id derivation would be
+    # required here; flattening is a plugin op gap in v1, so this variant is
+    # a placeholder for future Phase D / Module 3 work and is not materialized
+    # by Task 2.
+    Augmentations: []
+  random_erasing:
+    Augmentations:
+      - name: random_crop
+        op: random_crop
+        params:
+          size: 32
+          padding: 4
+          padding_mode: reflect
+        splits: [train]
+        seed: 101
+      - name: horizontal_flip
+        op: horizontal_flip
+        params:
+          p: 0.5
+        splits: [train]
+        seed: 102
+      - name: color_jitter
+        op: color_jitter
+        params:
+          brightness: 0.2
+          contrast: 0.2
+          saturation: 0.2
+          hue: 0.0
+        splits: [train]
+        seed: 103
+      - name: random_erasing
+        op: random_erasing
+        params:
+          p: 0.25
+        splits: [train]
+        seed: 104
+  imbalanced:
+    # Module 9 imbalance experiment: undersample classes 0,1,2 (airplane,
+    # automobile, bird) by 75% relative to the balanced 200/class baseline.
+    # Declared here as the canonical contract; not materialized in Task 2.
+    Filters:
+      - name: balanced_subset_train_pool
+        predicate:
+          op: sample_per_class_fractional
+          n_per_class_base: 200
+          fractions:
+            airplane: 0.25
+            automobile: 0.25
+            bird: 0.25
+          seed: 11
+          label: train_pool
+        stages: [pre_split]
+        seed: 11
+      - name: balanced_subset_test_pool
+        predicate:
+          op: sample_per_class
+          n_per_class: 100
+          seed: 11
+          label: test_pool
+          exclude_already_labeled: [train_pool]
+        stages: [pre_split]
+        seed: 11
+  imbalanced_oversample:
+    # Imbalance + Generation.duplicate_minority_class mitigation. Declared as
+    # the canonical contract; not materialized in Task 2.
+    Filters:
+      - name: balanced_subset_train_pool
+        predicate:
+          op: sample_per_class_fractional
+          n_per_class_base: 200
+          fractions:
+            airplane: 0.25
+            automobile: 0.25
+            bird: 0.25
+          seed: 11
+          label: train_pool
+        stages: [pre_split]
+        seed: 11
+      - name: balanced_subset_test_pool
+        predicate:
+          op: sample_per_class
+          n_per_class: 100
+          seed: 11
+          label: test_pool
+          exclude_already_labeled: [train_pool]
+        stages: [pre_split]
+        seed: 11
+    Generation:
+      - name: oversample_minority
+        inputs: [train]
+        output_schema:
+          image:
+            dtype: float32
+            shape: [32, 32, 3]
+          label:
+            dtype: str
+          path:
+            dtype: str
+        seed: 105
+        applies_at: [train]
+        params: {}
+  imbalanced_classweight:
+    # Imbalance + Splits.class_balance mitigation. Declared; not materialized.
+    Filters:
+      - name: balanced_subset_train_pool
+        predicate:
+          op: sample_per_class_fractional
+          n_per_class_base: 200
+          fractions:
+            airplane: 0.25
+            automobile: 0.25
+            bird: 0.25
+          seed: 11
+          label: train_pool
+        stages: [pre_split]
+        seed: 11
+      - name: balanced_subset_test_pool
+        predicate:
+          op: sample_per_class
+          n_per_class: 100
+          seed: 11
+          label: test_pool
+          exclude_already_labeled: [train_pool]
+        stages: [pre_split]
+        seed: 11
+    Splits:
+      ratios:
+        train: 0.85
+        val: 0.15
+      stratify_by: label
+      seed: 11
+      class_balance: weighted_sampling

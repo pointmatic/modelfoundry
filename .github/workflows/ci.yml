@@ -11,8 +11,10 @@
 #   * smoke-pytorch  — the whole pytest suite with the torch runtime (lazy env)
 #
 # CI accommodations (Story G.a task 2):
-#   * pyve is installed from the Homebrew tap `pointmatic/tap`; Homebrew is
-#     preinstalled on both GitHub macOS and ubuntu runners.
+#   * pyve is installed cross-platform via its own `self install`: clone
+#     pointmatic/pyve and run `pyve.sh self install`, which copies pyve into
+#     ~/.local/bin. This replaces a Homebrew install — Homebrew is not available
+#     on GitHub's ubuntu image, which broke the Linux runner at the install step.
 #   * Python 3.12 is provisioned by actions/setup-python (the project's asdf pin
 #     `.tool-versions` = 3.12.13 is unavailable in CI; any 3.12.x satisfies
 #     `requires-python = ">=3.12,<3.14"`). pyve builds its venvs off this python.
@@ -56,7 +58,10 @@ jobs:
           python-version: "3.12"
 
       - name: Install pyve
-        run: brew install pointmatic/tap/pyve
+        run: |
+          git clone --depth 1 https://github.com/pointmatic/pyve.git "$RUNNER_TEMP/pyve"
+          "$RUNNER_TEMP/pyve/pyve.sh" self install
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       # --- Lint + format (testenv) -------------------------------------------
       - name: Provision testenv

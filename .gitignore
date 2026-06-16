@@ -54,5 +54,10 @@ data/
 
 # project
 do-not-commit*.md
+# Local/scratch CIFAR recipes are ignored, but the bundled DataRefinery base
+# recipe that the test suite + README quickstart + the cifar10_resnet20
+# deliverable all bind to must ship in the repo — a clean CI checkout can't
+# fetch it otherwise (Story G.c).
 recipes/cifar10*.yaml
+!recipes/cifar10-base.yaml
 scripts/data_refinery_materize.py

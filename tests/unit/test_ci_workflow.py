@@ -90,3 +90,11 @@ def test_ci_matrix_has_macos_primary_and_linux_stretch() -> None:
     assert macos["experimental"] is False
     assert linux["experimental"] is True
     assert "matrix.experimental" in job["continue-on-error"]
+
+
+def test_ci_installs_pyve_cross_platform() -> None:
+    # pyve is installed via `self install`, not Homebrew — `brew` is absent on
+    # GitHub's ubuntu image and broke the Linux (stretch) runner (Story G.c).
+    commands = _all_run_commands()
+    assert "self install" in commands, "expected `pyve.sh self install` cross-platform install"
+    assert "brew install" not in commands, "brew is unavailable on the Linux runner"
