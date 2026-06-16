@@ -903,6 +903,16 @@ Bugfix patch. The G.a CI workflow's first run on a clean GitHub checkout surface
 
 **Open question:** `recipes/cifar10c-eval.yaml` (CIFAR-10-C corruption-eval recipe) is also `.gitignore`d and referenced by nothing in the suite / README / deliverable. Left ignored — if it's meant to be a bundled example, say so and I'll un-ignore + track it alongside the base recipe.
 
+### Story G.d: v0.8.2 — CLI path-wrapping fix (rich `soft_wrap`) [Done]
+
+Bugfix patch. With the Linux runner now installing pyve and running the full suite (G.c Fix C), CI surfaced a new environment-specific failure: `tests/cli/test_report_cmd.py::test_cli_report_exits_0_and_prints_path` failed because rich soft-wrapped the long instance path at its 80-column no-TTY fallback width, splitting `report.md` across lines (`…/report/r` ⏎ `eport.md`). A wrapped file path is also a genuine UX defect — uncopyable. Local runs passed only because the dev shell exports a wide `COLUMNS`. Owns the v0.8.2 patch bump.
+
+- [x] Stop the CLI line-wrapping printed paths. The `report` / `init` / `inspect` verbs printed `… → <path>` via `console.print(...)` ([report_cmd.py:48](../../src/modelfoundry/cli/commands/report_cmd.py), [init_cmd.py:36](../../src/modelfoundry/cli/commands/init_cmd.py), [inspect_cmd.py:55](../../src/modelfoundry/cli/commands/inspect_cmd.py)); rich wraps long text at the console width, splitting paths under CI's 80-col fallback. All three now pass `soft_wrap=True`. Verified directly: at width 80, `soft_wrap=False` drops `report.md` from the output, `soft_wrap=True` keeps it intact.
+- [x] Add a deterministic regression guard. [tests/cli/test_report_cmd.py](../../tests/cli/test_report_cmd.py)::`test_run_does_not_wrap_the_report_path_in_a_narrow_terminal` renders at `width=40` and asserts the full path string survives — fails without the fix regardless of the env's `COLUMNS` (the original CliRunner test passed locally on a wide shell, hiding the bug). **red→green**.
+- [x] Bump version to v0.8.2. ([src/modelfoundry/_version.py](../../src/modelfoundry/_version.py) `0.8.1 → 0.8.2`.)
+- [x] Update CHANGELOG.md. (New top `## [0.8.2] - 2026-06-15` entry under Fixed.)
+- [ ] Verify: full suite green; post-commit CI run confirms the `report` CLI test passes on the Linux runner. (Local: `pyve test` → **498 passed, 39 skipped, 1 xfailed**; `ruff check` + `ruff format --check` clean; `mypy` clean (144 files). Post-commit CI confirmation is the developer's.)
+
 ---
 
 ## Future

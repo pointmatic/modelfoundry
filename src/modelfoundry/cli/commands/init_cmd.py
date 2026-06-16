@@ -33,5 +33,6 @@ def run(
     written = scaffold_recipe(
         recipe_path, datarefinery_recipe_path, plugin=plugin, force=force, config=config
     )
-    console.print(f"[green]✓[/green] scaffolded {plugin} recipe → {written}")
+    # soft_wrap: never line-wrap the path (rich's 80-col CI fallback splits it).
+    console.print(f"[green]✓[/green] scaffolded {plugin} recipe → {written}", soft_wrap=True)
     return 0

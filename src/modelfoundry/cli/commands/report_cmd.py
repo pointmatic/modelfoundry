@@ -45,5 +45,7 @@ def run(instance_path: Path, config: RuntimeConfig, *, console: Console | None =
     instance = ModelInstance.load(instance_path, plugin=plugins[manifest.plugin])
     instance.render_report()
     report_path = instance.path / "report" / "report.md"
-    console.print(f"[green]✓[/green] report rendered → {report_path}")
+    # soft_wrap: never line-wrap the path — a wrapped path is uncopyable, and
+    # rich's 80-col no-TTY fallback (CI) would otherwise split it (Story G.d).
+    console.print(f"[green]✓[/green] report rendered → {report_path}", soft_wrap=True)
     return 0

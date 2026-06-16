@@ -52,7 +52,8 @@ def run(
         out_dir = Path(tempfile.mkdtemp(prefix="modelfoundry-inspect-"))
         png_path = out_dir / f"{view}.png"
         png_path.write_bytes(result)
-        console.print(f"[green]✓[/green] {view} → {png_path}")
+        # soft_wrap: never line-wrap the path (rich's 80-col CI fallback splits it).
+        console.print(f"[green]✓[/green] {view} → {png_path}", soft_wrap=True)
     else:
         render_manifest(result, console=console)
     return 0

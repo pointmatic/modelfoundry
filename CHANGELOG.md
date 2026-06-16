@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.2] - 2026-06-15
+
+Patch — a third clean-environment CI fix, surfaced once the Linux runner (now installing pyve
+cross-platform) ran the full suite. No runtime behavior changed.
+
+### Fixed
+
+- CLI no longer line-wraps printed file paths (Story G.d): the `report`, `init`, and `inspect` verbs printed `… → <path>` via rich, whose 80-column no-TTY fallback (CI) wrapped long paths mid-string — splitting `report.md` and breaking both copy-paste and the path assertion. The three call sites now pass `soft_wrap=True`. Guarded by a width-pinned regression test in `tests/cli/test_report_cmd.py`.
+
 ## [0.8.1] - 2026-06-15
 
 Patch — clean-checkout reproducibility fixes surfaced by the new CI workflow on its first run.

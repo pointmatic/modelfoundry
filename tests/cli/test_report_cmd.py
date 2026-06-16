@@ -85,6 +85,19 @@ def test_run_rerenders_report_and_returns_0(tmp_path: Path) -> None:
     assert report_md.read_text(encoding="utf-8") != "# stale report\n"
 
 
+def test_run_does_not_wrap_the_report_path_in_a_narrow_terminal(tmp_path: Path) -> None:
+    # rich's no-TTY fallback width is 80 cols (CI); a long instance path would
+    # wrap and split `report.md` across lines, breaking copy-paste and the path
+    # match. A narrow width makes the regression deterministic regardless of the
+    # tmp_path length (Story G.d).
+    inst = _build_fixture_instance(tmp_path)
+    buf = io.StringIO()
+    rc = run(inst, RuntimeConfig(), console=Console(file=buf, width=40))
+    assert rc == 0
+    report_md = inst / "report" / "report.md"
+    assert str(report_md) in buf.getvalue(), "the report path was line-wrapped"
+
+
 def test_run_on_non_instance_path_raises_instance_error(tmp_path: Path) -> None:
     with pytest.raises(InstanceError):
         run(tmp_path, RuntimeConfig(), console=Console(file=io.StringIO()))
