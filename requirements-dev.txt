@@ -4,7 +4,11 @@
 # Shared dev/test tooling, folded into requirements-test.txt ([env.testenv]) and
 # requirements-typecheck.txt ([env.typecheck]). Reproduce the default test env with:
 #   pyve env init testenv && pyve env run testenv -- pip install -r requirements-test.txt
-ruff
+#
+# ruff is pinned so the `ruff format --check` CI gate (Story G.a) is reproducible
+# across runners — an unpinned ruff is what let the format backlog oscillate
+# between F.b and F.c as the formatter's stable style drifted across releases.
+ruff==0.15.17
 mypy
 pytest
 pytest-cov

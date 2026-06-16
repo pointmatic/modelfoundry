@@ -1,0 +1,89 @@
+# Copyright (c) 2026 Pointmatic
+# SPDX-License-Identifier: Apache-2.0
+#
+# ModelFoundry CI (Story G.a / features.md OR-12 / TR-16).
+#
+# Runs lint + format + types + the PyTorch smoke suite (incl. the CIFAR-10
+# end-to-end smoke) on every PR and push to `main`, using the pyve 3.0 named
+# environments declared in pyve.toml:
+#   * testenv        — ruff lint + format (dev tooling only; ruff needs no imports)
+#   * typecheck      — mypy --strict over the full type closure (lazy env)
+#   * smoke-pytorch  — the whole pytest suite with the torch runtime (lazy env)
+#
+# CI accommodations (Story G.a task 2):
+#   * pyve is installed from the Homebrew tap `pointmatic/tap`; Homebrew is
+#     preinstalled on both GitHub macOS and ubuntu runners.
+#   * Python 3.12 is provisioned by actions/setup-python (the project's asdf pin
+#     `.tool-versions` = 3.12.13 is unavailable in CI; any 3.12.x satisfies
+#     `requires-python = ">=3.12,<3.14"`). pyve builds its venvs off this python.
+#   * No MODELFOUNDRY_* env vars are required: tests self-contain their cache
+#     roots via tmp_path fixtures rather than reading MODELFOUNDRY_CACHE_ROOT.
+#   * ml-datarefinery (a base runtime dependency, pinned >=0.20.0) installs from
+#     PyPI via `-e .`. If it is ever served only from a private index, add the
+#     index URL here as `env: { PIP_EXTRA_INDEX_URL: ... }` sourced from a repo
+#     secret; no fallback is needed while it remains PyPI-published.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    name: lint · types · pytorch-smoke (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    # Linux is a stretch entry: keep it running for signal but never let it
+    # block the merge. macOS Apple Silicon is the primary, blocking target.
+    continue-on-error: ${{ matrix.experimental }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14        # Apple Silicon — primary
+            experimental: false
+          - os: ubuntu-latest   # Linux — stretch
+            experimental: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install pyve
+        run: brew install pointmatic/tap/pyve
+
+      # --- Lint + format (testenv) -------------------------------------------
+      - name: Provision testenv
+        run: |
+          pyve env init testenv
+          pyve env run testenv -- pip install -r requirements-dev.txt
+
+      - name: Ruff lint
+        run: pyve env run testenv -- ruff check src tests
+
+      - name: Ruff format check
+        run: pyve env run testenv -- ruff format --check src tests
+
+      # --- Type check (typecheck) --------------------------------------------
+      - name: Provision typecheck env
+        run: |
+          pyve env init typecheck
+          pyve env run typecheck -- pip install -r requirements-typecheck.txt
+
+      - name: Mypy
+        run: pyve env run typecheck -- mypy src tests
+
+      # --- PyTorch smoke suite (smoke-pytorch) -------------------------------
+      - name: Provision smoke-pytorch env
+        run: |
+          pyve env init smoke-pytorch
+          pyve env run smoke-pytorch -- pip install -r tests/integration/env/pytorch.txt
+
+      - name: Run test suite (incl. CIFAR-10 smoke)
+        run: pyve test --env smoke-pytorch
