@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-06-15
+
+Phase G release — CI/CD automation and the first PyPI publish for `ml-modelfoundry`. A GitHub
+Actions CI workflow runs lint + format + types + the PyTorch smoke suite (incl. the CIFAR-10
+end-to-end smoke) on every PR and push to `main`; a tag-triggered publish workflow ships the
+sdist + wheel to PyPI via Trusted Publishing (OIDC, no API token). The `src/` + `tests/`
+formatting was normalized to a pinned ruff so the format gate is reproducible. No runtime
+behavior changed.
+
+### Added
+
+- CI workflow (Story G.a, OR-12 / TR-16): `.github/workflows/ci.yml` — a single `build` job over a macOS-Apple-Silicon-primary / Linux-stretch matrix (`fail-fast: false`, Linux `continue-on-error`), provisioning the pyve `testenv` / `typecheck` / `smoke-pytorch` envs to run `ruff check`, `ruff format --check`, `mypy --strict`, and the full PyTorch smoke suite. Guarded by `tests/unit/test_ci_workflow.py`.
+- Publish workflow (Story G.b, OR-11 / AC-13): `.github/workflows/publish.yml` — fires on `v*.*.*` tag pushes, builds the sdist + wheel and uploads to PyPI via Trusted Publishing (`id-token: write`, `pypa/gh-action-pypi-publish`; no token in secrets). Guarded by `tests/unit/test_publish_workflow.py`.
+
+### Changed
+
+- Pinned `ruff==0.15.17` (Story G.a) in `requirements-dev.txt` so the `ruff format --check` CI gate is reproducible across runners and ruff releases.
+- Normalized the `src/` + `tests/` formatting backlog to the pinned ruff (Story F.d): 45 files reformatted (whitespace / line-wrap only) so the format gate is green; one stranded `# type: ignore[arg-type]` relocated to the line mypy reports. No behavior change.
+
 ## [0.7.0] - 2026-06-15
 
 Phase F release — documentation polish and release prep. A release-ready README with the

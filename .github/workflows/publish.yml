@@ -1,0 +1,58 @@
+# Copyright (c) 2026 Pointmatic
+# SPDX-License-Identifier: Apache-2.0
+#
+# ModelFoundry PyPI publish (Story G.b / features.md OR-11 / AC-13).
+#
+# Triggered by pushing a v*.*.* tag. Builds the sdist + wheel and uploads to
+# PyPI via Trusted Publishing — OIDC, no API token in repo secrets. The
+# `id-token: write` permission lets GitHub mint the short-lived OIDC token that
+# PyPI exchanges for an upload credential.
+#
+# Build note: this uses a plain `python -m build` rather than `pyve run python -m
+# build`. The build is PEP 517-isolated — the hatchling backend is fetched into
+# an isolated build env — so the pyve-managed runtime env buys nothing here and
+# the artifact is byte-identical to F.c's local `pyve run python -m build`.
+# Keeping pyve out of this job avoids a brew install + env provision for a
+# build-only workflow and matches the PyPA-recommended Trusted Publishing template.
+#
+# The job runs in a GitHub `environment: pypi` so deployment protection rules
+# (required reviewers, tag/branch limits) can gate the publish. Create it under
+# Settings → Environments → `pypi`.
+#
+# Out-of-band setup (one-time, on the PyPI side): register `ml-modelfoundry` as a
+# Trusted Publisher pointing at this repo + workflow filename (`publish.yml`) AND
+# the `pypi` environment name — the environment must match on both sides or the
+# OIDC exchange is rejected. See https://docs.pypi.org/trusted-publishers/ .
+
+name: Publish
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+jobs:
+  publish:
+    name: build · publish to PyPI
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/ml-modelfoundry/
+    permissions:
+      id-token: write # OIDC token for PyPI Trusted Publishing
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build sdist + wheel
+        run: |
+          python -m pip install --upgrade build
+          python -m build
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
