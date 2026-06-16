@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.3] - 2026-06-16
+
+Patch — adopt `ml-datarefinery` 0.21.0 as the minimum supported upstream. No runtime behavior
+changed; ModelFoundry's full suite (framework-agnostic + PyTorch smoke, including the CIFAR-10
+binding/integration pipeline) passes against 0.21.0 unchanged.
+
+### Changed
+
+- Raised the `ml-datarefinery` floor `>=0.20.0` → `>=0.21.0` (Story G.e). Kept the `>=` lower-bound operator (idiomatic for a published library's runtime dependency). Verified against a real 0.21.0 install — the data-binding unit tests and the full CIFAR-10 integration pipeline (which bind a DataRefinery instance) pass with no code changes, confirming the loose-coupled binding (FR-6) holds across the bump.
+
 ## [0.8.2] - 2026-06-15
 
 Patch — a third clean-environment CI fix, surfaced once the Linux runner (now installing pyve

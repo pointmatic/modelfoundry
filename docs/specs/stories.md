@@ -911,7 +911,17 @@ Bugfix patch. With the Linux runner now installing pyve and running the full sui
 - [x] Add a deterministic regression guard. [tests/cli/test_report_cmd.py](../../tests/cli/test_report_cmd.py)::`test_run_does_not_wrap_the_report_path_in_a_narrow_terminal` renders at `width=40` and asserts the full path string survives — fails without the fix regardless of the env's `COLUMNS` (the original CliRunner test passed locally on a wide shell, hiding the bug). **red→green**.
 - [x] Bump version to v0.8.2. ([src/modelfoundry/_version.py](../../src/modelfoundry/_version.py) `0.8.1 → 0.8.2`.)
 - [x] Update CHANGELOG.md. (New top `## [0.8.2] - 2026-06-15` entry under Fixed.)
-- [ ] Verify: full suite green; post-commit CI run confirms the `report` CLI test passes on the Linux runner. (Local: `pyve test` → **498 passed, 39 skipped, 1 xfailed**; `ruff check` + `ruff format --check` clean; `mypy` clean (144 files). Post-commit CI confirmation is the developer's.)
+- [x] Verify: full suite green; post-commit CI run confirms the `report` CLI test passes on the Linux runner. (Local: `pyve test` → **498 passed, 39 skipped, 1 xfailed**; `ruff check` + `ruff format --check` clean; `mypy` clean (144 files). Post-commit CI confirmation is the developer's.)
+
+### Story G.e: v0.8.3 — adopt `ml-datarefinery` 0.21.0 floor [Done]
+
+Maintenance patch. Raise the upstream `ml-datarefinery` minimum from `>=0.20.0` to `>=0.21.0` and confirm ModelFoundry's loose-coupled binding (FR-6) holds against the new release. Owns the v0.8.3 patch bump.
+
+- [x] Bump the `ml-datarefinery` constraint `>=0.20.0` → `>=0.21.0` in [pyproject.toml](../../pyproject.toml). Kept the `>=` lower-bound operator — idiomatic for a published library's runtime dependency; a hard `==` would force version conflicts on downstream consumers (DataRefinery, nbfoundry, learningfoundry installed alongside). 0.21.0 confirmed available on the index.
+- [x] Verify ModelFoundry against a real 0.21.0 install. Upgraded `ml-datarefinery==0.21.0` in all three envs (root + `testenv` + `smoke-pytorch`); `pyve test` (framework-agnostic, incl. `test_data_binding` built on DR's own `Recipe`/`Manifest` models) → **498 passed, 39 skipped, 1 xfailed**; `pyve test --env smoke-pytorch` (full, incl. the CIFAR-10 integration pipeline that binds a DR instance) → **665 passed, 1 xfailed**; `ruff check` + `ruff format --check` + `mypy` clean. No code changes needed — the binding is compatible across the bump.
+- [x] Bump version to v0.8.3. ([src/modelfoundry/_version.py](../../src/modelfoundry/_version.py) `0.8.2 → 0.8.3`.)
+- [x] Update CHANGELOG.md. (New top `## [0.8.3] - 2026-06-16` entry under Changed.)
+- [ ] Verify (developer): commit + a clean-checkout CI run resolves `ml-datarefinery>=0.21.0` and the suite stays green.
 
 ---
 
