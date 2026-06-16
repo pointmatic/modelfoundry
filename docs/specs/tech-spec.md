@@ -332,27 +332,26 @@ Loaded materialized artifacts. Frozen dataclass (not pydantic) since it represen
 @dataclasses.dataclass(frozen=True)
 class ModelInstance:
     path: pathlib.Path                         # the instance directory
-    manifest: Manifest                         # parsed manifest.json
-    recipe: ModelRecipe                        # canonicalized recipe used
-    is_partial: bool                           # True when loaded from a FAILED temp dir
+    manifest: Manifest                         # parsed manifest.json (manifest.is_partial flags a partial read)
+    plugin: Plugin                             # resolved from manifest.plugin at load time (FR-23)
 
     # --- Notebook-shaped properties (computed lazily; cached after first access) ---
     @cached_property
-    def metrics(self) -> pandas.DataFrame | None: ...        # training/history.parquet
-    @cached_property
     def evaluation(self) -> dict[str, dict[str, Any]]: ...   # evaluation/metrics.json
+    @cached_property
+    def metrics(self) -> dict[str, dict[str, Any]]: ...      # alias for evaluation (not per-epoch history)
     @cached_property
     def confusion_matrix(self) -> dict[str, numpy.ndarray]: ...  # evaluation/confusion_matrix.npz
     @cached_property
-    def calibration(self) -> dict[str, pandas.DataFrame] | None: ...  # evaluation/calibration.parquet
+    def calibration(self) -> pandas.DataFrame | None: ...    # evaluation/calibration.parquet
     @cached_property
-    def predictions(self) -> dict[str, pandas.DataFrame]: ... # evaluation/predictions.parquet
+    def predictions(self) -> pandas.DataFrame | None: ...    # evaluation/predictions.parquet
     @cached_property
     def trials(self) -> pandas.DataFrame | None: ...         # optimization/trials.parquet
     @cached_property
     def best_params(self) -> dict[str, Any] | None: ...      # optimization/best-params.json
     @cached_property
-    def figures(self) -> dict[str, matplotlib.figure.Figure]: ...  # report/visualizations/*.png
+    def figures(self) -> dict[str, bytes]: ...               # report/visualizations/*.png (PNG bytes)
     @cached_property
     def summary(self) -> dict[str, Any] | None: ...          # model/summary.json (FR-27)
     @cached_property
@@ -363,8 +362,8 @@ class ModelInstance:
     def predict_proba(self, X: PredictInput) -> numpy.ndarray | pandas.DataFrame: ...
 
     @classmethod
-    def load(cls, path: pathlib.Path) -> "ModelInstance": ...
-    def render_report(self) -> None: ...
+    def load(cls, path: str | pathlib.Path, *, plugin: Plugin | None = None) -> "ModelInstance": ...
+    def render_report(self) -> str: ...        # re-renders report/ and returns the Markdown
 ```
 
 Where `PredictInput` is a plugin-defined union; the PyTorch plugin accepts `pd.DataFrame` (record-schema), `list[pathlib.Path]` (image paths), or `numpy.ndarray` of shape `(N, H, W, C)`.

@@ -91,7 +91,16 @@ target-version = "py312"
 src = ["src", "tests"]
 
 [tool.ruff.lint]
-select = ["E", "F", "B", "I", "UP", "SIM", "RUF"]
+select = ["E", "F", "B", "I", "UP", "SIM", "RUF", "D"]
+# The pydocstyle (`D`) rules enforce docstring *quality* (google sections,
+# summary punctuation/mood) wherever a docstring exists. The `D1xx`
+# missing-docstring mandates are deliberately not enforced — F.b scopes
+# docstring polish to the public-API surface, not a docstring-on-every-internal
+# rule; adopting that is a separate decision.
+ignore = ["D100", "D101", "D102", "D103", "D104", "D105", "D106", "D107"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
 
 [tool.mypy]
 python_version = "3.12"

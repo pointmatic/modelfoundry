@@ -38,7 +38,20 @@ class ModelInstance:
 
     @classmethod
     def load(cls, path: str | Path, *, plugin: Plugin | None = None) -> ModelInstance:
-        """Reconstruct a `ModelInstance` from its dir; the plugin resolves from the manifest."""
+        """Reconstruct a `ModelInstance` from its directory alone (FR-23).
+
+        Args:
+            path: The instance directory (the one holding `manifest.json`).
+            plugin: The framework plugin to bind; when `None` it is resolved from
+                the manifest's `plugin` name via plugin discovery.
+
+        Returns:
+            A read-only `ModelInstance` over `path`.
+
+        Raises:
+            PluginError: `plugin` is `None` and the manifest's plugin is not
+                discoverable in the environment.
+        """
         path = Path(path)
         manifest = Manifest.load(path / "manifest.json")
         if plugin is None:
@@ -138,11 +151,26 @@ class ModelInstance:
         return self.plugin.load_model(self.path / "model")
 
     def predict(self, X: Any) -> Any:
-        """Predicted labels for `X` (delegated to the plugin)."""
+        """Predict labels for `X`, delegating to the bound plugin.
+
+        Args:
+            X: A batch of inputs in whatever shape the plugin accepts (e.g. image
+                paths, a DataFrame, or an array).
+
+        Returns:
+            The predicted labels, in the plugin's native return type.
+        """
         return self.plugin.predict(self._model, X)
 
     def predict_proba(self, X: Any) -> Any:
-        """Per-class probabilities for `X` (delegated to the plugin)."""
+        """Predict per-class probabilities for `X`, delegating to the bound plugin.
+
+        Args:
+            X: A batch of inputs in whatever shape the plugin accepts.
+
+        Returns:
+            The per-class probability scores, in the plugin's native return type.
+        """
         return self.plugin.predict_proba(self._model, X)
 
     # --- inspection ---
@@ -153,13 +181,21 @@ class ModelInstance:
     def inspect(self, *, view: str) -> bytes | Manifest: ...
 
     def inspect(self, *, view: str | None = None) -> InspectionView | bytes | Manifest:
-        """Inspect the instance (FR-17, exploration mode — nothing is persisted).
+        """Inspect the instance without persisting anything (FR-17, exploration mode).
 
-        With no `view`, returns an `InspectionView` exposing the notebook-facing
-        accessors (behavior 1). With `view="view_manifest"` (or `"manifest"`)
-        returns the `Manifest`; any other `view` name is a plugin visualization op
-        whose PNG bytes are returned (behavior 2). An unknown / unrenderable view
-        raises `InspectionError`.
+        Args:
+            view: The inspection target. `None` returns an `InspectionView` of
+                notebook-facing accessors (behavior 1); `"view_manifest"` (or
+                `"manifest"`) returns the `Manifest`; any other name is treated
+                as a plugin visualization op whose PNG bytes are returned
+                (behavior 2).
+
+        Returns:
+            An `InspectionView` when `view` is `None`, the `Manifest` for the
+            manifest views, or PNG `bytes` for a visualization op.
+
+        Raises:
+            InspectionError: The named view is unknown or has nothing to render.
         """
         if view is None:
             return InspectionView(self)
@@ -193,7 +229,14 @@ class ModelInstance:
     # --- report ---
 
     def render_report(self) -> str:
-        """Re-render `report/` atomically and return the Markdown (falls back to the saved copy)."""
+        """Re-render `report/` atomically and return its Markdown (FR-12).
+
+        When the instance still carries its `recipe.yml`, the report and its
+        visualizations are regenerated in place; otherwise the saved copy is read.
+
+        Returns:
+            The report Markdown text, or `""` when no report is present.
+        """
         recipe = self._load_recipe()
         if recipe is not None:
             from modelfoundry.reporting.visualizations import rerender_report
@@ -244,17 +287,49 @@ class InspectionView:
         return self.instance._render_view("training_curves")
 
     def view_confusion_matrix(self, split: str) -> bytes:
-        """The confusion-matrix visualization for `split` (PNG bytes)."""
+        """Render the confusion-matrix visualization for `split`.
+
+        Args:
+            split: The evaluation split name (e.g. `"val"` / `"test"`).
+
+        Returns:
+            The visualization as PNG `bytes`.
+
+        Raises:
+            InspectionError: `split` has no evaluation in this instance.
+        """
         self._require_eval_split(split)
         return self.instance._render_view("confusion_matrix", split=split)
 
     def view_calibration(self, split: str) -> bytes:
-        """The calibration-curve visualization for `split` (PNG bytes)."""
+        """Render the calibration-curve visualization for `split`.
+
+        Args:
+            split: The evaluation split name (e.g. `"val"` / `"test"`).
+
+        Returns:
+            The visualization as PNG `bytes`.
+
+        Raises:
+            InspectionError: `split` has no evaluation in this instance.
+        """
         self._require_eval_split(split)
         return self.instance._render_view("calibration_curve", split=split)
 
     def view_predictions(self, split: str, n: int = 16) -> Any:
-        """The first `n` per-record predictions for `split` (a DataFrame)."""
+        """Return the first `n` per-record predictions for `split`.
+
+        Args:
+            split: The evaluation split name to filter predictions to.
+            n: The maximum number of rows to return.
+
+        Returns:
+            A DataFrame of up to `n` prediction rows.
+
+        Raises:
+            InspectionError: The evaluation stage produced no predictions, or
+                `split` has none.
+        """
         from modelfoundry.core.errors import InspectionError
 
         predictions = self.instance.predictions
@@ -271,7 +346,15 @@ class InspectionView:
         return rows.head(n)
 
     def view_trials(self) -> Any:
-        """The Optuna trials DataFrame (raises if no Optimization stage ran)."""
+        """Return the Optuna trials table.
+
+        Returns:
+            The trials DataFrame.
+
+        Raises:
+            InspectionError: The instance has no Optimization stage, so no
+                trials exist.
+        """
         from modelfoundry.core.errors import InspectionError
 
         trials = self.instance.trials

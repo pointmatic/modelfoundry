@@ -33,7 +33,25 @@ from modelfoundry.recipe.models import ModelRecipe
 
 
 class ModelFoundry:
-    """Shared construction state + the seven verbs over one recipe binding."""
+    """The library entry point: construction state + the verbs over one recipe binding (FR-22).
+
+    An instance holds everything a recipe needs to act on — the parsed
+    `ModelRecipe`, the bound DataRefinery instance, the resolved `Plugin`, the
+    `RuntimeConfig`, and the derived `CacheKey` / `CachePaths`. The verbs
+    (`validate` / `materialize` / `status` / `inspect` / `report` / `clean` /
+    `check`) are thin methods over that state, so the library and the CLI (which
+    drives this same class) stay co-equal. Prefer `ModelFoundry.from_recipe(...)`
+    over the raw constructor; it loads, binds, and discovers in one call.
+
+    Attributes:
+        recipe: The parsed, variant-applied recipe.
+        data: The bound, read-only DataRefinery instance (FR-6).
+        plugin: The framework plugin named by `recipe.plugin`.
+        config: The effective runtime configuration.
+        variant: The selected variant name, or `None`.
+        key: The `CacheKey` identifying this `(recipe, data, seed)` binding (FR-4).
+        paths: The on-disk `CachePaths` for the instance directory.
+    """
 
     def __init__(
         self,
@@ -43,6 +61,7 @@ class ModelFoundry:
         config: RuntimeConfig,
         variant: str | None = None,
     ) -> None:
+        """Construct from already-resolved parts; prefer `from_recipe` for the usual path."""
         self.recipe = recipe
         self.data = data_instance
         self.plugin = plugin
@@ -63,9 +82,30 @@ class ModelFoundry:
     ) -> ModelFoundry:
         """Load `recipe_path`, bind `data`, discover the plugin, and return a `ModelFoundry`.
 
-        `data` is either a pre-bound `DataRefineryInstance` or a path to the
-        DataRefinery cache root (in which case the recipe's `Data:` block is
-        resolved against it).
+        This is the primary constructor (FR-22): it parses and validates the
+        recipe (FR-1), applies the variant overlay (FR-14), binds the upstream
+        data instance (FR-6), and resolves the framework plugin (FR-24).
+
+        Args:
+            recipe_path: Path to the YAML recipe file.
+            data: Either a pre-bound `DataRefineryInstance`, or a path to the
+                DataRefinery cache root — in which case the recipe's `Data:`
+                block is resolved against it.
+            config: Runtime configuration; a default `RuntimeConfig()` is used
+                when omitted. When `data` is a path it overrides
+                `config.data_cache_root`.
+            variant: Name of a `variants.<name>` overlay to apply, or `None`.
+            seed: Master seed override; falls back to the recipe's own seed.
+
+        Returns:
+            A `ModelFoundry` bound to the loaded recipe, data, and plugin.
+
+        Raises:
+            RecipeError: The recipe is missing, malformed, or its schema version
+                is unsupported.
+            DataBindingError: The DataRefinery instance cannot be resolved or is
+                incompatible (FR-6).
+            PluginError: The recipe's `plugin` is not discoverable.
         """
         config = config or RuntimeConfig()
         recipe = load_recipe(recipe_path, variant=variant, seed=seed)
@@ -87,17 +127,37 @@ class ModelFoundry:
     # --- verbs ---
 
     def validate(self) -> Any:
-        """Run the FR-2 static validator; return the `ValidationReport`."""
+        """Run the FR-2 static validator over the bound recipe.
+
+        Returns:
+            The `ValidationReport` listing every static check and its outcome;
+            it never short-circuits, so all failures surface at once.
+        """
         from modelfoundry.recipe.validator import validate as validate_recipe
 
         return validate_recipe(self.recipe, self.data, self.plugin)
 
     def materialize(self, *, stage_observer: StageObserver | None = None) -> ModelInstance:
-        """Materialize the recipe and return the resulting `ModelInstance`.
+        """Materialize the recipe into a cached ModelInstance and return a handle to it (FR-3).
 
-        `stage_observer` is the optional rendering-agnostic progress hook (FR-3);
-        the CLI attaches a `rich`-based observer, library callers may pass their
-        own or omit it.
+        Runs every stage (architecture → optimization → training → evaluation →
+        expectations → persistence → report) atomically, promoting the result
+        into the cache directory on success.
+
+        Args:
+            stage_observer: Optional rendering-agnostic progress hook (FR-3). The
+                CLI attaches a `rich`-based observer; library callers may pass
+                their own or omit it.
+
+        Returns:
+            A `ModelInstance` handle to the freshly materialized instance.
+
+        Raises:
+            ModelArtifactExistsError: An instance already exists at the cache
+                path and overwrite was not requested (FR-5).
+            ExpectationError: A declared OutputExpectation failed (FR-15).
+            MaterializeError: Any stage failed; non-ModelFoundry exceptions are
+                wrapped as this (FR-3).
         """
         MaterializeRunner(
             recipe=self.recipe,
@@ -110,7 +170,12 @@ class ModelFoundry:
         return ModelInstance.load(self.paths.instance_dir, plugin=self.plugin)
 
     def status(self) -> dict[str, Any]:
-        """Whether the instance is materialized, plus its manifest when present."""
+        """Report whether this recipe's instance is materialized.
+
+        Returns:
+            A dict with `materialized` (bool), `instance_dir` (str), and
+            `manifest` (the loaded `Manifest` when materialized, else `None`).
+        """
         from modelfoundry.core.manifest import Manifest
 
         instance_dir = self.paths.instance_dir
@@ -122,21 +187,45 @@ class ModelFoundry:
         }
 
     def inspect(self) -> ModelInstance:
-        """Return the materialized `ModelInstance` (raises if not materialized)."""
+        """Return a handle to the already-materialized instance (FR-17).
+
+        Returns:
+            The `ModelInstance` for this binding.
+
+        Raises:
+            InstanceError: No materialized instance exists; run `materialize` first.
+        """
         return self._require_instance()
 
     def report(self) -> str:
-        """Render and return the instance report Markdown (raises if not materialized)."""
+        """Re-render and return the instance report as Markdown (FR-12).
+
+        Returns:
+            The report Markdown text.
+
+        Raises:
+            InstanceError: No materialized instance exists; run `materialize` first.
+        """
         return self._require_instance().render_report()
 
     def clean(self) -> Path | None:
-        """Trash the materialized instance (move to `.trash/`); `None` if nothing to clean."""
+        """Trash the materialized instance, moving it under `.trash/` (FR-20).
+
+        Returns:
+            The destination path inside `.trash/`, or `None` when there was
+            nothing to clean.
+        """
         if not self.paths.instance_dir.exists():
             return None
         return trash_existing(self.config.cache_root, self.key)
 
     def check(self) -> dict[str, Any]:
-        """Environment / plugin health summary for *this* recipe's bound plugin."""
+        """Summarize environment / plugin health for *this* recipe's bound plugin (FR-19).
+
+        Returns:
+            A dict with `modelfoundry_version`, `plugin` (name), and the
+            plugin's `health` self-report.
+        """
         from modelfoundry._version import __version__
 
         return {
@@ -147,13 +236,22 @@ class ModelFoundry:
 
     @classmethod
     def check_environment(cls, config: RuntimeConfig | None = None) -> dict[str, Any]:
-        """Recipe-free environment probe (FR-19, the `check` verb).
+        """Probe the environment without a recipe binding (FR-19, the `check` verb).
 
         Reports the Python version, the installed ModelFoundry version, and — for
         every discovered plugin (no recipe binding required) — the plugin's
-        `health_check()` self-report. `ok` is `False` when any discovered plugin
-        is unavailable (its extras are missing), so the CLI exits non-zero; a
-        CPU-only machine is not itself an error (CPU is always functional).
+        `health_check()` self-report. A CPU-only machine is not itself an error
+        (CPU is always functional).
+
+        Args:
+            config: Runtime configuration used for plugin discovery; a default
+                `RuntimeConfig()` is used when omitted.
+
+        Returns:
+            A dict with `python_version`, `modelfoundry_version`, `plugins` (the
+            list of health reports), and `ok` — `False` when any discovered
+            plugin is unavailable (its extras are missing), so the CLI exits
+            non-zero.
         """
         import platform
 
@@ -193,7 +291,31 @@ def materialize(
     variant: str | None = None,
     seed: int | None = None,
 ) -> ModelInstance:
-    """One-call materialize: bind `recipe_path` to `data` and return the `ModelInstance`."""
+    """Bind `recipe_path` to `data` and materialize it in one call (FR-22).
+
+    A convenience wrapper over `ModelFoundry.from_recipe(...).materialize()`.
+
+    Args:
+        recipe_path: Path to the YAML recipe file.
+        data: A pre-bound `DataRefineryInstance`, or a path to the DataRefinery
+            cache root to resolve the recipe's `Data:` block against.
+        config: Runtime configuration; defaults to `RuntimeConfig()` when omitted.
+        variant: Name of a `variants.<name>` overlay to apply, or `None`.
+        seed: Master seed override; falls back to the recipe's own seed.
+
+    Returns:
+        The materialized `ModelInstance`.
+
+    Raises:
+        RecipeError: The recipe is missing, malformed, or has an unsupported
+            schema version.
+        DataBindingError: The DataRefinery instance cannot be resolved (FR-6).
+        PluginError: The recipe's `plugin` is not discoverable.
+        ModelArtifactExistsError: An instance already exists and overwrite was
+            not requested (FR-5).
+        ExpectationError: A declared OutputExpectation failed (FR-15).
+        MaterializeError: A materialization stage failed (FR-3).
+    """
     return ModelFoundry.from_recipe(
         recipe_path, data=data, config=config, variant=variant, seed=seed
     ).materialize()
