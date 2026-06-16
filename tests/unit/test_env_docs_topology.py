@@ -89,6 +89,21 @@ def test_env_dependencies_describes_venv_multi_env() -> None:
         assert expected in text, f"env-dependencies.md missing live-topology marker {expected!r}"
 
 
+def test_testenv_is_described_as_the_framework_agnostic_test_runner() -> None:
+    """`testenv` owns the framework-agnostic suite (not lint-only) in the §6 coverage matrix.
+
+    `testenv` carries the base runtime closure and runs every test that doesn't need
+    a framework extra; the torch tests run in `smoke-pytorch`. The coverage matrix must
+    reflect that by attributing the framework-agnostic unit tests to `testenv`.
+    """
+    text = _read("env-dependencies.md")
+    row = re.search(r"^\| Unit tests \|[^\n]*$", text, re.MULTILINE)
+    assert row, "no 'Unit tests' row found in env-dependencies.md coverage matrix"
+    assert "`testenv`" in row.group(0), (
+        f"framework-agnostic unit tests should run in `testenv`, got: {row.group(0)}"
+    )
+
+
 def test_bo_bp_stories_marked_superseded() -> None:
     """The B.o / B.p story bodies are flagged as superseded by F.b.1 (historical record)."""
     stories = _read("stories.md")

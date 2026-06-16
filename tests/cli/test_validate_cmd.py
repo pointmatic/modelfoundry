@@ -78,6 +78,9 @@ def test_render_failing_report_shows_failure_and_message() -> None:
 
 
 def test_cli_validate_passing_recipe_exits_0() -> None:
+    # Validating the pytorch deliverable needs the pytorch plugin discoverable (torch);
+    # runs in smoke-pytorch, skips in the light testenv.
+    pytest.importorskip("torch")
     _require_dr1_instance()
     result = CliRunner().invoke(app, ["validate", _DELIVERABLE])
     assert result.exit_code == 0, result.output
@@ -85,6 +88,9 @@ def test_cli_validate_passing_recipe_exits_0() -> None:
 
 
 def test_cli_validate_failing_recipe_exits_1(tmp_path: Path) -> None:
+    # Needs the pytorch plugin discoverable (torch) so check 12 — not a missing-plugin
+    # check 2 — is the isolated failure; runs in smoke-pytorch, skips in the light testenv.
+    pytest.importorskip("torch")
     _require_dr1_instance()
     # Same Data binding, but primary_metric 'ece' is a valid metric NOT listed in
     # Evaluation.metrics → FR-2 check 12 fails (binding + every other check pass).

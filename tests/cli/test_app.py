@@ -216,6 +216,9 @@ def test_verbose_and_quiet_conflict_raises() -> None:
 
 
 def test_shared_flag_reaches_the_callback(tmp_path: Path) -> None:
+    # `check` exits 0 only when every discovered plugin is available; the pytorch
+    # plugin needs torch, so this runs in smoke-pytorch and skips in the light testenv.
+    pytest.importorskip("torch")
     # Passing a shared flag parses cleanly and the verb stub still runs.
     result = CliRunner().invoke(app, ["--cache-root", str(tmp_path), "check"])
     assert result.exit_code == 0

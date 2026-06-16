@@ -127,9 +127,9 @@ Mapped to the value criteria above:
 ### Constraints
 **Technical (inherited project conventions):**
 
-- Python 3.12.x pinned (`.tool-versions`); environments managed by `pyve` with a venv multi-env layout (`root` + light `testenv` + lazy `smoke-pytorch` / `typecheck`); see [`env-dependencies.md`](env-dependencies.md).
+- Python 3.12.x pinned (`.tool-versions`); environments managed by `pyve` with a venv multi-env layout (`root` + `testenv` + lazy `smoke-pytorch` / `typecheck`); see [`env-dependencies.md`](env-dependencies.md).
 - `pyproject.toml` + `pyve.toml`; `hatchling` build backend; editable install in dev; CLI via `pyproject.toml` entry points.
-- Tooling: `ruff` (lint + format) in `testenv`, `mypy --strict` in `typecheck`, `pytest` with `pytest-cov` in `smoke-pytorch` (the real suite); per the pyve essentials.
+- Tooling: `ruff` (lint + format) + the framework-agnostic test suite in `testenv`, `mypy --strict` in `typecheck`, and the torch tests in `smoke-pytorch`; per the pyve essentials.
 - YAML configuration, single file per recipe, schema-versioned.
 - Content-addressed cache paths under a `./models/` tree by default (with `--cache-root` and `MODELFOUNDRY_CACHE_ROOT` overrides); parquet for tabular cached artifacts (trial history, training history, calibration); JSON for manifest / architecture / metrics / best-params.
 - Every stochastic operation seeded; deterministic byte-equality between runs for unchanged inputs (excluding wall-clock fields).

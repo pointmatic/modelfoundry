@@ -16,7 +16,7 @@ A secondary purpose is to surface **environment requirements Pyve does not yet m
 > - `docs/project-guide/go.md` — workflow steps tailored to the current mode (cycle steps, approval gates, conventions).
 > - Pyve backends reference: <https://pointmatic.github.io/pyve/backends/>
 
-**Repo shape (orienting):** `modelfoundry` is a **library / CLI consumed by other applications** (it ships as the `ml-modelfoundry` wheel and is imported, e.g. inside nbfoundry lifecycle templates). The repo itself has **no production "run" surface** — its only purpose is development and testing. It therefore runs a **venv multi-env layout** declared in `pyve.toml` (`pyve_schema = "3.0"`): a `utility` **root** (the env you land in to instantiate a `ModelFoundry` and run scripts ad hoc), a light `default = true` **`testenv`** (ruff / mypy / pytest tooling — lint and format run here), and a set of **lazy** `test` envs carrying the heavyweight framework closures — **`smoke-pytorch`** (the full PyTorch stack, where the real test suite runs), **`smoke-tensorflow`** / **`smoke-huggingface`** (forward placeholders for the deferred framework smokes), and **`typecheck`** (the full type closure for `mypy --strict`). Every env uses `backend = venv`: on macOS arm64 every dependency is a pip wheel (torch MPS, Apple tf-macos/tf-metal, the HF stack), so conda buys nothing, and keeping the framework smokes isolated dodges the Metal SIGFAULT that co-resident native GPU stacks trigger in one process. See §4.
+**Repo shape (orienting):** `modelfoundry` is a **library / CLI consumed by other applications** (it ships as the `ml-modelfoundry` wheel and is imported, e.g. inside nbfoundry lifecycle templates). The repo itself has **no production "run" surface** — its only purpose is development and testing. It therefore runs a **venv multi-env layout** declared in `pyve.toml` (`pyve_schema = "3.0"`): a `utility` **root** (the env you land in to instantiate a `ModelFoundry` and run scripts ad hoc), a light `default = true` **`testenv`** (the framework-agnostic test suite — everything that isn't torch/keras/HF — plus ruff lint/format), and a set of **lazy** `test` envs carrying the heavyweight framework closures — **`smoke-pytorch`** (the full PyTorch stack, where the torch tests run), **`smoke-tensorflow`** / **`smoke-huggingface`** (forward placeholders for the deferred framework smokes), and **`typecheck`** (the full type closure for `mypy --strict`). Every env uses `backend = venv`: on macOS arm64 every dependency is a pip wheel (torch MPS, Apple tf-macos/tf-metal, the HF stack), so conda buys nothing, and keeping the framework smokes isolated dodges the Metal SIGFAULT that co-resident native GPU stacks trigger in one process. See §4.
 
 ---
 
@@ -150,7 +150,7 @@ trigger in one process.
 "3.0"`) via `[env.<name>]` tables; the v2.8 `[tool.pyve.testenvs]` table in `pyproject.toml` is
 removed (superseded by `[env.<name>]`). Every env here is `backend = venv`, so each materializes
 at `.pyve/envs/<name>/venv/`. `pyve.toml` declares six envs: `[env.root]` (`purpose =
-"utility"`), the `default = true` `[env.testenv]` (`requirements = ["requirements-dev.txt"]`),
+"utility"`), the `default = true` `[env.testenv]` (`requirements = ["requirements-test.txt"]`),
 and the `lazy = true` `[env.smoke-pytorch]` / `[env.smoke-tensorflow]` /
 `[env.smoke-huggingface]` / `[env.typecheck]`, each pointing at its own `requirements = [...]`
 file (see §5). A **lazy** env materializes on first use rather than at `pyve init` time, so the
@@ -179,7 +179,7 @@ envs:
     packaging: none
     app_type: none                  # carries the importable library for ad-hoc runs, ships nothing
   testenv:
-    purpose: test                   # light default: lint + format (ruff); tooling from requirements-dev.txt
+    purpose: test                   # default: framework-agnostic suite + lint/format; base -e . from requirements-test.txt
     backend: venv
     default: true                   # the default env for `pyve test` / `pyve env run testenv`
     lazy: false
@@ -189,7 +189,7 @@ envs:
     packaging: none
     app_type: none
   smoke-pytorch:
-    purpose: test                   # the real test suite (+ notebook smoke); full torch closure
+    purpose: test                   # the torch tests (+ notebook smoke); full torch closure
     backend: venv
     default: false
     lazy: true                      # materialized on first use, not at pyve init
@@ -244,13 +244,16 @@ envs:
 **Why this many environments:** **Six** (one `utility` + five `test`), split by *tool* and by
 *framework closure* so each stays minimal and the native GPU stacks never co-reside:
 
-- **`testenv`** (default, eager) is deliberately light — just the `requirements-dev.txt` tooling
-  (ruff / mypy / pytest), so `pyve env run testenv -- ruff …` and `ruff format --check` run fast
-  without building a framework stack. It carries no runtime closure, so the package's own test
-  suite runs in `smoke-pytorch`, not here.
+- **`testenv`** (default, eager) carries the package's **base** runtime closure (`-e .` without
+  `[pytorch]`, via `requirements-test.txt`) plus the `requirements-dev.txt` tooling. So plain
+  `pyve test` runs the **framework-agnostic suite** — every test that doesn't need a framework
+  extra — and `pyve env run testenv -- ruff …` / `ruff format --check` run here too. The torch
+  tests skip cleanly via `pytest.importorskip("torch")` and run in `smoke-pytorch`; it stays light
+  by *not* carrying torch (the heavy dep), not by carrying no package.
 - **`smoke-pytorch`** (lazy) carries the full PyTorch + ModelFoundry runtime closure and is where
-  the real suite runs (unit + integration + CLI + plugin-contract + property + notebook smoke +
-  the CIFAR-10 capstone): `pyve test --env smoke-pytorch`.
+  the **torch tests** run (the PyTorch unit/integration/contract tests, the augmentation-equivalence
+  property tests, the notebook smoke, and the CIFAR-10 capstone) — and, being a superset, the whole
+  suite: `pyve test --env smoke-pytorch`.
 - **`smoke-tensorflow`** / **`smoke-huggingface`** (lazy) are **declared placeholders** — their
   requirement files (`tests/integration/env/{tensorflow,huggingface}.txt`) are intentionally empty
   today and populate when the deferred TF (F.c) / Keras (F.e) / HuggingFace framework smokes land.
@@ -323,23 +326,25 @@ are likewise deferred until a concrete, declared workflow exists to enumerate (s
 
 ### 5.1 Environment: `testenv` (purpose: `test`, default)
 
-- **Purpose (surface):** `test` — the light, eager default env. Holds only the
-  `requirements-dev.txt` tooling (ruff / mypy / pytest); **lint and format run here**. It carries
-  no runtime closure (no torch, not even the editable package), so the package's own test suite
-  runs in `smoke-pytorch` and `mypy --strict` runs in `typecheck`.
+- **Purpose (surface):** `test` — the eager default env, the one plain `pyve test` targets. Carries
+  the package's **base** runtime closure (`-e .` without `[pytorch]`) plus the dev tooling, so it
+  runs the **framework-agnostic test suite** (every test that doesn't need a framework extra) and
+  the ruff lint/format gates. The torch tests skip here (`pytest.importorskip("torch")`) and run in
+  `smoke-pytorch`; `mypy --strict` runs in `typecheck`.
 - **Attributes:** app_type `none`; frameworks `ruff`, `mypy`, `pytest`; languages `python`;
   packaging `none`.
-- **Backend & rationale:** `venv` (default) — the dev tools are pure pip wheels; keeping this env
-  free of the framework closure makes `pyve env run testenv -- ruff …` fast.
-- **Test categories covered:** static analysis / lint (`ruff check`), formatting
-  (`ruff format --check`). The runtime-dependent categories (unit / integration / CLI / notebook /
-  contract / property / coverage / packaging) run in `smoke-pytorch`; strict type-checking runs in
+- **Backend & rationale:** `venv` (default) — the base closure and the dev tools are all pip wheels;
+  keeping torch out (the heavy/native dep) is what keeps this env light and fast.
+- **Test categories covered:** the framework-agnostic suite — recipe / cache / canonical / seeding /
+  config / errors / manifest / expectations / validator / reporting unit tests, the sklearn plugin,
+  the torch-free CLI verbs, the cache-identity property tests, the doc guards, and the packaging
+  build-check — plus lint + format. The torch tests run in `smoke-pytorch`; strict type-checking in
   `typecheck` (see §6).
 - **Language runtime / pins:** Python `3.12.13` — source: `.tool-versions` (asdf).
 - **Bootstrap (one-time):**
   ```bash
-  pyve env init testenv                                        # .pyve/envs/testenv/venv
-  pyve env run testenv -- pip install -r requirements-dev.txt  # dev/test tooling
+  pyve env init testenv                                         # .pyve/envs/testenv/venv
+  pyve env run testenv -- pip install -r requirements-test.txt  # base `-e .` + dev/test tooling
   ```
   Declared in `pyve.toml` (`pyve_schema = "3.0"`):
   ```toml
@@ -347,35 +352,36 @@ are likewise deferred until a concrete, declared workflow exists to enumerate (s
   purpose      = "test"
   backend      = "venv"
   default      = true
-  requirements = ["requirements-dev.txt"]
+  requirements = ["requirements-test.txt"]
   ```
-- **Managed dependencies (`pip`, from `requirements-dev.txt`):**
+- **Managed dependencies (`pip`, from `requirements-test.txt` = `-e .` + `-r requirements-dev.txt`):**
 
   | Package | Version pin | Source class | Purpose |
   |---------|-------------|--------------|---------|
-  | `ruff` | (unpinned) | `pip` (`requirements-dev.txt`) | Lint + format (the categories this env owns). |
+  | `ml-modelfoundry` | editable (`-e .`, base) | `pip` (`pyproject.toml`) | Package under test + its **base** runtime closure (`numpy`, `pandas`, `pyarrow`, `pyyaml`, `pydantic>=2`, `rich`, `typer`, `matplotlib`, `scikit-learn`, `optuna`, `pillow`, `ml-datarefinery`) — **no torch**. Registers the `modelfoundry` console script. |
+  | `ruff` | (unpinned) | `pip` (`requirements-dev.txt`) | Lint + format. |
   | `mypy` | (unpinned) | `pip` (`requirements-dev.txt`) | Present here; the strict whole-repo run lives in `typecheck`. |
-  | `pytest` | (unpinned) | `pip` (`requirements-dev.txt`) | Test-runner tooling (the framework suite runs in `smoke-pytorch`). |
-  | `pytest-cov` | (unpinned) | `pip` (`requirements-dev.txt`) | Coverage plugin (`pyproject` addopts enables `--cov`). |
-  | `hypothesis` | (unpinned) | `pip` (`requirements-dev.txt`) | Property-test tooling. |
+  | `pytest`, `pytest-cov`, `hypothesis` | (unpinned) | `pip` (`requirements-dev.txt`) | Test runner + coverage + property tests. |
   | `nbclient`, `ipykernel` | (unpinned) | `pip` (`requirements-dev.txt`) | Notebook-smoke tooling (the smoke itself runs in `smoke-pytorch`). |
   | `types-pyyaml` | (unpinned) | `pip` (`requirements-dev.txt`) | mypy stubs for PyYAML. |
   | `build` | (unpinned) | `pip` (`requirements-dev.txt`) | `python -m build` sdist + wheel verification. |
 
-- **Lock / reproducibility strategy:** `requirements-dev.txt` enumerates the dev toolset (currently
-  version-floating, acceptable pre-production per `tech-spec.md`); pinning via pip-tools `--hash`
-  is the post-production hardening path.
+- **Lock / reproducibility strategy:** `requirements-test.txt` pins the install set (`-e .` +
+  `-r requirements-dev.txt`); the toolset is currently version-floating (acceptable pre-production
+  per `tech-spec.md`); pinning via pip-tools `--hash` is the post-production hardening path.
 - **How to run what this env owns:**
   ```bash
+  pyve test                                      # the framework-agnostic suite (torch tests skip)
   pyve env run testenv -- ruff check src tests
   pyve env run testenv -- ruff format --check src tests
   ```
 - **Verification (smoke test):**
   ```bash
-  pyve env run testenv -- ruff --version && pyve env run testenv -- pytest --version
+  pyve env run testenv -- python -c "import modelfoundry; print(modelfoundry.__version__)"
+  pyve env run testenv -- ruff --version
   ```
 - **CI parity notes:** `.github/workflows/ci.yml` (planned per `tech-spec.md` § CI/CD) runs
-  `ruff check` + `ruff format --check` here, `mypy --strict` in `typecheck`, and
+  `pyve test` + `ruff check` + `ruff format --check` here, `mypy --strict` in `typecheck`, and
   `pyve test --env smoke-pytorch` + the CIFAR-10 smoke (TR-12) in `smoke-pytorch`, on every PR and
   push to `main`, on macOS (Apple Silicon) primary with Linux as a stretch matrix entry — all CPU.
 
@@ -383,14 +389,17 @@ are likewise deferred until a concrete, declared workflow exists to enumerate (s
 
 ### 5.2 Environment: `smoke-pytorch` (purpose: `test`, lazy)
 
-- **Purpose (surface):** `test` — the env where the **real test suite runs**: the editable package
-  + the full PyTorch runtime closure + the test runner. Lazy, so it materializes on first use.
+- **Purpose (surface):** `test` — the env where the **torch tests run**: the editable package + the
+  full PyTorch runtime closure + the test runner. Being the full closure it can run the **entire**
+  suite (the framework-agnostic tests too), so it's the complete-suite run in CI; the torch-specific
+  tests can *only* run here. Lazy, so it materializes on first use.
 - **Attributes:** app_type `none`; frameworks `pytest`; languages `python`; packaging `none`.
 - **Backend & rationale:** `venv` — `torch` / `torchvision` / `torchmetrics` (and the MPS build on
   Apple Silicon) are pip wheels; isolating the torch closure in its own venv keeps it off the
   other framework smokes (Metal SIGFAULT avoidance).
-- **Test categories covered:** unit, integration, CLI, notebook smoke (TR-8), plugin-contract,
-  Hypothesis property tests, coverage, and the CIFAR-10 capstone (TR-12) — all CPU (see §6).
+- **Test categories covered:** the PyTorch unit / integration / CLI / plugin-contract tests, the
+  notebook smoke (TR-8), the augmentation-equivalence property tests, coverage, and the CIFAR-10
+  capstone (TR-12) — plus, as a superset, the framework-agnostic suite — all CPU (see §6).
 - **Bootstrap (one-time):**
   ```bash
   pyve env init smoke-pytorch                                    # .pyve/envs/smoke-pytorch/venv
@@ -497,24 +506,26 @@ are likewise deferred until a concrete, declared workflow exists to enumerate (s
 | Static analysis / lint | `ruff check` | `testenv` | yes | Rule set `E,F,B,I,UP,SIM,RUF,D`. |
 | Formatting | `ruff format --check` | `testenv` | yes | Single-tool lint+format. |
 | Type checking | `mypy --strict` | `typecheck` | yes | Whole package; pydantic v2 plugin (QR-6); full type closure. |
-| Unit tests | `pytest` | `smoke-pytorch` | yes | `tests/unit/` — recipe/cache/seeding/plugin invariants. |
-| Integration tests | `pytest` | `smoke-pytorch` | yes | `tests/integration/` — e2e materialize, determinism, loose-coupling, CIFAR-10 smoke (TR-12), CPU. |
-| CLI tests | `pytest` (editable install) | `smoke-pytorch` | yes | `tests/cli/` — per-verb smoke against console script. |
-| Notebook smoke | `pytest` + `nbclient` / `ipykernel` | `smoke-pytorch` | yes | `tests/notebook/` — substrate-neutral accessor check (TR-8). |
-| Plugin-contract tests | `pytest` | `smoke-pytorch` | yes | `tests/plugin_contract/` — Protocol exhaustiveness. |
-| Property-based tests | `pytest` + `hypothesis` | `smoke-pytorch` | yes | Cache-identity invariants; augmentation semantic equivalence. |
-| Coverage | `pytest-cov` | `smoke-pytorch` | yes | `coverage.xml` + terminal; Codecov upload deferred. |
+| Unit tests | `pytest` | `testenv` | yes | `tests/unit/` — recipe/cache/seeding/sklearn/doc invariants; the `test_pytorch_*` unit tests skip → `smoke-pytorch`. |
+| Integration tests | `pytest` | `smoke-pytorch` | yes | `tests/integration/` — e2e materialize, determinism, loose-coupling, CIFAR-10 smoke (TR-12); all need torch, so they skip in `testenv`. CPU. |
+| CLI tests | `pytest` (editable install) | `testenv` | yes | `tests/cli/` — per-verb smoke against the console script; the torch-bound verbs skip → `smoke-pytorch`. |
+| Notebook smoke | `pytest` + `nbclient` / `ipykernel` | `smoke-pytorch` | yes | `tests/notebook/` — substrate-neutral accessor check (TR-8); the kernel runs a real torch `materialize`. |
+| Plugin-contract tests | `pytest` | `testenv` | yes | `tests/plugin_contract/` — Protocol exhaustiveness; the sklearn contract runs here, the pytorch contract skips → `smoke-pytorch`. |
+| Property-based tests | `pytest` + `hypothesis` | `testenv` | yes | Cache-identity invariants here; augmentation semantic-equivalence skips → `smoke-pytorch`. |
+| Coverage | `pytest-cov` | `smoke-pytorch` | yes | The complete-suite run; `coverage.xml` + terminal; Codecov upload deferred. |
 | Packaging / distribution | `python -m build` (`build`) | `testenv` | yes | sdist + wheel build check; `build` ships in `requirements-dev.txt`. |
 | TF / Keras / HuggingFace smokes | `pytest` (per-framework) | `smoke-tensorflow` / `smoke-huggingface` | N-A | Declared placeholders; requirement files empty until the deferred F.c (TF) / F.e (Keras) / HF smokes land. |
 | GPU-accelerated tests (MPS / CUDA) | `pytest` (per-device) | *(future env)* | N-A | Deferred — needs GPU CI and `smoke-pytorch-mps` / `smoke-pytorch-cuda`; device participates in cache identity, so each is its own `test` env. |
 
-**Completeness statement:** every test category the pre-production codebase requires is owned
-by exactly one environment — lint/format in `testenv`, strict typing in `typecheck`, and the
-runtime-dependent categories in `smoke-pytorch`; no category is split across redundant
-environments and none is missing. The `root` env (venv `utility`) owns no test category — it is
-the ad-hoc development host. The TF/Keras/HF smokes (declared-but-empty `smoke-tensorflow` /
-`smoke-huggingface`) and the GPU-accelerated categories are out-of-scope-today and map to those
-already-declared (or future) `test` envs, not to a gap in the current set.
+**Completeness statement:** every test category the pre-production codebase requires is covered.
+`testenv` runs the **framework-agnostic** suite (and owns lint/format); `typecheck` runs
+`mypy --strict`; `smoke-pytorch` runs the **torch** tests and, as a superset, the complete suite
+(the CI coverage run). The split is by *framework dependency*, not redundancy — a torch test
+`importorskip`s and therefore runs in exactly one place (`smoke-pytorch`), and the framework-agnostic
+tests run fast in `testenv` on every `pyve test`. The `root` env (venv `utility`) owns no test
+category — it is the ad-hoc development host. The TF/Keras/HF smokes (declared-but-empty
+`smoke-tensorflow` / `smoke-huggingface`) and the GPU-accelerated categories are out-of-scope-today
+and map to those already-declared (or future) `test` envs, not to a gap in the current set.
 
 ---
 
@@ -530,11 +541,11 @@ pyve env init root                              # .pyve/envs/root/venv (python 3
 pyve run pip install -e ".[pytorch]"            # editable package + runtime closure (CPU)
 #   (pyve, project-guide, direnv, git installed globally — not pyve-managed)
 
-# 2. Light testenv (venv, eager default): lint + format tooling.
+# 2. testenv (venv, eager default): the framework-agnostic suite + lint/format.
 pyve env init testenv                           # .pyve/envs/testenv/venv
-pyve env run testenv -- pip install -r requirements-dev.txt   # ruff / mypy / pytest tooling
+pyve env run testenv -- pip install -r requirements-test.txt   # base `-e .` (no torch) + tooling
 
-# 3. smoke-pytorch (venv, lazy): the env the real test suite runs in.
+# 3. smoke-pytorch (venv, lazy): the env the torch tests run in.
 pyve env init smoke-pytorch                      # .pyve/envs/smoke-pytorch/venv
 pyve env run smoke-pytorch -- pip install -r tests/integration/env/pytorch.txt
 
@@ -548,15 +559,16 @@ pyve env run typecheck -- pip install -r requirements-typecheck.txt
 #    (DataRefinery test fixtures are synthesized by tests/conftest.py at test time.)
 
 # 6. Verification smoke tests:
-pyve test --env smoke-pytorch                   # the real suite (plain `pyve test` targets the light testenv)
+pyve test                                       # framework-agnostic suite (testenv; torch tests skip)
+pyve test --env smoke-pytorch                   # complete suite incl. torch
 pyve env run testenv -- ruff check src tests
 pyve env run typecheck -- mypy src tests
 pyve run modelfoundry --version
 ```
 
 - **Files that must be committed for reproducibility:** `pyproject.toml`, `pyve.toml` (the
-  `[env.<name>]` env spec), `requirements-dev.txt`, `requirements-typecheck.txt`,
-  `tests/integration/env/*.txt`, `.tool-versions`.
+  `[env.<name>]` env spec), `requirements-test.txt`, `requirements-dev.txt`,
+  `requirements-typecheck.txt`, `tests/integration/env/*.txt`, `.tool-versions`.
 - **Files that must NOT be committed:** `.pyve/envs/`, `.env`, build artifacts
   (`dist/`, `build/`, `*.egg-info/`), and the materialized cache roots (`./models/`,
   `./data/`).

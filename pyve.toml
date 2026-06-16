@@ -7,12 +7,14 @@ name = "modelfoundry"
 purpose = "utility"
 backend = "venv"
 
-# Light: routine CI tests, ruff, mypy, pytest. Default for every `pyve test`.
+# Default for every `pyve test`: the framework-agnostic suite (everything that isn't
+# torch/keras/HF) + ruff lint/format. requirements-test.txt = base `-e .` (no torch) +
+# the requirements-dev.txt tooling; the torch tests skip here and run in smoke-pytorch.
 [env.testenv]
 purpose = "test"
 backend = "venv"
 default = true
-requirements = ["requirements-dev.txt"]
+requirements = ["requirements-test.txt"]
 
 # Focused, lazy: hardware smokes, one env per framework. venv — every dep is a pip
 # wheel on macOS arm64 (torch MPS, Apple tf-macos/tf-metal, HF stack), so conda buys

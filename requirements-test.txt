@@ -1,0 +1,18 @@
+# Copyright (c) 2026 Pointmatic
+# SPDX-License-Identifier: Apache-2.0
+#
+# Dependency set for the default test env ([env.testenv] in pyve.toml), which runs
+# the framework-agnostic test suite (everything that isn't torch / keras / HF) plus
+# ruff lint + format.
+#
+# It installs the editable package's BASE runtime closure (numpy / pandas / pyarrow /
+# pyyaml / pydantic / rich / typer / matplotlib / scikit-learn / optuna / pillow /
+# ml-datarefinery) — but NOT torch — so `import modelfoundry` resolves and the
+# plugin-agnostic tests run. The torch-dependent tests skip here via
+# `pytest.importorskip("torch")` and run in [env.smoke-pytorch].
+#
+# requirements-dev.txt carries the shared tooling (ruff / mypy / pytest / …),
+# referenced (not copied) so the two never drift — the same file [env.typecheck]'s
+# requirements-typecheck.txt also folds in.
+-e .
+-r requirements-dev.txt

@@ -14,12 +14,12 @@ For the upstream contract ModelFoundry consumes (DataRefinery as vendor), see [`
 |---|---|---|
 | **Language** | Python 3.12.x | Pinned via `asdf` / `pyve`. Use `python`, never `python3`, to honor the `asdf` shim. |
 | **`requires-python`** (pyproject.toml) | `>=3.12,<3.14` | PyPI-friendly range. The exact `python 3.12.13` pin lives in `.tool-versions` (asdf; env reproducibility). The `3.14` ceiling protects against ML-stack incompatibilities seen in adjacent projects. |
-| **Environment manager** | `pyve` (venv backend) | A venv multi-env layout in `pyve.toml` (schema 3.0): a `purpose = "utility"` **root** (`.pyve/envs/root/venv`, ad-hoc runs / scripts), a light `default = true` **`testenv`** (ruff / mypy / pytest tooling — lint + format), and lazy **`smoke-pytorch`** (the full torch closure, where the suite runs), **`smoke-tensorflow`** / **`smoke-huggingface`** (declared placeholders), and **`typecheck`** (`mypy --strict` closure). All `backend = venv`. See [`env-dependencies.md`](env-dependencies.md) for the authoritative env spec and `project-essentials.md` § Pyve Essentials. |
+| **Environment manager** | `pyve` (venv backend) | A venv multi-env layout in `pyve.toml` (schema 3.0): a `purpose = "utility"` **root** (`.pyve/envs/root/venv`, ad-hoc runs / scripts), a `default = true` **`testenv`** (base `-e .`, no torch — the framework-agnostic suite + lint/format), and lazy **`smoke-pytorch`** (the full torch closure, where the torch tests run), **`smoke-tensorflow`** / **`smoke-huggingface`** (declared placeholders), and **`typecheck`** (`mypy --strict` closure). All `backend = venv`. See [`env-dependencies.md`](env-dependencies.md) for the authoritative env spec and `project-essentials.md` § Pyve Essentials. |
 | **Build backend** | `hatchling` | Configured via `pyproject.toml`; no `setup.py`. |
 | **Package layout** | `src/` layout (`src/modelfoundry/...`) | Forces tests against the *installed* package, surfaces packaging bugs that flat layout hides. Mirrors DataRefinery and nbfoundry. |
 | **Linter / formatter** | `ruff` (check + format) | Single tool covers lint + format. Default rule set + `B`, `I`, `UP`, `SIM`, `RUF`. |
 | **Type checker** | `mypy --strict` over the **whole package** | Per `features.md` QR-6; pydantic v2 mypy plugin auto-loaded; `py.typed` marker ships in the wheel. |
-| **Test runner** | `pytest` + `pytest-cov` + `hypothesis` | Run via `pyve test --env smoke-pytorch` (the full closure); never bare `pytest`. Plain `pyve test` targets the light `testenv`. See § Two-environment install below. |
+| **Test runner** | `pytest` + `pytest-cov` + `hypothesis` | Never bare `pytest`. Plain `pyve test` runs the framework-agnostic suite in `testenv` (torch tests skip); `pyve test --env smoke-pytorch` runs the complete suite incl. torch. See § Multi-environment install below. |
 | **CLI framework** | `typer` | Mirrors DataRefinery and nbfoundry. Built on click; migration path stays open. |
 | **Editable install** | Testenv editable install required | Tests exercise CLI entry points; `pythonpath` alone does not register console scripts. |
 | **Pre-commit hooks** | **Not used in the pre-production series**; CI gates only | Vendored hook envs drift from project Python; revisit if drift becomes painful. |
@@ -38,13 +38,13 @@ pyve env run typecheck -- mypy src tests
 
 ### Multi-environment install
 
-A venv multi-env layout is declared in `pyve.toml` (schema 3.0) — see [`env-dependencies.md`](env-dependencies.md) for the authoritative spec. The `utility` **root** carries the editable package for ad-hoc runs; the light `default` **`testenv`** holds the lint/format tooling; lazy **`smoke-pytorch`** carries the package + PyTorch plugin and owns the suite; lazy **`typecheck`** carries the full type closure for `mypy --strict`. Because this project ships a **CLI** (`modelfoundry`), `smoke-pytorch` does an editable install so its console-script entry points resolve. (Each env is `backend = venv`; provisioning runs through `pyve env run` per its `requirements` file.)
+A venv multi-env layout is declared in `pyve.toml` (schema 3.0) — see [`env-dependencies.md`](env-dependencies.md) for the authoritative spec. The `utility` **root** carries the editable package for ad-hoc runs; the `default` **`testenv`** carries the base `-e .` (no torch) and runs the framework-agnostic suite + lint/format; lazy **`smoke-pytorch`** carries the package + PyTorch plugin and runs the torch tests (and, as a superset, the complete suite); lazy **`typecheck`** carries the full type closure for `mypy --strict`. Because this project ships a **CLI** (`modelfoundry`), both `testenv` and `smoke-pytorch` do an editable install so console-script entry points resolve. (Each env is `backend = venv`; provisioning runs through `pyve env run` per its `requirements` file.)
 
 ```bash
 pyve env init root                                                # utility root: .pyve/envs/root/venv
 pyve run pip install -e ".[pytorch]"                             # editable package + runtime closure (root)
 pyve env init testenv                                             # light test env: .pyve/envs/testenv/venv
-pyve env run testenv -- pip install -r requirements-dev.txt       # lint/format/test tooling
+pyve env run testenv -- pip install -r requirements-test.txt      # base -e . (no torch) + lint/format/test tooling
 pyve env init smoke-pytorch                                       # suite env (lazy): .pyve/envs/smoke-pytorch/venv
 pyve env run smoke-pytorch -- pip install -r tests/integration/env/pytorch.txt  # editable pkg + torch closure
 pyve env init typecheck                                           # type-check env (lazy): .pyve/envs/typecheck/venv
@@ -115,7 +115,8 @@ Source layout, with one-line descriptions per file:
 modelfoundry/                                       # repo root
 ├── pyproject.toml                                  # build backend (hatchling), deps, console script, ruff/mypy/pytest config
 ├── pyve.toml                                        # pyve 3.0 env spec: [env.root] utility + light [env.testenv] + lazy [env.smoke-*] / [env.typecheck] (all venv)
-├── requirements-dev.txt                            # dev tools for the light testenv (ruff, mypy, pytest, pytest-cov, hypothesis, nbclient, ipykernel, types-pyyaml, build)
+├── requirements-test.txt                           # [env.testenv] deps: base -e . (no torch) + requirements-dev.txt → framework-agnostic suite
+├── requirements-dev.txt                            # shared dev tooling (ruff, mypy, pytest, pytest-cov, hypothesis, nbclient, ipykernel, types-pyyaml, build)
 ├── requirements-typecheck.txt                      # full mypy --strict closure for [env.typecheck] (-e .[pytorch] + requirements-dev.txt)
 ├── tests/integration/env/pytorch.txt               # [env.smoke-pytorch] deps: editable pkg + torch closure + pytest (the real suite env)
 ├── README.md                                       # quickstart: install, CIFAR-10 walkthrough, library + CLI usage
