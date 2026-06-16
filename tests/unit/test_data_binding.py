@@ -205,9 +205,7 @@ def test_missing_aggressive_sidecar_refused(tmp_path: Path) -> None:
         "label": "c0",
         "image_path": "train/images/img_0__v000.png",  # sidecar intentionally absent
     }
-    train_jsonl.write_text(
-        train_jsonl.read_text() + "\n" + json.dumps(variant), encoding="utf-8"
-    )
+    train_jsonl.write_text(train_jsonl.read_text() + "\n" + json.dumps(variant), encoding="utf-8")
     with pytest.raises(DataBindingError, match="sidecar missing"):
         resolve_data_instance(DataSpec(recipe=recipe_yaml), _config(cache_root))
 
@@ -223,9 +221,7 @@ def test_aggressive_variant_with_sidecar_succeeds(tmp_path: Path) -> None:
         "label": "c0",
         "image_path": rel,
     }
-    train_jsonl.write_text(
-        train_jsonl.read_text() + "\n" + json.dumps(variant), encoding="utf-8"
-    )
+    train_jsonl.write_text(train_jsonl.read_text() + "\n" + json.dumps(variant), encoding="utf-8")
     sidecar = instance_dir / "dataset" / rel
     sidecar.parent.mkdir(parents=True, exist_ok=True)
     sidecar.write_bytes(b"\x89PNG\r\n\x1a\n")  # sentinel; existence is all that's checked
@@ -233,9 +229,7 @@ def test_aggressive_variant_with_sidecar_succeeds(tmp_path: Path) -> None:
     assert inst.splits
 
 
-def test_schema_version_too_high_refused(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_schema_version_too_high_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # Materialize normally (instance recipe is v2), then shrink ModelFoundry's
     # tracked DR support set so the v2 instance reads as "too high".
     recipe_yaml, cache_root, _ = _materialize(tmp_path)

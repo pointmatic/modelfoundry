@@ -118,9 +118,7 @@ def _recipe_with_expectation(expectation_metric: str) -> ModelRecipe:
         Loss=LossSpec(op="cross_entropy"),
         Optimizer=OptimizerSpec(op="adamw", learning_rate=0.01),
         Training=TrainingSpec(max_epochs=1, batch_size=2, num_workers=0, device="cpu"),
-        Evaluation=EvaluationSpec(
-            splits=["val"], primary_metric="accuracy", metrics=["accuracy"]
-        ),
+        Evaluation=EvaluationSpec(splits=["val"], primary_metric="accuracy", metrics=["accuracy"]),
         OutputExpectations=[
             ExpectationSpec(metric=expectation_metric, split="val", op="gte", value=0.5)
         ],
@@ -145,9 +143,7 @@ def test_unproduced_metric_would_also_fail_at_materialize() -> None:
     # The same dangling reference is *also* caught at materialize (absent from the
     # evaluation dict → a failed outcome), confirming validate is the earlier of
     # two gates rather than the only one.
-    [outcome] = evaluate_expectations(
-        [_spec("gte", 0.5, metric="macro_f1")], _METRICS
-    )
+    [outcome] = evaluate_expectations([_spec("gte", 0.5, metric="macro_f1")], _METRICS)
     assert outcome.passed is False
     assert outcome.observed is None
     assert outcome.detail is not None and "macro_f1" in outcome.detail

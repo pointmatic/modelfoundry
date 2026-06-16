@@ -157,9 +157,7 @@ def test_cosine_builds() -> None:
 
 def test_linear_warmup_builds_and_warms_up() -> None:
     optimizer = _optimizer()
-    sched = build_schedule(
-        "linear_warmup", {"warmup_steps": 2, "total_steps": 10}, optimizer
-    )
+    sched = build_schedule("linear_warmup", {"warmup_steps": 2, "total_steps": 10}, optimizer)
     assert isinstance(sched, torch.optim.lr_scheduler.LambdaLR)
     lr_at_start = optimizer.param_groups[0]["lr"]
     optimizer.step()  # establish optimizer-before-scheduler ordering (no grads → no-op)

@@ -113,9 +113,7 @@ def _write_failed_marker(temp_dir: Path, exc: BaseException, stage: str | None) 
         "stage": stage,
         "error_class": type(exc).__name__,
         "message": str(exc),
-        "traceback": "".join(
-            traceback.format_exception(type(exc), exc, exc.__traceback__)
-        ),
+        "traceback": "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)),
         "marked_at": _utc_stamp(),
     }
     (temp_dir / FAILED_MARKER).write_text(
@@ -138,10 +136,7 @@ def trash_existing(cache_root: str | Path, key: CacheKey) -> Path:
         )
 
     dest = (
-        paths.trash_dir(_utc_stamp())
-        / key.recipe_hash16
-        / key.data_instance_hash16
-        / str(key.seed)
+        paths.trash_dir(_utc_stamp()) / key.recipe_hash16 / key.data_instance_hash16 / str(key.seed)
     )
     dest.parent.mkdir(parents=True, exist_ok=True)
     try:

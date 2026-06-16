@@ -48,8 +48,12 @@ def _manifest(**overrides: Any) -> Manifest:
         "evaluation": {"val": {"accuracy": 0.9123, "macro_f1": 0.88}},
         "output_expectations": [
             ExpectationOutcome(
-                metric="accuracy", split="val", op="gte", expected=0.5,
-                observed=0.9123, passed=True,
+                metric="accuracy",
+                split="val",
+                op="gte",
+                expected=0.5,
+                observed=0.9123,
+                passed=True,
             )
         ],
     }
@@ -64,7 +68,9 @@ def _materialized(manifest: Manifest, instance_dir: str = "/mf/cache/.../1") -> 
 def _render_to_str(status: dict[str, Any], *, primary_metric: str = "accuracy") -> str:
     buf = io.StringIO()
     render_status(
-        Path("recipe.yml"), status, primary_metric=primary_metric,
+        Path("recipe.yml"),
+        status,
+        primary_metric=primary_metric,
         console=Console(file=buf, width=200),
     )
     return buf.getvalue()
@@ -92,12 +98,20 @@ def test_render_expectations_passed_and_failed_counts() -> None:
     manifest = _manifest(
         output_expectations=[
             ExpectationOutcome(
-                metric="accuracy", split="val", op="gte", expected=0.5,
-                observed=0.91, passed=True,
+                metric="accuracy",
+                split="val",
+                op="gte",
+                expected=0.5,
+                observed=0.91,
+                passed=True,
             ),
             ExpectationOutcome(
-                metric="macro_f1", split="val", op="gte", expected=0.99,
-                observed=0.88, passed=False,
+                metric="macro_f1",
+                split="val",
+                op="gte",
+                expected=0.99,
+                observed=0.88,
+                passed=False,
             ),
         ]
     )

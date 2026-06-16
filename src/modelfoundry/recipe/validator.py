@@ -575,9 +575,7 @@ def _fail(
     *,
     detail: dict[str, Any] | None = None,
 ) -> ValidationCheck:
-    return ValidationCheck(
-        id=check_id, name=name, passed=False, message=message, detail=detail
-    )
+    return ValidationCheck(id=check_id, name=name, passed=False, message=message, detail=detail)
 
 
 def _iter_ops(recipe: ModelRecipe) -> Iterator[tuple[str, str, dict[str, Any]]]:

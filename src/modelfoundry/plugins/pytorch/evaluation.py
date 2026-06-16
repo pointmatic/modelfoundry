@@ -198,9 +198,7 @@ def _confusion(preds: torch.Tensor, targets: torch.Tensor, num_classes: int) -> 
     return matrix.cpu().numpy().astype(np.int64)
 
 
-def _calibration(
-    probs: torch.Tensor, targets: torch.Tensor, n_bins: int
-) -> dict[str, list[float]]:
+def _calibration(probs: torch.Tensor, targets: torch.Tensor, n_bins: int) -> dict[str, list[float]]:
     confidences, predicted = probs.max(dim=1)
     correct = (predicted == targets).to(torch.float32)
     return calibration_curve(confidences.numpy(), correct.numpy(), n_bins=n_bins)

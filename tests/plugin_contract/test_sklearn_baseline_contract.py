@@ -97,9 +97,7 @@ def test_sklearn_health_check_returns_check_report_shape() -> None:
 def test_sklearn_materializes_mlp_classifier_end_to_end(tmp_path: Path) -> None:
     from modelfoundry import ModelFoundry, ModelInstance
 
-    data = build_dr_instance(
-        tmp_path / "dr", split_counts={"train": 24, "val": 9}, image_size=8
-    )
+    data = build_dr_instance(tmp_path / "dr", split_counts={"train": 24, "val": 9}, image_size=8)
     recipe_path = tmp_path / "mlp.yml"
     recipe_path.write_text(yaml.safe_dump(_mlp_recipe()), encoding="utf-8")
     config = RuntimeConfig(cache_root=tmp_path / "mf_cache")

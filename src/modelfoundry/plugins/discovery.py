@@ -72,8 +72,7 @@ def _ingest_path(plugins: dict[str, Plugin], path: Path) -> None:
 def _register(plugins: dict[str, Plugin], candidate: object, *, source: str) -> None:
     if not isinstance(candidate, Plugin):
         raise PluginError(
-            f"{source} did not provide a Plugin (missing one or more required "
-            f"attributes/methods)",
+            f"{source} did not provide a Plugin (missing one or more required attributes/methods)",
             detail={"source": source},
         )
     if candidate.name in plugins:

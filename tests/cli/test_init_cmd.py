@@ -97,16 +97,26 @@ def _build_dr_instance(tmp_path: Path) -> Any:
         counts[split] = len(records)
 
     manifest = DRManifest(
-        datarefinery_version="0.19.0", plugin="image_classification", plugin_version="1",
-        recipe_hash=recipe_hash, input_hash="0" * 64, seed=1,
-        created_at=datetime.now(UTC), elapsed_seconds=0.1, record_counts=counts,
-        warnings=[], sinks={}, sinks_skipped={},
+        datarefinery_version="0.19.0",
+        plugin="image_classification",
+        plugin_version="1",
+        recipe_hash=recipe_hash,
+        input_hash="0" * 64,
+        seed=1,
+        created_at=datetime.now(UTC),
+        elapsed_seconds=0.1,
+        record_counts=counts,
+        warnings=[],
+        sinks={},
+        sinks_skipped={},
     )
     (inst / "manifest.json").write_text(manifest.model_dump_json(), encoding="utf-8")
 
     loaded = dr.Instance.load(inst)
     return DataRefineryInstance(
-        path=inst, manifest=loaded.manifest, recipe=loaded.recipe,
+        path=inst,
+        manifest=loaded.manifest,
+        recipe=loaded.recipe,
         splits=tuple(loaded.manifest.record_counts.keys()),
         label_schema=loaded.recipe.Labels.model_dump(),
         record_schema={k: v.model_dump() for k, v in loaded.recipe.Output.record_schema.items()},
@@ -143,9 +153,7 @@ def test_scaffold_writes_loadable_pytorch_recipe(
     assert recipe.Architecture["in_channels"] == 3  # from record_schema shape
 
 
-def test_scaffold_stamps_copyright_header(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_scaffold_stamps_copyright_header(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     out = _scaffold(tmp_path, monkeypatch)
     text = out.read_text(encoding="utf-8")
     assert text.startswith("# Copyright (c) 2026 Pointmatic")
@@ -160,9 +168,7 @@ def test_scaffold_sets_early_stopping_when_val_present(
     assert recipe.Training.early_stopping.monitor == "val_loss"
 
 
-def test_scaffold_eval_split_prefers_test(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_scaffold_eval_split_prefers_test(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     recipe = load_recipe(_scaffold(tmp_path, monkeypatch))
     assert recipe.Evaluation.splits == ["test"]
     assert recipe.Evaluation.primary_metric == "accuracy"
@@ -193,9 +199,7 @@ def test_scaffold_refuses_existing_without_force(
 # --- validate + materialize the scaffolded recipe ---
 
 
-def test_scaffolded_recipe_validates_clean(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_scaffolded_recipe_validates_clean(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from modelfoundry.core.modelfoundry import ModelFoundry
 
     instance = _build_dr_instance(tmp_path)
@@ -210,9 +214,7 @@ def test_scaffolded_recipe_validates_clean(
     assert report.passed, failures
 
 
-def test_scaffolded_recipe_materializes(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_scaffolded_recipe_materializes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     pytest.importorskip("torch")
     from modelfoundry.core.modelfoundry import ModelFoundry
 

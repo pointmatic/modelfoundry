@@ -28,16 +28,16 @@ from typing import Any
 # 10 maximally-distinct RGB colours — one per CIFAR-10 class, so a tiny CNN learns
 # the colour→class map in a few epochs (the smoke needs a real, non-degenerate fit).
 _PALETTE: tuple[tuple[int, int, int], ...] = (
-    (220, 20, 60),    # crimson
-    (60, 180, 75),    # green
-    (0, 130, 200),    # blue
-    (245, 130, 48),   # orange
-    (145, 30, 180),   # purple
-    (70, 240, 240),   # cyan
-    (240, 50, 230),   # magenta
-    (170, 110, 40),   # brown
+    (220, 20, 60),  # crimson
+    (60, 180, 75),  # green
+    (0, 130, 200),  # blue
+    (245, 130, 48),  # orange
+    (145, 30, 180),  # purple
+    (70, 240, 240),  # cyan
+    (240, 50, 230),  # magenta
+    (170, 110, 40),  # brown
     (128, 128, 128),  # grey
-    (0, 0, 0),        # black
+    (0, 0, 0),  # black
 )
 CLASSES: tuple[str, ...] = tuple(f"c{i}" for i in range(10))
 DEFAULT_SPLIT_COUNTS: dict[str, int] = {"train": 500, "val": 100, "test": 100}
@@ -112,19 +112,25 @@ def build_cifar10_smoke_instance(
             cls = CLASSES[cls_idx]
             png = images_dir / f"{split}_{i}.png"
             Image.new("RGB", (_IMAGE_SIZE, _IMAGE_SIZE), _PALETTE[cls_idx]).save(png)
-            records.append(
-                {"record_id": f"{split}/{cls}/img_{i}", "label": cls, "path": str(png)}
-            )
+            records.append({"record_id": f"{split}/{cls}/img_{i}", "label": cls, "path": str(png)})
         (dataset_dir / f"{split}.jsonl").write_text(
             "\n".join(json.dumps(r) for r in records), encoding="utf-8"
         )
         counts[split] = len(records)
 
     manifest = DRManifest(
-        datarefinery_version="0.19.0", plugin="image_classification", plugin_version="1",
-        recipe_hash=recipe_hash, input_hash="0" * 64, seed=seed,
-        created_at=datetime.now(UTC), elapsed_seconds=0.1, record_counts=counts,
-        warnings=[], sinks={}, sinks_skipped={},
+        datarefinery_version="0.19.0",
+        plugin="image_classification",
+        plugin_version="1",
+        recipe_hash=recipe_hash,
+        input_hash="0" * 64,
+        seed=seed,
+        created_at=datetime.now(UTC),
+        elapsed_seconds=0.1,
+        record_counts=counts,
+        warnings=[],
+        sinks={},
+        sinks_skipped={},
     )
     (inst / "manifest.json").write_text(manifest.model_dump_json(), encoding="utf-8")
 

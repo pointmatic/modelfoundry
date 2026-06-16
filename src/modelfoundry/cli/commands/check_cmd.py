@@ -33,8 +33,7 @@ def render_check(result: dict[str, Any], *, console: Console | None = None) -> N
     """Render the environment probe as a header line, a per-plugin table, and a summary."""
     console = console or Console()
     console.print(
-        f"Python {result['python_version']}  ·  "
-        f"ModelFoundry {result['modelfoundry_version']}"
+        f"Python {result['python_version']}  ·  ModelFoundry {result['modelfoundry_version']}"
     )
 
     table = Table(title="Environment check", title_justify="left", header_style="bold")
@@ -48,9 +47,7 @@ def render_check(result: dict[str, Any], *, console: Console | None = None) -> N
         available = getattr(report, "available", False)
         status = "[green]✓ available[/green]" if available else "[red]✗ unavailable[/red]"
         accelerators = ", ".join(getattr(report, "accelerators", ())) or "—"
-        table.add_row(
-            getattr(report, "plugin", "?"), status, accelerators, _versions(report)
-        )
+        table.add_row(getattr(report, "plugin", "?"), status, accelerators, _versions(report))
     console.print(table)
 
     unavailable = [r for r in reports if not getattr(r, "available", False)]

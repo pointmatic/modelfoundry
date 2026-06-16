@@ -174,9 +174,7 @@ def _dataframe_to_arrays(frame: Any) -> Any:
         return list(frame["path"])
     if "image" in frame.columns:
         return np.stack([np.asarray(img, dtype=np.float32) for img in frame["image"]])
-    raise PluginError(
-        "DataFrame predict input needs a 'path' or 'image' column", stage="predict"
-    )
+    raise PluginError("DataFrame predict input needs a 'path' or 'image' column", stage="predict")
 
 
 def _is_dataframe(X: Any) -> bool:

@@ -48,8 +48,6 @@ def feature_matrix(
 
     n_features = rows[0].shape[0] if rows else 0
     matrix = (
-        np.stack(rows).astype(np.float32)
-        if rows
-        else np.empty((0, n_features), dtype=np.float32)
+        np.stack(rows).astype(np.float32) if rows else np.empty((0, n_features), dtype=np.float32)
     )
     return matrix, np.asarray(labels, dtype=np.int64), class_names

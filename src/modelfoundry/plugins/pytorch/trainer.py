@@ -107,9 +107,7 @@ def run_training(
 
     val_loader = _maybe_val_loader(data, training, seed)
 
-    class_weights, class_weights_path = _fit_class_weights(
-        recipe, train_ds, training_dir
-    )
+    class_weights, class_weights_path = _fit_class_weights(recipe, train_ds, training_dir)
     loss_fn = build_loss(
         recipe.Loss.op,
         _op_params(recipe.Loss.model_dump(), drop=("op",)),
@@ -341,9 +339,7 @@ def _step_scheduler(
         scheduler.step()
 
 
-def _resolve_monitor(
-    training: TrainingSpec, *, has_val: bool
-) -> tuple[str, str, int | None]:
+def _resolve_monitor(training: TrainingSpec, *, has_val: bool) -> tuple[str, str, int | None]:
     """The metric/direction/patience driving best-weight promotion + early stopping.
 
     Uses `Training.early_stopping` when declared (validator check 6 guarantees its
@@ -360,8 +356,7 @@ def _resolve_monitor(
 def _monitored(record: dict[str, float], key: str) -> float:
     if key not in record:
         raise PluginError(
-            f"monitored metric {key!r} is not produced this epoch; "
-            f"available: {sorted(record)}",
+            f"monitored metric {key!r} is not produced this epoch; available: {sorted(record)}",
             stage="run_training",
             detail={"monitor": key},
         )

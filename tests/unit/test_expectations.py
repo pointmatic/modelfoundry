@@ -64,24 +64,18 @@ def test_eq_fail() -> None:
 
 def test_within_pass_with_list_value() -> None:
     # Pydantic coerces the YAML-style list into the tuple field.
-    [out] = evaluate_expectations(
-        [_spec("ece", "val", "within", [0.0, 0.1])], METRICS
-    )
+    [out] = evaluate_expectations([_spec("ece", "val", "within", [0.0, 0.1])], METRICS)
     assert out.passed is True
     assert out.observed == 0.05
 
 
 def test_within_fail_above_high() -> None:
-    [out] = evaluate_expectations(
-        [_spec("accuracy", "val", "within", [0.5, 0.8])], METRICS
-    )
+    [out] = evaluate_expectations([_spec("accuracy", "val", "within", [0.5, 0.8])], METRICS)
     assert out.passed is False  # 0.85 > 0.8
 
 
 def test_within_fail_below_low() -> None:
-    [out] = evaluate_expectations(
-        [_spec("accuracy", "val", "within", [0.9, 1.0])], METRICS
-    )
+    [out] = evaluate_expectations([_spec("accuracy", "val", "within", [0.9, 1.0])], METRICS)
     assert out.passed is False  # 0.85 < 0.9
 
 
@@ -89,18 +83,14 @@ def test_within_fail_below_low() -> None:
 
 
 def test_missing_metric_marked_failed_with_detail() -> None:
-    [out] = evaluate_expectations(
-        [_spec("recall", "val", "gte", 0.5)], METRICS
-    )
+    [out] = evaluate_expectations([_spec("recall", "val", "gte", 0.5)], METRICS)
     assert out.passed is False
     assert out.observed is None
     assert out.detail is not None and "metric 'recall'" in out.detail
 
 
 def test_missing_split_marked_failed_with_detail() -> None:
-    [out] = evaluate_expectations(
-        [_spec("accuracy", "holdout", "gte", 0.5)], METRICS
-    )
+    [out] = evaluate_expectations([_spec("accuracy", "holdout", "gte", 0.5)], METRICS)
     assert out.passed is False
     assert out.observed is None
     assert out.detail is not None and "split 'holdout'" in out.detail

@@ -69,9 +69,7 @@ def test_load_predict_is_self_contained_and_matches(tmp_path: Path) -> None:
     from modelfoundry import ModelFoundry, ModelInstance
 
     dr_root = tmp_path / "dr"
-    data = build_dr_instance(
-        dr_root, split_counts={"train": 16, "val": 8}, image_size=_IMAGE_SIZE
-    )
+    data = build_dr_instance(dr_root, split_counts={"train": 16, "val": 8}, image_size=_IMAGE_SIZE)
     config = RuntimeConfig(cache_root=tmp_path / "cache")
     instance = ModelFoundry.from_recipe(
         _write_recipe(tmp_path / "recipe.yml"), data=data, config=config

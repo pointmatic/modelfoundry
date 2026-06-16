@@ -296,8 +296,12 @@ def _cmd_materialize(
 
     raise typer.Exit(
         materialize_cmd.run(
-            recipe, _config(ctx), variant=variant, seed=seed,
-            overwrite=overwrite, progress=progress,
+            recipe,
+            _config(ctx),
+            variant=variant,
+            seed=seed,
+            overwrite=overwrite,
+            progress=progress,
         )
     )
 

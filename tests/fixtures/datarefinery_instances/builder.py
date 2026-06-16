@@ -98,19 +98,25 @@ def build_dr_instance(
             color = _COLORS[classes.index(cls) % len(_COLORS)]
             png = images_dir / f"{split}_{i}.png"
             Image.new("RGB", (image_size, image_size), color).save(png)
-            records.append(
-                {"record_id": f"{split}/{cls}/img_{i}", "label": cls, "path": str(png)}
-            )
+            records.append({"record_id": f"{split}/{cls}/img_{i}", "label": cls, "path": str(png)})
         (dataset_dir / f"{split}.jsonl").write_text(
             "\n".join(json.dumps(r) for r in records), encoding="utf-8"
         )
         counts[split] = len(records)
 
     manifest = DRManifest(
-        datarefinery_version="0.19.0", plugin="image_classification", plugin_version="1",
-        recipe_hash=recipe_hash, input_hash="0" * 64, seed=seed,
-        created_at=datetime.now(UTC), elapsed_seconds=0.1, record_counts=counts,
-        warnings=[], sinks={}, sinks_skipped={},
+        datarefinery_version="0.19.0",
+        plugin="image_classification",
+        plugin_version="1",
+        recipe_hash=recipe_hash,
+        input_hash="0" * 64,
+        seed=seed,
+        created_at=datetime.now(UTC),
+        elapsed_seconds=0.1,
+        record_counts=counts,
+        warnings=[],
+        sinks={},
+        sinks_skipped={},
     )
     (inst / "manifest.json").write_text(manifest.model_dump_json(), encoding="utf-8")
 

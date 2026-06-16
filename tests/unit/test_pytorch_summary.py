@@ -142,7 +142,5 @@ def test_derive_input_size_from_record_schema() -> None:
 
 def test_derive_input_size_prefers_image_field() -> None:
     # A non-image 3-element shape must not win over the image entry.
-    stub = _SchemaStub(
-        {"bbox": {"shape": [4, 4, 4]}, "image": {"shape": [8, 16, 3]}}
-    )
+    stub = _SchemaStub({"bbox": {"shape": [4, 4, 4]}, "image": {"shape": [8, 16, 3]}})
     assert derive_input_size(stub) == (1, 3, 8, 16)

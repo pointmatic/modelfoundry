@@ -45,15 +45,15 @@ class RuntimeConfig(BaseModel):
         """
         env = os.environ
         values: dict[str, Any] = {}
-        if (raw := env.get(f"{prefix}CACHE_ROOT")):
+        if raw := env.get(f"{prefix}CACHE_ROOT"):
             values["cache_root"] = Path(raw)
-        if (raw := env.get(f"{prefix}DATA_CACHE_ROOT")):
+        if raw := env.get(f"{prefix}DATA_CACHE_ROOT"):
             values["data_cache_root"] = Path(raw)
-        if (raw := env.get(f"{prefix}LOG_LEVEL")):
+        if raw := env.get(f"{prefix}LOG_LEVEL"):
             values["log_level"] = raw
-        if (raw := env.get(f"{prefix}LOG_TARGET")):
+        if raw := env.get(f"{prefix}LOG_TARGET"):
             values["log_target"] = raw
-        if (raw := env.get(f"{prefix}PLUGIN_PATH")):
+        if raw := env.get(f"{prefix}PLUGIN_PATH"):
             values["plugin_path"] = tuple(Path(p) for p in raw.split(",") if p)
         values.update(overrides)
         return cls(**values)

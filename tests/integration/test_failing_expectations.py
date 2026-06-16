@@ -42,9 +42,7 @@ def _restore_determinism() -> Iterator[None]:
 def test_failing_expectations_materialize_writes_failed_marker(tmp_path: Path) -> None:
     from modelfoundry import ModelFoundry
 
-    data = build_dr_instance(
-        tmp_path / "dr", split_counts={"train": 16, "val": 8}, image_size=8
-    )
+    data = build_dr_instance(tmp_path / "dr", split_counts={"train": 16, "val": 8}, image_size=8)
     config = RuntimeConfig(cache_root=tmp_path / "mf_cache")
     mf = ModelFoundry.from_recipe(_FIXTURE, data=data, config=config)
 

@@ -255,9 +255,7 @@ def _kit() -> Any:
             self.bn2 = nn.BatchNorm2d(out_channels)
             if stride != 1 or in_channels != out_channels:
                 self.shortcut: nn.Module = nn.Sequential(
-                    nn.Conv2d(
-                        in_channels, out_channels, kernel_size=1, stride=stride, bias=False
-                    ),
+                    nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, bias=False),
                     nn.BatchNorm2d(out_channels),
                 )
             else:
@@ -410,10 +408,15 @@ def build_model(arch_spec: dict[str, Any]) -> Any:
                 f"unknown architecture type {arch_type!r}; known baselines: {sorted(BASELINES)}",
                 stage="build_model",
             )
-        params = _validate("type", arch_type, BaselineParams, {
-            "num_classes": num_classes,
-            "in_channels": arch_spec.get("in_channels", 3),
-        })
+        params = _validate(
+            "type",
+            arch_type,
+            BaselineParams,
+            {
+                "num_classes": num_classes,
+                "in_channels": arch_spec.get("in_channels", 3),
+            },
+        )
         model = _kit().baselines[arch_type](params.num_classes, params.in_channels)
     elif layers is not None:
         model = _compose(layers)

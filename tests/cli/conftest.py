@@ -72,9 +72,7 @@ def cli_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     # Both `from_recipe` (every data-binding verb) and the `init` scaffolder import
     # `resolve_data_instance` into their own namespace, so stub both seams.
     for module in (mf_mod, init_mod):
-        monkeypatch.setattr(
-            module, "resolve_data_instance", lambda data_spec, config: dr_instance
-        )
+        monkeypatch.setattr(module, "resolve_data_instance", lambda data_spec, config: dr_instance)
 
     recipe_path = tmp_path / "recipe.yml"
     recipe_path.write_text(yaml.safe_dump(_MINIMAL_RECIPE), encoding="utf-8")
@@ -93,9 +91,12 @@ def cli_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
 def shared_opts(cli_env: SimpleNamespace) -> list[str]:
     """The global `--cache-root` / `--data-cache-root` / `--log-target` options."""
     return [
-        "--cache-root", str(cli_env.cache_root),
-        "--data-cache-root", str(cli_env.data_cache_root),
-        "--log-target", str(cli_env.log_target),
+        "--cache-root",
+        str(cli_env.cache_root),
+        "--data-cache-root",
+        str(cli_env.data_cache_root),
+        "--log-target",
+        str(cli_env.log_target),
     ]
 
 

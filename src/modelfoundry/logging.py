@@ -68,9 +68,7 @@ class JsonFormatter(logging.Formatter):
     """
 
     def format(self, record: logging.LogRecord) -> str:
-        timestamp = (
-            datetime.fromtimestamp(record.created, UTC).isoformat().replace("+00:00", "Z")
-        )
+        timestamp = datetime.fromtimestamp(record.created, UTC).isoformat().replace("+00:00", "Z")
         payload: dict[str, Any] = {
             "timestamp": timestamp,
             "level": record.levelname,
@@ -142,8 +140,6 @@ def get_logger(
         package_logger.setLevel(logging.INFO)
 
     qualified = (
-        name
-        if name == _PACKAGE or name.startswith(f"{_PACKAGE}.")
-        else f"{_PACKAGE}.{name}"
+        name if name == _PACKAGE or name.startswith(f"{_PACKAGE}.") else f"{_PACKAGE}.{name}"
     )
     return logging.getLogger(qualified)

@@ -188,7 +188,11 @@ def _params_columns(trials_parquet: Path) -> dict[str, list[object]]:
 def test_optimization_persists_artifacts_and_best_params(tmp_path: Path) -> None:
     recipe = _recipe()
     result = run_optimization(
-        recipe.Optimization, recipe, _build_instance(tmp_path), _SEED, tmp_path  # type: ignore[arg-type]
+        recipe.Optimization,  # type: ignore[arg-type]
+        recipe,
+        _build_instance(tmp_path),
+        _SEED,
+        tmp_path,
     )
 
     opt_dir = tmp_path / "optimization"
@@ -232,7 +236,11 @@ def test_study_is_deterministic_across_reruns(tmp_path: Path) -> None:
 def test_best_params_merge_back_takes_effect(tmp_path: Path) -> None:
     recipe = _recipe()
     result = run_optimization(
-        recipe.Optimization, recipe, _build_instance(tmp_path), _SEED, tmp_path  # type: ignore[arg-type]
+        recipe.Optimization,  # type: ignore[arg-type]
+        recipe,
+        _build_instance(tmp_path),
+        _SEED,
+        tmp_path,
     )
 
     merged = apply_params(recipe, result.best_params)

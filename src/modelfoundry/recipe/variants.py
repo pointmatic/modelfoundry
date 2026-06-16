@@ -39,24 +39,20 @@ def apply_variant(recipe_dict: dict[str, Any], variant_name: str | None) -> dict
     """
     variants = recipe_dict.get("variants", {})
     if not isinstance(variants, dict):
-        raise RecipeError(
-            f"recipe 'variants' must be a mapping, got {type(variants).__name__}"
-        )
+        raise RecipeError(f"recipe 'variants' must be a mapping, got {type(variants).__name__}")
 
     if variant_name is None:
         merged = dict(recipe_dict)
     else:
         if variant_name not in variants:
             raise RecipeError(
-                f"unknown variant {variant_name!r}; declared variants: "
-                f"{sorted(variants.keys())}",
+                f"unknown variant {variant_name!r}; declared variants: {sorted(variants.keys())}",
                 detail={"variant": variant_name, "available": sorted(variants.keys())},
             )
         overlay = variants[variant_name]
         if not isinstance(overlay, dict):
             raise RecipeError(
-                f"variant {variant_name!r} overlay must be a mapping, "
-                f"got {type(overlay).__name__}"
+                f"variant {variant_name!r} overlay must be a mapping, got {type(overlay).__name__}"
             )
         merged = _deep_merge(recipe_dict, overlay)
 

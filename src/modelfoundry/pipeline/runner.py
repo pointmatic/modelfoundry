@@ -136,9 +136,7 @@ class MaterializeRunner:
         if recipe.Evaluation.splits:
             eval_result = self._stage(
                 "evaluation",
-                lambda: self.plugin.run_evaluation(
-                    recipe.Evaluation, model, self.data, temp_dir
-                ),
+                lambda: self.plugin.run_evaluation(recipe.Evaluation, model, self.data, temp_dir),
             )
             eval_metrics = dict(eval_result.metrics)
             warnings = list(getattr(eval_result, "warnings", []))

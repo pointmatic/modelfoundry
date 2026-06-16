@@ -55,7 +55,7 @@ Visualizations:
 # The notebook cell is self-contained (a fresh kernel inherits nothing from
 # pytest). `__TOKEN__` placeholders are substituted with repr'd absolute paths so
 # the dict literals below don't collide with str.format braces.
-_CELL_TEMPLATE = '''\
+_CELL_TEMPLATE = """\
 import sys
 sys.path.insert(0, __FIXTURES__)
 
@@ -81,7 +81,7 @@ assert all(isinstance(v, (bytes, bytearray)) for v in mi.figures.values()), "fig
 # A notebook would `display(...)` these; here we just confirm they materialize.
 print("FIGURES", sorted(mi.figures))
 print("SMOKE_OK")
-'''
+"""
 
 
 def _cell_source(tmp_path: Path) -> str:
@@ -96,9 +96,7 @@ def _cell_source(tmp_path: Path) -> str:
 
 
 def test_materialize_in_jupyter_notebook_cell(tmp_path: Path) -> None:
-    notebook = nbformat.v4.new_notebook(
-        cells=[nbformat.v4.new_code_cell(_cell_source(tmp_path))]
-    )
+    notebook = nbformat.v4.new_notebook(cells=[nbformat.v4.new_code_cell(_cell_source(tmp_path))])
     # Raises CellExecutionError (failing the test) if any in-cell assertion trips.
     NotebookClient(notebook, timeout=300, kernel_name="python3").execute()
 

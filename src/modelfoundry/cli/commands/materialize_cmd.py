@@ -50,9 +50,7 @@ class RichStageProgress:
     # ProgressReporter
     def on_epoch(self, epoch: int, record: dict[str, float]) -> None:
         metrics = ", ".join(
-            f"{key}={_fmt(value)}"
-            for key, value in record.items()
-            if key != "epoch"
+            f"{key}={_fmt(value)}" for key, value in record.items() if key != "epoch"
         )
         self._console.print(f"    [dim]epoch[/dim] {epoch}: {metrics}")
 

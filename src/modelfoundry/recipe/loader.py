@@ -49,8 +49,7 @@ def load_recipe(
     data = _parse_yaml(text, path)
     if not isinstance(data, dict):
         raise RecipeError(
-            f"recipe {path} must be a YAML mapping at the top level, "
-            f"got {type(data).__name__}",
+            f"recipe {path} must be a YAML mapping at the top level, got {type(data).__name__}",
             recipe_path=path,
         )
 
@@ -80,9 +79,7 @@ def _parse_yaml(text: str, path: Path) -> Any:
     except yaml.YAMLError as exc:
         mark = getattr(exc, "problem_mark", None)
         location = f" (line {mark.line + 1}, column {mark.column + 1})" if mark else ""
-        raise RecipeError(
-            f"malformed YAML in {path}{location}: {exc}", recipe_path=path
-        ) from exc
+        raise RecipeError(f"malformed YAML in {path}{location}: {exc}", recipe_path=path) from exc
 
 
 def _gate_schema_version(data: dict[str, Any], path: Path) -> None:

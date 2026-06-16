@@ -100,9 +100,7 @@ def resolve_data_instance(
     """Resolve `data_spec` to a `DataRefineryInstance`; raise `DataBindingError` on any failure."""
     recipe_path = _resolve_recipe_path(data_spec)
     cache_root = Path(
-        data_spec.cache_root
-        if data_spec.cache_root is not None
-        else runtime_config.data_cache_root
+        data_spec.cache_root if data_spec.cache_root is not None else runtime_config.data_cache_root
     ).resolve()
 
     report = _resolve_via_library(recipe_path, cache_root, data_spec.seed, data_spec.variant)
@@ -158,9 +156,7 @@ def _resolve_via_library(
     recipe's declared inputs, so the source inputs must be present on this host.
     """
     try:
-        return _dr.resolve_instance(
-            recipe_path, cache_root=cache_root, seed=seed, variant=variant
-        )
+        return _dr.resolve_instance(recipe_path, cache_root=cache_root, seed=seed, variant=variant)
     except Exception as exc:
         raise DataBindingError(
             f"could not resolve DataRefinery instance for recipe {recipe_path}: {exc}",

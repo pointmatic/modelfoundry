@@ -34,9 +34,7 @@ def derive_seed(master_seed: int, scope: str, *salts: bytes) -> int:
     take the first 8 bytes, interpret big-endian as an unsigned int.
     """
     digest = hashlib.sha256(
-        master_seed.to_bytes(8, "big", signed=False)
-        + scope.encode("utf-8")
-        + b"".join(salts)
+        master_seed.to_bytes(8, "big", signed=False) + scope.encode("utf-8") + b"".join(salts)
     ).digest()
     return int.from_bytes(digest[:8], "big")
 

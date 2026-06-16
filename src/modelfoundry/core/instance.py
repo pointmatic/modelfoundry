@@ -340,9 +340,7 @@ class InspectionView:
             )
         rows = predictions[predictions["split"] == split] if "split" in predictions else predictions
         if len(rows) == 0:
-            raise InspectionError(
-                f"no predictions for split {split!r}", detail={"split": split}
-            )
+            raise InspectionError(f"no predictions for split {split!r}", detail={"split": split})
         return rows.head(n)
 
     def view_trials(self) -> Any:

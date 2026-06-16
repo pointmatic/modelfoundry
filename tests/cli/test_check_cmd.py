@@ -92,9 +92,7 @@ def test_check_environment_reports_python_and_modelfoundry_version(
 def test_check_environment_ok_when_every_plugin_available(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _patch_discovery(
-        monkeypatch, {"a": _FakePlugin("a", True), "b": _FakePlugin("b", True)}
-    )
+    _patch_discovery(monkeypatch, {"a": _FakePlugin("a", True), "b": _FakePlugin("b", True)})
     result = ModelFoundry.check_environment(RuntimeConfig())
     assert result["ok"] is True
     assert [r.plugin for r in result["plugins"]] == ["a", "b"]
@@ -103,9 +101,7 @@ def test_check_environment_ok_when_every_plugin_available(
 def test_check_environment_not_ok_when_any_plugin_unavailable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _patch_discovery(
-        monkeypatch, {"a": _FakePlugin("a", True), "b": _FakePlugin("b", False)}
-    )
+    _patch_discovery(monkeypatch, {"a": _FakePlugin("a", True), "b": _FakePlugin("b", False)})
     result = ModelFoundry.check_environment(RuntimeConfig())
     assert result["ok"] is False
 

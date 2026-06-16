@@ -189,9 +189,9 @@ def test_metrics_match_sklearn_golden(tmp_path: Path) -> None:
         assert m["per_class_recall"] == pytest.approx(
             list(skm.recall_score(y_true, y_pred, labels=classes, average=None, zero_division=0))
         )
-        assert m["confusion_matrix"] == skm.confusion_matrix(
-            y_true, y_pred, labels=classes
-        ).tolist()
+        assert (
+            m["confusion_matrix"] == skm.confusion_matrix(y_true, y_pred, labels=classes).tolist()
+        )
         assert 0.0 <= m["ece"] <= 1.0
 
 

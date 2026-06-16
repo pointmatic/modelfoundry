@@ -176,9 +176,7 @@ def test_materialize_never_writes_to_datarefinery_cache(tmp_path: Path) -> None:
     config = RuntimeConfig(cache_root=tmp_path / "mf_cache")
 
     dr_root = tmp_path / "dr"
-    data = build_dr_instance(
-        dr_root, split_counts=_SPLIT_COUNTS, image_size=_IMAGE_SIZE, seed=1
-    )
+    data = build_dr_instance(dr_root, split_counts=_SPLIT_COUNTS, image_size=_IMAGE_SIZE, seed=1)
     dr_before = _fingerprint(dr_root)
 
     mf = _foundry(recipe_path, data, config)

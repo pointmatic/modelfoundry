@@ -43,9 +43,7 @@ def calibration_curve(
     conf = np.asarray(confidences, dtype=np.float64).ravel()
     hit = np.asarray(correct, dtype=np.float64).ravel()
     if conf.shape != hit.shape:
-        raise ValueError(
-            f"confidences and correct must align: {conf.shape} vs {hit.shape}"
-        )
+        raise ValueError(f"confidences and correct must align: {conf.shape} vs {hit.shape}")
     edges = np.linspace(0.0, 1.0, n_bins + 1)
     # `digitize` with right=True puts confidence==1.0 in the last bin, not out of range.
     bin_idx = np.clip(np.digitize(conf, edges[1:-1], right=True), 0, n_bins - 1)
@@ -81,12 +79,15 @@ def expected_calibration_error(
     total = sum(curve["count"])
     if total == 0:
         return 0.0
-    return sum(
-        count * abs(conf - acc)
-        for count, conf, acc in zip(
-            curve["count"], curve["mean_confidence"], curve["accuracy"], strict=True
+    return (
+        sum(
+            count * abs(conf - acc)
+            for count, conf, acc in zip(
+                curve["count"], curve["mean_confidence"], curve["accuracy"], strict=True
+            )
         )
-    ) / total
+        / total
+    )
 
 
 def accuracy(y_true: npt.ArrayLike, y_pred: npt.ArrayLike) -> float:
@@ -119,9 +120,7 @@ def precision_score(
     return [float(x) for x in _p(y_true, y_pred, labels=labels, average=None, zero_division=0)]
 
 
-def recall_score(
-    y_true: npt.ArrayLike, y_pred: npt.ArrayLike, *, labels: list[Any]
-) -> list[float]:
+def recall_score(y_true: npt.ArrayLike, y_pred: npt.ArrayLike, *, labels: list[Any]) -> list[float]:
     """Per-class recall over `labels` (`sklearn.metrics.recall_score`)."""
     from sklearn.metrics import recall_score as _r
 

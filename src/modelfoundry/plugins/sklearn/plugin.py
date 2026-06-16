@@ -284,9 +284,7 @@ class SklearnPlugin:
         )
 
     def render_visualization(self, viz: Any, instance_artifacts: Any) -> bytes | None:
-        raise NotImplementedError(
-            "the sklearn baseline does not render its own visualizations"
-        )
+        raise NotImplementedError("the sklearn baseline does not render its own visualizations")
 
 
 # --- helpers ---
@@ -371,9 +369,7 @@ def _calibration_rows(split: str, curve: dict[str, list[float]]) -> list[dict[st
 def _write_history(loss_curve: list[float], path: Path) -> None:
     import pandas as pd  # type: ignore[import-untyped]
 
-    frame = pd.DataFrame(
-        {"epoch": list(range(1, len(loss_curve) + 1)), "train_loss": loss_curve}
-    )
+    frame = pd.DataFrame({"epoch": list(range(1, len(loss_curve) + 1)), "train_loss": loss_curve})
     frame.to_parquet(path, index=False)
 
 

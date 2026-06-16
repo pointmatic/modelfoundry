@@ -87,8 +87,12 @@ def _manifest(**overrides: Any) -> Manifest:
         "evaluation": {"val": {"accuracy": 0.9123}},
         "output_expectations": [
             ExpectationOutcome(
-                metric="accuracy", split="val", op="gte", expected=0.5,
-                observed=0.9123, passed=True,
+                metric="accuracy",
+                split="val",
+                op="gte",
+                expected=0.5,
+                observed=0.9123,
+                passed=True,
             )
         ],
     }
@@ -170,7 +174,9 @@ def _instance(manifest: Manifest, path: str = "/mf/cache/x/y/7") -> Any:
 def _render_summary_to_str(instance: Any, primary_metric: str = "accuracy") -> str:
     buf = io.StringIO()
     render_summary(
-        instance, Path("recipe.yml"), primary_metric=primary_metric,
+        instance,
+        Path("recipe.yml"),
+        primary_metric=primary_metric,
         console=Console(file=buf, width=200),
     )
     return buf.getvalue()
@@ -186,9 +192,7 @@ def test_render_summary_shows_path_plugin_metric_expectations() -> None:
 
 def test_render_summary_includes_optimization_when_present() -> None:
     manifest = _manifest(
-        optimization=OptimizationManifest(
-            sampler="tpe", pruner="none", n_trials=2, best_value=0.91
-        )
+        optimization=OptimizationManifest(sampler="tpe", pruner="none", n_trials=2, best_value=0.91)
     )
     out = _render_summary_to_str(_instance(manifest))
     assert "2" in out  # n_trials
@@ -209,8 +213,9 @@ def _fake_mf(instance: Any, captured: dict[str, Any]) -> SimpleNamespace:
 
 
 def _patch_from_recipe(monkeypatch: pytest.MonkeyPatch, mf: Any, captured: dict[str, Any]) -> None:
-    def _fake(recipe: Any, *, data: Any = None, config: Any = None,
-              variant: Any = None, seed: Any = None) -> Any:
+    def _fake(
+        recipe: Any, *, data: Any = None, config: Any = None, variant: Any = None, seed: Any = None
+    ) -> Any:
         captured["config"] = config
         captured["variant"] = variant
         captured["seed"] = seed
@@ -239,16 +244,27 @@ def test_run_attaches_observer_when_progress_true(monkeypatch: pytest.MonkeyPatc
 def test_run_overwrite_threads_into_config(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, Any] = {}
     _patch_from_recipe(monkeypatch, _fake_mf(_instance(_manifest()), captured), captured)
-    run(Path("r.yml"), RuntimeConfig(), overwrite=True, progress=False,
-        console=Console(file=io.StringIO()))
+    run(
+        Path("r.yml"),
+        RuntimeConfig(),
+        overwrite=True,
+        progress=False,
+        console=Console(file=io.StringIO()),
+    )
     assert captured["config"].overwrite is True
 
 
 def test_run_threads_variant_and_seed(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, Any] = {}
     _patch_from_recipe(monkeypatch, _fake_mf(_instance(_manifest()), captured), captured)
-    run(Path("r.yml"), RuntimeConfig(), variant="cpu_bench", seed=99, progress=False,
-        console=Console(file=io.StringIO()))
+    run(
+        Path("r.yml"),
+        RuntimeConfig(),
+        variant="cpu_bench",
+        seed=99,
+        progress=False,
+        console=Console(file=io.StringIO()),
+    )
     assert captured["variant"] == "cpu_bench"
     assert captured["seed"] == 99
 
@@ -374,16 +390,26 @@ def _build_dr_instance(tmp_path: Path) -> Any:
         counts[split] = len(records)
 
     manifest = DRManifest(
-        datarefinery_version="0.19.0", plugin="image_classification", plugin_version="1",
-        recipe_hash=recipe_hash, input_hash="0" * 64, seed=1,
-        created_at=datetime.now(UTC), elapsed_seconds=0.1, record_counts=counts,
-        warnings=[], sinks={}, sinks_skipped={},
+        datarefinery_version="0.19.0",
+        plugin="image_classification",
+        plugin_version="1",
+        recipe_hash=recipe_hash,
+        input_hash="0" * 64,
+        seed=1,
+        created_at=datetime.now(UTC),
+        elapsed_seconds=0.1,
+        record_counts=counts,
+        warnings=[],
+        sinks={},
+        sinks_skipped={},
     )
     (inst / "manifest.json").write_text(manifest.model_dump_json(), encoding="utf-8")
 
     loaded = dr.Instance.load(inst)
     return DataRefineryInstance(
-        path=inst, manifest=loaded.manifest, recipe=loaded.recipe,
+        path=inst,
+        manifest=loaded.manifest,
+        recipe=loaded.recipe,
         splits=tuple(loaded.manifest.record_counts.keys()),
         label_schema=loaded.recipe.Labels.model_dump(),
         record_schema={k: v.model_dump() for k, v in loaded.recipe.Output.record_schema.items()},
@@ -407,13 +433,16 @@ def _write_model_recipe(tmp_path: Path, *, max_epochs: int, n_trials: int) -> Pa
         "Optimizer": {"op": "adamw", "learning_rate": 0.01},
         "Training": {"max_epochs": max_epochs, "batch_size": 4, "num_workers": 0, "device": "cpu"},
         "Evaluation": {
-            "splits": ["val"], "primary_metric": "accuracy",
+            "splits": ["val"],
+            "primary_metric": "accuracy",
             "metrics": ["accuracy", "macro_f1", "confusion_matrix"],
         },
     }
     if n_trials > 0:
         recipe["Optimization"] = {
-            "sampler": "tpe", "pruner": "none", "n_trials": n_trials,
+            "sampler": "tpe",
+            "pruner": "none",
+            "n_trials": n_trials,
             "max_epochs_per_trial": 1,
             "search_space": {"Optimizer.learning_rate": {"log_uniform": [1e-4, 1e-2]}},
         }

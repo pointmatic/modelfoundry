@@ -87,16 +87,36 @@ class _Plugin:
 
     def health_check(self) -> Any:
         return {"accelerators": ["cpu", "mps", "cuda"]}
-    def prepare_for_build(self, seed: int) -> None: return None
-    def build_model(self, arch: dict[str, Any]) -> Any: return None
-    def run_optimization(self, *a: Any, **k: Any) -> Any: return None
-    def run_training(self, *a: Any, **k: Any) -> Any: return None
-    def run_evaluation(self, *a: Any, **k: Any) -> Any: return None
-    def render_visualization(self, *a: Any, **k: Any) -> bytes | None: return None
-    def save_model(self, model: Any, path: Path) -> None: return None
-    def load_model(self, path: Path) -> Any: return None
-    def predict(self, model: Any, X: Any) -> Any: return None
-    def predict_proba(self, model: Any, X: Any) -> Any: return None
+
+    def prepare_for_build(self, seed: int) -> None:
+        return None
+
+    def build_model(self, arch: dict[str, Any]) -> Any:
+        return None
+
+    def run_optimization(self, *a: Any, **k: Any) -> Any:
+        return None
+
+    def run_training(self, *a: Any, **k: Any) -> Any:
+        return None
+
+    def run_evaluation(self, *a: Any, **k: Any) -> Any:
+        return None
+
+    def render_visualization(self, *a: Any, **k: Any) -> bytes | None:
+        return None
+
+    def save_model(self, model: Any, path: Path) -> None:
+        return None
+
+    def load_model(self, path: Path) -> Any:
+        return None
+
+    def predict(self, model: Any, X: Any) -> Any:
+        return None
+
+    def predict_proba(self, model: Any, X: Any) -> Any:
+        return None
 
 
 class _FixturePlugin(_Plugin):
@@ -189,9 +209,7 @@ def _good_recipe_dict() -> dict[str, Any]:
             "comparison": {"baseline_model_id": "hf://example/baseline"},
         },
         "Visualizations": [{"op": "training_curves", "mode": "reporting"}],
-        "OutputExpectations": [
-            {"metric": "accuracy", "split": "val", "op": "gte", "value": 0.5}
-        ],
+        "OutputExpectations": [{"metric": "accuracy", "split": "val", "op": "gte", "value": 0.5}],
     }
 
 
@@ -260,9 +278,7 @@ def test_check_2_plugin_mismatch() -> None:
 
 
 def test_check_3_unregistered_op() -> None:
-    failing = _check(
-        validate(_recipe({"Loss": {"op": "phantom_loss"}}), _instance(), _Plugin()), 3
-    )
+    failing = _check(validate(_recipe({"Loss": {"op": "phantom_loss"}}), _instance(), _Plugin()), 3)
     assert not failing.passed
     assert "phantom_loss" in _detail_text(failing)
 
@@ -372,9 +388,7 @@ def test_check_11_unknown_evaluation_metric() -> None:
 def test_check_12_primary_metric_not_in_metrics() -> None:
     failing = _check(
         validate(
-            _recipe(
-                {"Evaluation": {"primary_metric": "accuracy", "metrics": ["macro_f1"]}}
-            ),
+            _recipe({"Evaluation": {"primary_metric": "accuracy", "metrics": ["macro_f1"]}}),
             _instance(),
             _Plugin(),
         ),
@@ -426,9 +440,7 @@ def test_check_15_invalid_viz_mode_rejected_at_construction() -> None:
 
 def test_check_16_variant_references_undeclared_section() -> None:
     variants = {"big_batch": {"Phantom": {"x": 1}}}
-    failing = _check(
-        validate(_recipe(), _instance(), _Plugin(), variants_block=variants), 16
-    )
+    failing = _check(validate(_recipe(), _instance(), _Plugin(), variants_block=variants), 16)
     assert not failing.passed
     assert "Phantom" in _detail_text(failing)
 
@@ -514,9 +526,7 @@ def test_check_20_skips_when_plugin_doesnt_expose_accelerators() -> None:
             return {"torch_version": "2.5.0"}
 
     check_20 = _check(
-        validate(
-            _recipe({"Training": {"device": "cuda"}}), _instance(), _UninformativePlugin()
-        ),
+        validate(_recipe({"Training": {"device": "cuda"}}), _instance(), _UninformativePlugin()),
         20,
     )
     assert check_20.passed and check_20.message is not None
@@ -588,9 +598,7 @@ def test_invalid_variants_fixture_trips_check_16() -> None:
     recipe = load_recipe(path)
     variants_block = yaml.safe_load(path.read_text(encoding="utf-8"))["variants"]
     report = validate(recipe, _instance(), _FixturePlugin(), variants_block=variants_block)
-    assert {c.id for c in report.failures} == {16}, [
-        (c.id, c.message) for c in report.failures
-    ]
+    assert {c.id for c in report.failures} == {16}, [(c.id, c.message) for c in report.failures]
     assert "NonexistentSection" in _detail_text(_check(report, 16))
 
 

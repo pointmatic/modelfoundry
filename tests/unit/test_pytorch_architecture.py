@@ -21,14 +21,28 @@ torch = pytest.importorskip("torch")
 
 _EXPECTED_OPS = {
     # primitives
-    "Conv2d", "BatchNorm2d", "ReLU", "MaxPool2d", "AvgPool2d",
-    "AdaptiveAvgPool2d", "Linear", "Dropout", "Flatten",
+    "Conv2d",
+    "BatchNorm2d",
+    "ReLU",
+    "MaxPool2d",
+    "AvgPool2d",
+    "AdaptiveAvgPool2d",
+    "Linear",
+    "Dropout",
+    "Flatten",
     # composites
-    "MLP", "ConvBlock", "ResidualBlock",
+    "MLP",
+    "ConvBlock",
+    "ResidualBlock",
     # baselines
-    "simple_cnn", "resnet8", "resnet20",
+    "simple_cnn",
+    "resnet8",
+    "resnet20",
     # deferred pretrained-encoder path
-    "Encoder", "LoRA", "Pooling", "Head",
+    "Encoder",
+    "LoRA",
+    "Pooling",
+    "Head",
 }
 
 

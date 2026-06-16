@@ -69,9 +69,7 @@ class ModelSummary(BaseModel):
     total_mult_adds: int
 
 
-def summarize(
-    model: nn.Module, input_size: tuple[int, ...]
-) -> tuple[ModelSummary, str]:
+def summarize(model: nn.Module, input_size: tuple[int, ...]) -> tuple[ModelSummary, str]:
     """Run torchinfo once; return the structured `ModelSummary` and the text render.
 
     The model is probed in `eval` mode and its `training` flag is restored
