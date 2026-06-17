@@ -235,15 +235,17 @@ Tasks:
 
 **Version:** **no bump** (experiment + DR recipe + docs; no `src/`/wheel change).
 
-### Story H.f.7: Full-dataset crossover — full CIFAR-10 (50k) at the same split proportions [Planned]
+### Story H.f.7: Full-dataset crossover — full CIFAR-10 (50k) at the same split proportions [Done]
 
 `features.md` CR-10 / FR-3 / FR-6 / FR-25 / UR-1. The capstone of the data-scaling arc: H.f.6 crossed `resnet20` over the MLP at 10x data (17k train); this runs the same MPS comparison on the **full** balanced CIFAR-10 train set (50k source → 28,330 train / 5,000 val / 16,670 test, same 0.567/0.1/0.333 proportions), to see whether the high-capacity model's lead widens further with maximal data. A new DR recipe alongside the others; reuses the H.f.6 runner. Experiment + DR recipe + docs → **no version bump**.
 
-- [ ] Add [recipes/cifar10-base-full.yaml](../../recipes/cifar10-base-full.yaml) (`sample_per_class: 5000` = the full balanced 50k → 28,330/5,000/16,670); materialize via `datarefinery --cache-root data materialize` (12.5s; splits 28330/5000/16670).
-- [ ] **Test-first** — `scripts/experiments/test_full_data_crossover.py` (the runner binds the full DR recipe via the reused builder; the recipe exists). Red→green.
-- [ ] Generalize the H.f.6 runner: `scale_crossover.build_recipe` / `_materialize` / `_save_figure` gained a `dr_recipe` / `title` param (default = 10x, **backward-compatible** — H.f.6's helper test stays green). Added [scripts/experiments/full_data_crossover.py](../../scripts/experiments/full_data_crossover.py) reusing it, pointed at the full instance.
-- [ ] Run it on MPS; commit the figure + results + findings (does `resnet20`'s lead widen vs H.f.6's 10x?).
-- [ ] Verify: helper tests green (incl. H.f.6's, unchanged); full DR recipe materializes + binds; `ruff`/`mypy` clean; main suite unaffected.
+- [x] Added [recipes/cifar10-base-full.yaml](../../recipes/cifar10-base-full.yaml) (`sample_per_class: 5000` = the full balanced 50k → 28,330/5,000/16,670); materialized via `datarefinery --cache-root data materialize` (12.5s; splits 28330/5000/16670, `resolve_instance` → hit).
+- [x] **Test-first** — `scripts/experiments/test_full_data_crossover.py` (the runner binds the full DR recipe via the reused builder; the recipe exists). Red→green (2 passed).
+- [x] Generalized the H.f.6 runner: `scale_crossover.build_recipe` / `_materialize` / `_save_figure` gained a `dr_recipe` / `title` param (default = 10x, **backward-compatible** — H.f.6's helper test stays green). Added [scripts/experiments/full_data_crossover.py](../../scripts/experiments/full_data_crossover.py) reusing it, pointed at the full instance.
+- [x] Ran it on MPS; committed the figure ([full_data_crossover.png](../../scripts/experiments/full_data_crossover.png)), raw table, and findings ([full_data_crossover.md](../../scripts/experiments/full_data_crossover.md)).
+- [x] Verify: helper tests green (5 passed incl. H.f.6's, unchanged); full DR recipe materializes + binds; `ruff` + `ruff format` + `mypy` clean; main suite unaffected (`scripts/experiments/`, outside `testpaths`).
+
+**Finding — the CNN/MLP crossover widens; the intra-CNN ordering is regime-bound.** Full data: **simple_cnn 0.669, resnet20 0.646, MLP 0.465, random 0.101**. Both CNNs pull ~0.18–0.20 *above* the MLP, which has plateaued (0.451→0.465) while the CNNs keep climbing — the capacity-with-data story strengthens. But `resnet20` was **edged by `simple_cnn`**, a reversal from H.f.6's 10x result: `resnet20` early-stopped at **epoch 17** (val_loss patience 5) while its cosine `T_max=40` schedule was still annealing, vs `simple_cnn`'s full 40 — an **early-stopping × LR-schedule interaction**, not a capacity verdict. A fair high-capacity-vs-high-capacity comparison needs the regime tuned per model (longer patience / `T_max` matched to the run). Scaling data resolved the *MLP* crossover cleanly; the high-vs-high comparison is regime-bound.
 
 **Version:** **no bump** (experiment + DR recipe + docs; no `src/`/wheel change).
 
