@@ -120,6 +120,18 @@ The example smoke files were broken and contract-violating. [test_models_resnet2
 - [x] Update CHANGELOG.md (`## [0.9.2]` under Fixed; cache-invalidation note). Release-metadata guard green.
 - [x] Verify: red→green; H.a + H.b + determinism + augmentation-equivalence suites stay green; `ruff` + `mypy` clean.
 
+### Story H.e: Doc-guard repair — tolerate the `stories.md` archival [Done]
+
+**NOTE: This story has a fatal flaw in design: the `docs/specs` directory contains development contracts that are UPSTREAM from development activities. Nothing in this directory should be linked in such a brittle way to the code or tests.** This story is committed to unblock the release process but will need to be unwound and the original guards that were connected this way will need to be re-established in a different manner. Part of the problem is that `project-guide` has a new `plan_envs` mode that is only roughly implemented and this first draft needs to be refined so the LLM has better guidance. The scope of the `docs/specs` directory also needs to be better defined in `project-guide`'s `go.md`. 
+
+The `archive_stories` run that moved completed phases A–G into `docs/specs/.archive/stories-v0.8.3.md` (and slimmed `stories.md` to Phase H) broke two doc-structure guards, which surfaced as the only failures in a full/CI suite run. Both are test-only fixes — no package source or behavior change → **no version bump**.
+
+- [x] **`test_docs_crosslinks.py`** flagged ~90 "broken" relative links in the archived snapshot: `archive_stories` moves story text *verbatim*, so its links (authored against `docs/specs/`) resolve one directory level too shallow from `.archive/`. The snapshot is frozen history, not a live navigable doc — added an `.archive/` exclusion alongside the existing vendored-spec / install-output exclusions (mirrors the Story G.c pattern), with a docstring rationale.
+- [x] **`test_env_docs_topology.py::test_bo_bp_stories_marked_superseded`** could no longer find Story B.o / B.p in `stories.md` (archived out). Added `_doc_containing_story()` to locate a story in the live `stories.md` **or** any `.archive/*.md` snapshot, so the "B.o/B.p stay marked superseded by F.b.1" guard still holds after archival (verified: both archived bodies retain the `F.b.1` + `superseded` markers).
+- [x] Verify: the two guards red→green (7 passed); full `tests/unit` + `tests/plugin_contract` → **497 passed, 1 xfailed, 0 failed** (was 495 + 2 failed); `ruff check` + `ruff format --check` + `mypy src tests` clean.
+
+**Note — root cause is the `archive_stories` tooling.** A cleaner long-term fix is for `archive_stories` to either rewrite the snapshot's relative links for its new depth or stamp the snapshot so first-party guards skip it automatically; that lives in the `project-guide` tooling, not this repo. Filed here as the consuming-repo accommodation.
+
 ---
 
 ## Future

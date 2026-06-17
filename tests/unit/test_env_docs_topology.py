@@ -104,16 +104,34 @@ def test_testenv_is_described_as_the_framework_agnostic_test_runner() -> None:
     )
 
 
+def _doc_containing_story(story_id: str) -> str | None:
+    """Return the text of the doc holding Story `story_id`'s body.
+
+    Checks the live `stories.md` first, then any `archive_stories` snapshot under
+    `docs/specs/.archive/` — completed-phase stories (B.o / B.p among them) are moved
+    there verbatim, so the superseded-marking record travels with them (Story H.e).
+    """
+    pattern = re.compile(rf"### Story {re.escape(story_id)}:")
+    candidates = [SPECS_DIR / "stories.md", *sorted((SPECS_DIR / ".archive").glob("*.md"))]
+    for doc in candidates:
+        if doc.is_file():
+            text = doc.read_text(encoding="utf-8")
+            if pattern.search(text):
+                return text
+    return None
+
+
 def test_bo_bp_stories_marked_superseded() -> None:
     """The B.o / B.p story bodies are flagged as superseded by F.b.1 (historical record)."""
-    stories = _read("stories.md")
     for story_id in ("B.o", "B.p"):
+        text = _doc_containing_story(story_id)
+        assert text, f"could not locate Story {story_id} body in stories.md or docs/specs/.archive/"
         m = re.search(
             rf"### Story {re.escape(story_id)}:.*?(?=\n### Story |\n## )",
-            stories,
+            text,
             re.DOTALL,
         )
-        assert m, f"could not locate Story {story_id} body in stories.md"
+        assert m, f"could not extract Story {story_id} body"
         body = m.group(0)
         assert "F.b.1" in body and "superseded" in body.lower(), (
             f"Story {story_id} body is not marked superseded by F.b.1"
