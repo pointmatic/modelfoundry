@@ -108,6 +108,18 @@ def test_cifar10_resnet20_materializes_end_to_end(tmp_path: Path) -> None:
         acc = instance.evaluation[split]["accuracy"]
         assert isinstance(acc, float)
         assert 0.0 <= acc <= 1.0
+
+    # 4b) learning-floor guard (H.a): the model must actually learn from the training
+    #     data. The normalization-units bug fed it near-constant inputs, pinning
+    #     train_loss at the ln(10) ≈ 2.303 chance floor (test accuracy 0.10). A healthy
+    #     run drops train_loss well below that within the fixture's epoch budget. This
+    #     is the precise inverse of the bug signature; a test-accuracy floor is avoided
+    #     because generalization on the 1,700-image subset is confounded by overfitting.
+    import pandas as pd  # type: ignore[import-untyped]
+
+    history = pd.read_parquet(instance.path / "training" / "history.parquet")
+    assert history["train_loss"].min() < 2.2, history["train_loss"].tolist()
+
     # report figures rendered (now that C.q.2 registered the viz ops, these also validate).
     assert "training_curves" in instance.figures
     assert "confusion_matrix" in instance.figures

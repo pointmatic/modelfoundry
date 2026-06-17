@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import json
 import textwrap
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -63,9 +64,13 @@ def _recipe_yaml(extra_transform: str = "") -> str:
 def _build_instance(
     tmp_path: Path,
     *,
-    mean: tuple[float, float, float] = (0.5, 0.3, 0.1),
-    std: tuple[float, float, float] = (0.25, 0.5, 0.2),
+    # DataRefinery fits `normalize` stats in 0-255 pixel units (uint8 -> float64
+    # promotion during fit/apply), so fixtures use realistic 0-255-scale stats —
+    # the unit mismatch H.a fixes only surfaces against real-scale stats.
+    mean: tuple[float, float, float] = (125.0, 120.0, 110.0),
+    std: tuple[float, float, float] = (63.0, 62.0, 67.0),
     extra_transform: str = "",
+    image_factory: Callable[[str], Image.Image] | None = None,
 ) -> Path:
     recipe_path = tmp_path / "dr_recipe.yml"
     recipe_path.write_text(_recipe_yaml(extra_transform), encoding="utf-8")
@@ -91,7 +96,12 @@ def _build_instance(
         for cls in _CLASSES:
             for i in range(per_class):
                 png = images_dir / f"{split}_{cls}_{i}.png"
-                Image.new("RGB", (4, 4), _COLORS[cls]).save(png)
+                img = (
+                    image_factory(cls)
+                    if image_factory is not None
+                    else Image.new("RGB", (4, 4), _COLORS[cls])
+                )
+                img.save(png)
                 records.append(
                     {"record_id": f"{split}/{cls}/img_{i}", "label": cls, "path": str(png)}
                 )
@@ -140,14 +150,16 @@ def test_len_matches_manifest(tmp_path: Path) -> None:
 
 
 def test_decode_produces_normalized_rgb_float32(tmp_path: Path) -> None:
-    mean = (0.5, 0.3, 0.1)
-    std = (0.25, 0.5, 0.2)
+    # DR fits normalize stats in 0-255 pixel units, so the adapter must apply them
+    # to the 0-255 pixels — not to a [0,1]-rescaled image (H.a).
+    mean = (125.0, 100.0, 50.0)
+    std = (63.0, 62.0, 67.0)
     ds = DataRefineryDataset(_wrap(_build_instance(tmp_path, mean=mean, std=std)), "train")
     image, label = ds[0]  # first record = c0, colour (200, 100, 50)
     assert image.dtype == torch.float32
     assert tuple(image.shape) == (3, 4, 4)
     assert label == 0  # c0 -> index 0
-    raw = np.array(_COLORS["c0"], dtype=np.float32) / 255.0
+    raw = np.array(_COLORS["c0"], dtype=np.float32)  # 0-255 pixel units (no /255)
     expected = (raw - np.array(mean)) / np.array(std)
     # Solid colour -> every spatial position equals the per-channel value; RGB-ordered.
     assert image[:, 0, 0].tolist() == pytest.approx(expected.tolist(), abs=1e-5)
@@ -155,12 +167,12 @@ def test_decode_produces_normalized_rgb_float32(tmp_path: Path) -> None:
 
 def test_zero_variance_guard_substitutes_one(tmp_path: Path) -> None:
     # Channel 1 (G) has std == 0 -> divisor guarded to 1.0; no inf/nan.
-    mean = (0.5, 0.3, 0.1)
-    std = (0.25, 0.0, 0.2)
+    mean = (125.0, 100.0, 50.0)
+    std = (63.0, 0.0, 67.0)
     ds = DataRefineryDataset(_wrap(_build_instance(tmp_path, mean=mean, std=std)), "train")
     image, _ = ds[0]
     assert torch.isfinite(image).all()
-    raw_g = _COLORS["c0"][1] / 255.0
+    raw_g = float(_COLORS["c0"][1])  # 0-255 pixel units
     assert image[1, 0, 0].item() == pytest.approx(raw_g - mean[1], abs=1e-5)  # divided by 1.0
 
 
@@ -195,3 +207,49 @@ def test_iteration_is_invariant_to_num_workers(tmp_path: Path) -> None:
     images_2, labels_2 = collect(2)
     assert labels_1 == labels_2
     assert torch.equal(images_1, images_2)
+
+
+def test_normalize_applies_in_datarefinery_pixel_units(tmp_path: Path) -> None:
+    """Apply normalize in DataRefinery's 0-255 pixel units (H.a regression).
+
+    With real-scale (0-255) normalize stats the adapter must standardize in pixel
+    units. The pre-fix adapter divided pixels by 255 first and then applied the
+    0-255 stats, collapsing every pixel to ~-1.9 (std ~0.13) and pinning training
+    at chance (CIFAR-10 / ResNet-20 test accuracy 0.10).
+    """
+    mean = (125.6, 123.6, 114.6)  # real CIFAR-scale channel means (0-255)
+    std = (63.7, 63.1, 67.4)
+    ds = DataRefineryDataset(_wrap(_build_instance(tmp_path, mean=mean, std=std)), "train")
+    image, _ = ds[0]  # solid colour c0 = (200, 100, 50)
+    color = np.array(_COLORS["c0"], dtype=np.float32)  # 0-255
+    expected = (color - np.array(mean)) / np.array(std)
+    assert image[:, 0, 0].tolist() == pytest.approx(expected.tolist(), abs=1e-4)
+    # A real pixel standardizes into roughly [-3, 3], not the bug's collapsed ~-1.9.
+    assert image.abs().max().item() < 3.0
+
+
+def test_normalized_output_is_standardized(tmp_path: Path) -> None:
+    """Normalized output is ~zero-mean / unit-std per channel (H.a).
+
+    A content-rich image whose per-channel pixels ~ N(mean, std) must normalize to
+    the standardized distribution the model relies on.
+    """
+    rng = np.random.default_rng(0)
+    mean = (130.0, 110.0, 90.0)
+    std = (60.0, 50.0, 40.0)
+
+    def factory(_cls: str) -> Image.Image:
+        chans = [
+            np.clip(rng.normal(m, s, size=(64, 64)), 0, 255) for m, s in zip(mean, std, strict=True)
+        ]
+        arr = np.stack(chans, axis=-1).astype(np.uint8)  # HWC, RGB
+        return Image.fromarray(arr, mode="RGB")
+
+    ds = DataRefineryDataset(
+        _wrap(_build_instance(tmp_path, mean=mean, std=std, image_factory=factory)), "train"
+    )
+    image, _ = ds[0]
+    per_channel_mean = image.mean(dim=(1, 2))
+    per_channel_std = image.std(dim=(1, 2))
+    assert per_channel_mean.abs().max().item() < 0.2
+    assert (per_channel_std - 1.0).abs().max().item() < 0.2

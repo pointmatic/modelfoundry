@@ -178,13 +178,24 @@ class DataRefineryDataset(Dataset[tuple[torch.Tensor, int]]):
 
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, int]:
         record = self._records[idx]
-        image = self._decode(record)
-        for kind, mean, std in self._norm_steps:
-            if kind == "normalize":
-                assert std is not None
-                image = (image - mean) / std
-            else:  # mean_subtract
-                image = image - mean
+        image = self._decode(record)  # 0-255 pixel units — the units DR fit stats in
+        if self._norm_steps:
+            # DataRefinery fits `normalize` / `mean_subtract` on the uint8 PNG pixels
+            # (promoted to float64), i.e. in 0-255 units, and persists the stats for the
+            # consumer to apply. Per vendor-dependency-spec § "Normalization is applied by
+            # the consumer" the contract is: decode the uint8 image, convert to float, apply
+            # (x - mean) / std — with NO [0,1] rescale. Dividing by 255 first (the pre-H.a
+            # bug) collapses every pixel to ~-1.9 / std ~0.13 and the model can't learn.
+            for kind, mean, std in self._norm_steps:
+                if kind == "normalize":
+                    assert std is not None
+                    image = (image - mean) / std
+                else:  # mean_subtract
+                    image = image - mean
+        else:
+            # No fit-on-train normalization declared: scale to [0,1] so a bare CNN still
+            # receives sensibly-ranged inputs.
+            image = image / 255.0
         if self.augmentations is not None:
             image = self.augmentations(image)
         label_value = record.get(self._label_field) if self._label_field else None
@@ -197,8 +208,11 @@ class DataRefineryDataset(Dataset[tuple[torch.Tensor, int]]):
         relative = record.get("image_path")
         path = self._dataset_dir / str(relative) if relative else Path(str(record["path"]))
         with Image.open(path) as handle:
-            array = np.asarray(handle.convert("RGB"), dtype=np.float32) / 255.0  # HWC, [0,1]
-        return torch.from_numpy(array).permute(2, 0, 1).contiguous()  # -> CHW
+            # Keep raw 0-255 pixels — the units DataRefinery fit normalize/mean_subtract
+            # stats in. `__getitem__` standardizes (or, with no fit-on-train op, scales
+            # to [0,1]). HWC float32.
+            array = np.asarray(handle.convert("RGB"), dtype=np.float32)
+        return torch.from_numpy(array).permute(2, 0, 1).contiguous()  # -> CHW, 0-255
 
 
 def build_dataloader(

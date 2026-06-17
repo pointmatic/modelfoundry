@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.4] - 2026-06-16
+
+Patch — fix a normalization-units bug that prevented the PyTorch plugin's models from learning
+(Story H.a). **Cache-invalidating:** materialized output bytes change; existing ModelInstances are
+stale — re-materialize (pre-production OR-9; no `schema_version` bump, the recipe canonical bytes are
+unaffected).
+
+### Fixed
+
+- The `DataRefineryDataset` adapter applied DataRefinery's `normalize` / `mean_subtract` statistics — fitted in **0–255 pixel units** — to a `[0,1]`-rescaled image, collapsing every pixel to ≈ −1.9 (std ≈ 0.13). Training was starved of signal: `train_loss` pinned at ln(10) ≈ 2.303 and the CIFAR-10 / ResNet-20 deliverable trained to chance (test accuracy 0.10). The adapter now decodes in DR's 0–255 pixel units and standardizes there (falling back to `[0,1]` only when no fit-on-train normalization is declared), so `train_loss` drops and the model learns. Regression-guarded by realistic-scale unit tests in `tests/unit/test_pytorch_data_adapter.py` (the prior fixtures used unrealistic `[0,1]`-scale stats, which is why the suite missed the bug) and a `train_loss` learning-floor assertion in `tests/integration/test_cifar10_resnet20.py`.
+
 ## [0.8.3] - 2026-06-16
 
 Patch — adopt `ml-datarefinery` 0.21.0 as the minimum supported upstream. No runtime behavior
