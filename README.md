@@ -120,6 +120,8 @@ modelfoundry materialize recipes/cifar10_cnn.yml --variant well_trained
 
 Every run is content-addressed and reproducible, so each comparison is cached and byte-stable — re-running finds the existing instance instead of recomputing.
 
+> **This is a teaching illustration, not a benchmark.** On the 1,700-image subset the per-epoch trajectory is noisy and non-monotonic — the minimal recipes use no LR schedule or early stopping, so a single run can dip or spike between budgets (a swept study even shows `resnet20` *degrading* past its peak). The endpoint contrast above is real and reproducible, but a *robust* capacity-vs-budget crossover needs more data and a proper training regime. See [`scripts/experiments/`](scripts/experiments/) for the full sweep and that finding.
+
 ## Library API
 
 `ModelFoundry.from_recipe(...)` binds a recipe to a materialized DataRefinery instance; the verbs (`validate` / `materialize` / `status` / `inspect` / `report` / `clean` / `check`) are thin methods over that binding, co-equal with the CLI.
