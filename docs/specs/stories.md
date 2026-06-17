@@ -101,6 +101,25 @@ The example smoke files were broken and contract-violating. [test_models_resnet2
 - **`validate`-time normalization sanity check** — flag when a bound instance's `normalize` stats are out of range for the adapter's decode scale (would have caught H.a's class at `validate` time, before training). `plan_features`.
 - **Public per-record data access (optional)** — the rewritten baselines reach into `mf.data.path` + the DataRefinery on-disk layout for raw images/labels because ModelFoundry exposes no public per-record data iterator. This is arguably intentional (DataRefinery owns data), so it is a *deliberate non-goal* to revisit only if external-baseline examples become common. `plan_features` if ever.
 
+### Story H.d: v0.9.2 Apply lazy augmentations before normalization — fix train/eval skew [Done]
+
+`features.md` CR-16 / QR-1. The H.a follow-up surfaced by the three-way comparison (ResNet-20 vs sklearn MLP vs random): the PyTorch adapter applied lazy augmentations to the **already-normalized** tensor ([data.py](../../src/modelfoundry/plugins/pytorch/data.py) `__getitem__` ran `self.augmentations(image)` *after* the normalize block). Color augmentations (`color_jitter` brightness/contrast/saturation/hue) assume `[0,1]`/uint8 semantics, so on the standardized ~`N(0,1)` tensor they produced a train distribution unrelated to the clean val/test — `val_loss` exploded to ~15 and ResNet-20 generalized **at chance** (test 0.126), *below* the flattened-pixel MLP baseline (0.340) and barely above random (0.119). Cache-invalidating for augmented recipes (materialized output changes); pre-production OR-9, no `schema_version` bump. Owns **v0.9.2** (bugfix patch).
+
+- [x] **Failing test first** — `tests/unit/test_pytorch_data_adapter.py::test_augmentations_run_on_unnormalized_image`: a spy augmentation records the range of the image it receives. Confirmed **red** (saw normalized `min −0.90 / max 1.19`) → **green** (`[0,1]`).
+- [x] Reorder `__getitem__` ([data.py](../../src/modelfoundry/plugins/pytorch/data.py)): augment on the `[0,1]` image **before** normalization, then restore 0-255 for the fitted-stat normalize (`self.augmentations(image / 255.0) * 255.0`). Geometry ops (crop/flip) are range-invariant; the H.a normalization result is byte-unchanged on the no-augmentation path, so all H.a tests stay green. The H.b spawn-safe-transform tests and the determinism suite are unaffected.
+- [x] **Empirical confirmation** — re-ran the three-way comparison on the official 1,000-image test split (20-epoch CPU budget, no Optuna):
+
+  | Approach | test accuracy (pre-H.d) | test accuracy (post-H.d) |
+  |---|---:|---:|
+  | random (chance) | 0.119 | 0.119 |
+  | MLP (sklearn, flattened pixels) | 0.340 | 0.340 |
+  | **ResNet-20** (ModelFoundry CNN) | **0.126** (below MLP) | **0.343** (above MLP) |
+
+  Post-fix the ResNet trajectory is healthy — `val_loss` stays bounded (~2.0–3.0 vs the pre-fix explosion to ~15) and `val_accuracy` climbs to 0.377 (still rising at the budget cutoff; the full 40-epoch deliverable pulls further ahead).
+- [x] Bump version to v0.9.2 in [_version.py](../../src/modelfoundry/_version.py) (`0.9.1 → 0.9.2`).
+- [x] Update CHANGELOG.md (`## [0.9.2]` under Fixed; cache-invalidation note). Release-metadata guard green.
+- [x] Verify: red→green; H.a + H.b + determinism + augmentation-equivalence suites stay green; `ruff` + `mypy` clean.
+
 ---
 
 ## Future

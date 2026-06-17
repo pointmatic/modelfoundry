@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.2] - 2026-06-17
+
+Patch — apply lazy augmentations *before* normalization so the CNN can generalize (Story H.d).
+**Cache-invalidating** for recipes whose bound instance declares a lazy `Augmentations` policy:
+materialized training output changes; re-materialize (pre-production OR-9; no `schema_version` bump).
+
+### Fixed
+
+- The PyTorch `DataRefineryDataset` adapter applied lazy augmentations to the **already-normalized** (standardized) tensor. Color augmentations (`color_jitter` brightness/contrast/saturation/hue) assume `[0,1]`/uint8 image semantics, so applied to the ~`N(0,1)` tensor they produced a garbage train distribution that didn't match the clean (un-augmented) val/test — `val_loss` exploded (→ ~15) and ResNet-20 generalized at chance (test accuracy ~0.13, **below** a flattened-pixel sklearn MLP baseline at 0.34). The adapter now augments on the `[0,1]` image and normalizes afterward (standard pipeline order); the H.a normalization result is unchanged on the no-augmentation path. Guarded by a spy test asserting the augmentation receives a `[0,1]`-ranged image.
+
 ## [0.9.1] - 2026-06-17
 
 Patch — make lazy augmentations spawn-safe so the flagship CIFAR-10 / ResNet-20 recipe can

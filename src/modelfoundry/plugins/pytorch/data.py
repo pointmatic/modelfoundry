@@ -179,6 +179,13 @@ class DataRefineryDataset(Dataset[tuple[torch.Tensor, int]]):
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, int]:
         record = self._records[idx]
         image = self._decode(record)  # 0-255 pixel units — the units DR fit stats in
+        if self.augmentations is not None:
+            # Augment on the [0,1] image BEFORE normalization (H.d), then restore 0-255 for
+            # the fitted-stat normalize below. Color augmentations (brightness/contrast/
+            # saturation/hue) assume [0,1]/uint8 semantics; applied to the *standardized*
+            # tensor they corrupt the train distribution so val_loss explodes and the CNN
+            # generalizes at chance. Geometry ops (crop/flip) are range-invariant.
+            image = self.augmentations(image / 255.0) * 255.0
         if self._norm_steps:
             # DataRefinery fits `normalize` / `mean_subtract` on the uint8 PNG pixels
             # (promoted to float64), i.e. in 0-255 units, and persists the stats for the
@@ -196,8 +203,6 @@ class DataRefineryDataset(Dataset[tuple[torch.Tensor, int]]):
             # No fit-on-train normalization declared: scale to [0,1] so a bare CNN still
             # receives sensibly-ranged inputs.
             image = image / 255.0
-        if self.augmentations is not None:
-            image = self.augmentations(image)
         label_value = record.get(self._label_field) if self._label_field else None
         label = self.label_to_index[label_value] if label_value is not None else -1
         return image, label

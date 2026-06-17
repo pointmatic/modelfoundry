@@ -209,6 +209,32 @@ def test_iteration_is_invariant_to_num_workers(tmp_path: Path) -> None:
     assert torch.equal(images_1, images_2)
 
 
+def test_augmentations_run_on_unnormalized_image(tmp_path: Path) -> None:
+    """Lazy augmentations must run on the [0,1] image, BEFORE normalization (H.d).
+
+    Color ops (brightness/contrast/saturation/hue) assume [0,1]/uint8 semantics;
+    applied to the standardized (~[-2, 2]) tensor they corrupt the train distribution,
+    so `val_loss` explodes and the CNN generalizes at chance. A spy records the range
+    of the image the augmentation actually receives.
+    """
+    seen: dict[str, float] = {}
+
+    def spy(img: Any) -> Any:
+        seen["min"] = float(img.min())
+        seen["max"] = float(img.max())
+        return img
+
+    ds = DataRefineryDataset(
+        _wrap(_build_instance(tmp_path, mean=(125.0, 120.0, 110.0), std=(63.0, 62.0, 67.0))),
+        "train",
+        augmentations=spy,
+    )
+    ds[0]
+    # Pre-fix the spy saw normalized values (min < 0, max > 1); post-fix it sees [0,1].
+    assert seen["min"] >= 0.0, seen
+    assert seen["max"] <= 1.0, seen
+
+
 def test_iteration_invariant_to_num_workers_with_augmentations(tmp_path: Path) -> None:
     """Spawn-safe augmentations stay num_workers-invariant (H.b).
 
