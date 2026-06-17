@@ -74,6 +74,9 @@ pytorch = "modelfoundry.plugins.pytorch.plugin:plugin"
 # The sklearn MLPClassifier baseline (C.m). scikit-learn is a base dependency, so
 # the [sklearn] extra adds nothing; this entry is import-safe (lazy sklearn/torch).
 sklearn = "modelfoundry.plugins.sklearn.plugin:plugin"
+# The random/dummy chance baseline (H.f.2) — the comparison floor every real model
+# must beat. Backed by scikit-learn's DummyClassifier; import-safe (lazy sklearn).
+random = "modelfoundry.plugins.random.plugin:plugin"
 
 [project.urls]
 Homepage = "https://github.com/pointmatic/modelfoundry"

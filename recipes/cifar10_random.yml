@@ -1,0 +1,40 @@
+# Copyright (c) 2026 Pointmatic
+# SPDX-License-Identifier: Apache-2.0
+#
+# Random/chance baseline over CIFAR-10 — a teaching recipe (Story H.f.2).
+# The chance floor (~1/num_classes) that any real model must beat. It is a real,
+# recipe-driven, cached, reproducible ModelInstance — not a hand-rolled script.
+#
+# Same DataRefinery binding as `cifar10_cnn.yml` / `cifar10_mlp.yml`; only `plugin`
+# + `Architecture` change. A chance baseline has no real loss or optimizer, so
+# `Loss` is the recognized classification loss and `Optimizer` is `none`; like the
+# sklearn baseline it omits `Optimization`/`Visualizations`. See the README
+# "Swapping the model" tutorial.
+schema_version: 1
+plugin: random
+seed: 20260613
+
+Data:
+  recipe: recipes/cifar10-base.yaml
+
+Architecture:
+  type: dummy_classifier
+  num_classes: 10
+  strategy: stratified
+
+Loss:
+  op: cross_entropy
+
+Optimizer:
+  op: "none"
+
+Training:
+  max_epochs: 1
+  batch_size: 128
+  num_workers: 0
+  device: cpu
+
+Evaluation:
+  splits: [val, test]
+  primary_metric: accuracy
+  metrics: [accuracy, macro_f1, confusion_matrix]

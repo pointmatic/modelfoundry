@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 2026-06-17
+
+Minor — add a first-class **random/chance baseline plugin** (Story H.f.2): the comparison floor
+every real model must beat, as a fully-baked, recipe-driven, reproducible ModelInstance. Additive;
+no change to existing recipes' canonical bytes or materialized output; no cache impact.
+
+### Added
+
+- New `random` plugin (registered under the `modelfoundry.plugins` entry point), backed by scikit-learn's `DummyClassifier`. It implements the complete `Plugin` Protocol by subclassing the sklearn baseline — reusing its (estimator-agnostic) training / evaluation / persistence path — and overriding only `build_model` and the op set. A `dummy_classifier` architecture op (`strategy: stratified | uniform | prior | most_frequent`, default `stratified`) plus the recognized no-op `Loss` (`cross_entropy`) and `Optimizer` (`none`) ops its recipe declares, so the recipe validates end-to-end. Deterministic (the estimator's `random_state` is seeded from the master seed, FR-25). Supersedes the ad-hoc numpy chance computation in `scripts/examples/test_random_classifier.py`. Ships the teaching recipe `recipes/cifar10_random.yml`.
+
 ## [0.9.3] - 2026-06-17
 
 Patch — make scikit-learn baseline recipes pass `validate()` and let their `Optimizer` block
