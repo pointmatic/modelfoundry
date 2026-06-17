@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.3] - 2026-06-17
+
+Patch — make scikit-learn baseline recipes pass `validate()` and let their `Optimizer` block
+drive the estimator (Story H.f.1). No change to existing materialized output; no cache impact.
+
+### Fixed
+
+- The `sklearn` baseline plugin registered **only** its `mlp_classifier` architecture op, so every `plugin: sklearn` recipe failed the documented `modelfoundry validate` step with `ops not registered by plugin 'sklearn': [('Loss', 'cross_entropy'), ('Optimizer', …)]` — even though `materialize()` (which does not gate on `validate()`) trained fine, leaving the breakage silent. The plugin now registers the `cross_entropy` loss op and `adam` / `sgd` optimizer ops its recipes declare, so they validate end-to-end through the public surface.
+
+### Changed
+
+- The sklearn baseline's `Optimizer` block is no longer decorative: `Optimizer.op` (`adam` / `sgd`) maps to the `MLPClassifier` `solver` and `Optimizer.learning_rate` maps to `learning_rate_init` at fit time (RNG still seeded deterministically from the master seed). Ships two minimal teaching recipes for the upcoming model-swap tutorial — `recipes/cifar10_mlp.yml` (sklearn) and `recipes/cifar10_cnn.yml` (PyTorch `simple_cnn`).
+
 ## [0.9.2] - 2026-06-17
 
 Patch — apply lazy augmentations *before* normalization so the CNN can generalize (Story H.d).

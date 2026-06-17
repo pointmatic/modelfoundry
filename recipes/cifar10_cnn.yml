@@ -1,0 +1,39 @@
+# Copyright (c) 2026 Pointmatic
+# SPDX-License-Identifier: Apache-2.0
+#
+# Minimal PyTorch CNN baseline over CIFAR-10 — a teaching recipe (Story H.f.1).
+# Deliberately tiny: a `simple_cnn` with no Optuna study, no variants, and a short
+# CPU training budget, so the model-swap diff against the sklearn / random recipes
+# is legible. See the README "Swapping the model" tutorial.
+#
+# Same DataRefinery binding as every CIFAR recipe here — across flavors only
+# `plugin` + `Architecture` change.
+schema_version: 1
+plugin: pytorch
+seed: 20260613
+
+Data:
+  recipe: recipes/cifar10-base.yaml
+
+Architecture:
+  type: simple_cnn
+  num_classes: 10
+  in_channels: 3
+
+Loss:
+  op: cross_entropy
+
+Optimizer:
+  op: adamw
+  learning_rate: 0.001
+
+Training:
+  max_epochs: 5
+  batch_size: 128
+  num_workers: 0
+  device: cpu
+
+Evaluation:
+  splits: [val, test]
+  primary_metric: accuracy
+  metrics: [accuracy, macro_f1, confusion_matrix]

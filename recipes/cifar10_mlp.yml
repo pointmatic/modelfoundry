@@ -1,0 +1,41 @@
+# Copyright (c) 2026 Pointmatic
+# SPDX-License-Identifier: Apache-2.0
+#
+# Minimal scikit-learn MLP baseline over CIFAR-10 — a teaching recipe (Story H.f.1).
+# The flattened-pixel MLP is the classic "ceiling baseline" a real CNN must beat.
+#
+# Same DataRefinery binding as `cifar10_cnn.yml`; only `plugin` + `Architecture`
+# change. The sklearn baseline omits `Optimization` and `Visualizations` — the
+# plugin implements neither (a fixed baseline has no hyperparameter search and
+# renders no plots). The `Optimizer` block still drives the MLPClassifier solver
+# and learning rate. See the README "Swapping the model" tutorial.
+schema_version: 1
+plugin: sklearn
+seed: 20260613
+
+Data:
+  recipe: recipes/cifar10-base.yaml
+
+Architecture:
+  type: mlp_classifier
+  num_classes: 10
+  hidden_layer_sizes: [256, 128]
+  max_iter: 50
+
+Loss:
+  op: cross_entropy
+
+Optimizer:
+  op: adam
+  learning_rate: 0.001
+
+Training:
+  max_epochs: 1
+  batch_size: 128
+  num_workers: 0
+  device: cpu
+
+Evaluation:
+  splits: [val, test]
+  primary_metric: accuracy
+  metrics: [accuracy, macro_f1, confusion_matrix]

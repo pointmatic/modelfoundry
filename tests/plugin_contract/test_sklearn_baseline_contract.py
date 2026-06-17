@@ -78,12 +78,17 @@ def test_sklearn_satisfies_plugin_protocol_at_runtime() -> None:
 
 def test_sklearn_registers_its_full_operation_set() -> None:
     ops = _plugin().operations
-    assert set(ops) == {"mlp_classifier"}
-    spec = ops["mlp_classifier"]
-    assert isinstance(spec, OperationSpec)
-    assert spec.op_name == "mlp_classifier"
-    assert spec.applies_to == "architecture"
-    assert issubclass(spec.param_model, BaseModel)
+    # Story H.f.1: besides the `mlp_classifier` architecture op, the baseline now
+    # registers the Loss/Optimizer ops its recipe declares so `validate()` passes;
+    # the optimizer ops map onto MLPClassifier's `solver` + `learning_rate_init`.
+    assert set(ops) == {"mlp_classifier", "cross_entropy", "adam", "sgd"}
+    assert ops["mlp_classifier"].applies_to == "architecture"
+    assert ops["cross_entropy"].applies_to == "loss"
+    assert {ops["adam"].applies_to, ops["sgd"].applies_to} == {"optimizer"}
+    for op_name, spec in ops.items():
+        assert isinstance(spec, OperationSpec)
+        assert spec.op_name == op_name
+        assert issubclass(spec.param_model, BaseModel)
 
 
 def test_sklearn_health_check_returns_check_report_shape() -> None:

@@ -63,6 +63,47 @@ ARCHITECTURE_OPERATIONS: dict[str, OperationSpec] = {
 }
 
 
+class CrossEntropyLossParams(BaseModel):
+    """Params for the recognized `cross_entropy` (log-loss) op.
+
+    MLPClassifier's loss is fixed log-loss, so the op carries no tunable params;
+    it is registered only so a recipe can declare `Loss: {op: cross_entropy}` and
+    pass validator checks 3 + 17 (the schema requires a `Loss` block).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class SklearnOptimizerParams(BaseModel):
+    """Params for the `adam` / `sgd` optimizer ops → MLPClassifier `solver`.
+
+    `learning_rate` maps to the estimator's `learning_rate_init` at fit time (see
+    `run_training`), so the recipe's `Optimizer` block genuinely drives the
+    baseline rather than being decorative.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    learning_rate: float = 1e-3
+
+
+#: sklearn `solver` keyed by the recipe's `Optimizer.op`.
+_SOLVER_BY_OP: dict[str, str] = {"adam": "adam", "sgd": "sgd"}
+
+#: The loss op the baseline recognizes (fixed log-loss).
+LOSS_OPERATIONS: dict[str, OperationSpec] = {
+    "cross_entropy": OperationSpec(
+        op_name="cross_entropy", param_model=CrossEntropyLossParams, applies_to="loss"
+    )
+}
+
+#: The optimizer ops the baseline maps onto MLPClassifier's `solver`.
+OPTIMIZER_OPERATIONS: dict[str, OperationSpec] = {
+    op: OperationSpec(op_name=op, param_model=SklearnOptimizerParams, applies_to="optimizer")
+    for op in _SOLVER_BY_OP
+}
+
+
 class SklearnHealthReport(BaseModel):
     """Result of `SklearnPlugin.health_check`."""
 
@@ -102,7 +143,11 @@ class SklearnPlugin:
     version: str = __version__
 
     def __init__(self) -> None:
-        self.operations: dict[str, OperationSpec] = dict(ARCHITECTURE_OPERATIONS)
+        self.operations: dict[str, OperationSpec] = {
+            **ARCHITECTURE_OPERATIONS,
+            **LOSS_OPERATIONS,
+            **OPTIMIZER_OPERATIONS,
+        }
 
     def health_check(self) -> SklearnHealthReport:
         sklearn_version = _safe_version("scikit-learn")
@@ -151,7 +196,18 @@ class SklearnPlugin:
 
         x, y, classes = feature_matrix(data, "train")
         # Determinism: seed the estimator's RNG from the master seed (32-bit).
-        model.set_params(random_state=derive_seed(seed, "weight_init") & _U32)
+        fit_params: dict[str, Any] = {"random_state": derive_seed(seed, "weight_init") & _U32}
+        # The recipe's Optimizer block drives the MLPClassifier solver + learning
+        # rate (sklearn's "optimizer"). `recipe` is None only when a unit test
+        # drives the plugin methods directly; the runner always supplies it.
+        if recipe is not None:
+            solver = _SOLVER_BY_OP.get(recipe.Optimizer.op)
+            if solver is not None:
+                fit_params["solver"] = solver
+            learning_rate = getattr(recipe.Optimizer, "learning_rate", None)
+            if learning_rate is not None:
+                fit_params["learning_rate_init"] = float(learning_rate)
+        model.set_params(**fit_params)
         model.fit(x, y)
 
         model_dir = temp_dir / "model"
