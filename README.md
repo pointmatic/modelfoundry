@@ -50,6 +50,76 @@ model.figures              # dict[str, bytes] — reporting-visualization PNGs, 
 model.predict(X)           # np.ndarray — predicted labels for new inputs
 ```
 
+## Swap the model — three baselines, one workflow
+
+In ModelFoundry the **recipe is the model definition.** Changing the classification model — from a chance baseline, to a scikit-learn MLP, to a PyTorch CNN — is a declarative edit to two lines of YAML (`plugin` + `Architecture`). The Python you write to train and evaluate is *identical* across all of them:
+
+```python
+from modelfoundry import ModelFoundry
+
+for recipe in ("recipes/cifar10_random.yml",   # chance floor — the `random` plugin
+               "recipes/cifar10_mlp.yml",       # scikit-learn MLP baseline
+               "recipes/cifar10_cnn.yml"):      # PyTorch simple_cnn
+    mi = ModelFoundry.from_recipe(recipe, data="./data").materialize()
+    print(recipe, mi.evaluation["test"]["accuracy"])
+```
+
+The three recipes share the same DataRefinery binding, `Training`, and `Evaluation` blocks — only the head changes (full annotated recipes live in [`recipes/`](recipes/)):
+
+```yaml
+# cifar10_random.yml — the chance floor
+plugin: random
+Architecture: {type: dummy_classifier, num_classes: 10, strategy: stratified}
+Loss:      {op: cross_entropy}
+Optimizer: {op: "none"}          # a chance baseline has no optimizer
+# (omits Optimization + Visualizations — a fixed baseline has neither)
+```
+
+```yaml
+# cifar10_mlp.yml — flattened-pixel scikit-learn MLP
+plugin: sklearn
+Architecture: {type: mlp_classifier, num_classes: 10, hidden_layer_sizes: [256, 128], max_iter: 50}
+Loss:      {op: cross_entropy}
+Optimizer: {op: adam, learning_rate: 0.001}   # drives the MLPClassifier solver
+# (omits Optimization + Visualizations — the baseline plugin implements neither)
+```
+
+```yaml
+# cifar10_cnn.yml — PyTorch simple_cnn
+plugin: pytorch
+Architecture: {type: simple_cnn, num_classes: 10, in_channels: 3}
+Loss:      {op: cross_entropy}
+Optimizer: {op: adamw, learning_rate: 0.001}
+Training:  {max_epochs: 5, ...}   # a deliberately small base budget
+```
+
+> The `sklearn` and `random` baselines reuse the PyTorch feature path, so all three currently need the `[pytorch]` extra (`pip install ml-modelfoundry[pytorch]`).
+
+### Capacity is latent until you scale the budget
+
+Run all four and the result tells a bigger story than "use a CNN" (CPU, deterministic, on the 1,700-image CIFAR-10 subset):
+
+| Model | recipe | test accuracy |
+|---|---|---:|
+| Random (chance) | `cifar10_random.yml` | 0.095 |
+| **PyTorch CNN — 5 epochs** | `cifar10_cnn.yml` | **0.275** |
+| scikit-learn MLP | `cifar10_mlp.yml` | 0.352 |
+| **PyTorch CNN — 40 epochs** | `cifar10_cnn.yml --variant well_trained` | **0.403** |
+
+The more-expressive CNN **loses to the flattened-pixel MLP at a small training budget**, and only **overtakes it once the budget is scaled up** — the same capacity-vs-budget dynamic that separates a legacy model from a modern over-parameterized one. Scaling the budget is itself a one-line recipe change, expressed as a variant:
+
+```yaml
+variants:
+  well_trained:
+    Training: {max_epochs: 40}
+```
+
+```bash
+modelfoundry materialize recipes/cifar10_cnn.yml --variant well_trained
+```
+
+Every run is content-addressed and reproducible, so each comparison is cached and byte-stable — re-running finds the existing instance instead of recomputing.
+
 ## Library API
 
 `ModelFoundry.from_recipe(...)` binds a recipe to a materialized DataRefinery instance; the verbs (`validate` / `materialize` / `status` / `inspect` / `report` / `clean` / `check`) are thin methods over that binding, co-equal with the CLI.

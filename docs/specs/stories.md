@@ -145,7 +145,7 @@ This is a **story bundle**, not a single unit of work (decomposed 2026-06-17 at 
 
 **Architectural fork (developer's call — flagged at the gate).** Gap A has two fixes: **(A) per-plugin op registration** — sklearn/random register the Loss/Optimizer ops their recipes use (localized; keeps the schema requiring those blocks; lets sklearn's Optimizer block actually drive the MLPClassifier `solver`/`learning_rate_init`); or **(B) core-schema relaxation** — make `Loss`/`Optimizer` optional in `ModelRecipe` (like `Optimization`) so baseline/dummy plugins needn't declare them. The bundle assumes **Option A** (smaller, pre-production-appropriate, makes the recipe meaningful); Option B is a larger core change (recipe model + validator + every plugin) better suited to `plan_features`.
 
-**Bundle order & versions:** H.f.1 (sklearn validate fix + minimal recipes, **patch v0.9.3** — restores the documented flow) → H.f.2 (random plugin, **minor v0.10.0**) → H.f.3 (README tutorial, no bump).
+**Bundle order & versions:** H.f.1 (sklearn validate fix + minimal recipes, **patch v0.9.3** — restores the documented flow) → H.f.2 (random plugin, **minor v0.10.0**) → H.f.3 (README tutorial, no bump) → H.f.4 (capacity-vs-budget study — scope TBD, likely no bump). H.f.4 was added 2026-06-17 after H.f.3's measurements surfaced the crossover the developer wants proven rigorously.
 
 ### Story H.f.1: v0.9.3 Make the sklearn baseline validate end-to-end — register + wire its Loss/Optimizer ops [Done]
 
@@ -170,15 +170,39 @@ This is a **story bundle**, not a single unit of work (decomposed 2026-06-17 at 
 - [x] Bumped version to v0.10.0 in [_version.py](../../src/modelfoundry/_version.py) (`0.9.3 → 0.10.0`). CHANGELOG `## [0.10.0]` (Added: random/dummy baseline plugin). Release-metadata guard green.
 - [x] Verify: contract + integration red→green (8 passed, incl. `validate().passed` + determinism); torch-free guard green in `testenv`; **full suite `pyve test --env smoke-pytorch` → 686 passed, 1 xfailed, 0 failed** (95% cov); `ruff` + `mypy` (151 files) clean.
 
-### Story H.f.3: Recipe-centric README model-swap tutorial — the deliverable [Planned]
+### Story H.f.3: Recipe-centric README model-swap tutorial — the deliverable [Done]
 
-`features.md` CR-10 / UR-1. The objective artifact: a README tutorial section teaching the model-swap thesis with the three minimal recipes from H.f.1 / H.f.2. Docs-only, no `src/`/wheel change → **no version bump**.
+`features.md` CR-10 / UR-1. The objective artifact: a README tutorial teaching the model-swap thesis with the three minimal recipes from H.f.1 / H.f.2. **Framing evolved (developer call 2026-06-17): a capacity-vs-budget *crossover* narrative**, not a static ascending arc — measuring the recipes surfaced that the more-expressive `simple_cnn` *loses* to the flattened-pixel sklearn MLP at a small budget and only overtakes it once the budget is scaled (the legacy-model-vs-modern-over-parameterized-model lesson; the developer's legacy-NLP-vs-LLM analogy). Pairing the low- and high-budget CNN "does a lot of curriculum work." Docs + one recipe-variant addition, no `src/`/wheel change → **no version bump**.
 
-- [ ] Author a README section ("Swapping the model" / "Three baselines, one workflow"): the **chance → sklearn MLP → PyTorch CNN** accuracy arc; embed the three minimal recipes; show the **identical Python glue** (`ModelFoundry.from_recipe(<recipe>, data=data).materialize()` — only the recipe path changes); and the **honest YAML diff** between flavors (Gap B — plugin + Architecture change; sklearn/random omit Optimization/Visualizations).
-- [ ] Keep the embedded recipes byte-identical to the committed `recipes/cifar10_{random,mlp,cnn}.yml` by authoring carefully; rely on the H.f.1/H.f.2 recipe-validate tests as the correctness guard. **Do not** add a README-content-scraping test — that would re-introduce the docs→code back-edge H.g is unwinding.
-- [ ] Verify: documented commands run end-to-end against a materialized `./data` (or are clearly flagged as requiring the DR-1 instance); `ruff`/`mypy` unaffected (docs-only); full suite + example smokes green.
+- [x] Authored the README **"Swap the model — three baselines, one workflow"** section: the identical Python glue (one loop over `from_recipe(<recipe>, data="./data").materialize()`), the honest per-flavor YAML diff (only `plugin` + `Architecture` change; sklearn/random omit Optimization/Visualizations; `Optimizer: {op: "none"}` for the chance baseline), and the **budget-crossover** results table (measured, CPU, deterministic): random `0.095` < CNN@5ep `0.275` < MLP `0.352` < CNN@40ep `0.403`.
+- [x] Added a `well_trained` variant (`max_epochs: 40`) to [recipes/cifar10_cnn.yml](../../recipes/cifar10_cnn.yml) so the low/high-budget pairing is a one-flag change (`materialize … --variant well_trained`); kept the base at the deliberately-small 5-epoch budget (the CNN that loses). Disclosed the `[pytorch]`-extra requirement for the sklearn/random baselines (Gap D) in the tutorial.
+- [x] Embedded recipe snippets match the committed `recipes/cifar10_{random,mlp,cnn}.yml` values; relied on the H.f.1/H.f.2 recipe-validate tests as the correctness guard — **no README-scraping test** (avoids the docs→code back-edge H.g unwinds).
+- [x] Verify: all four configs materialize end-to-end through the public surface and `validate().passed` (random / mlp / cnn-base / cnn-well_trained), reproducing the table's numbers; `ruff`/`mypy` unaffected (docs + recipe only); full suite `pyve test --env smoke-pytorch` → 686 passed, 1 xfailed, 0 failed.
 
 **Out of scope (recommend `plan_features`):** Gap C — wiring real `Evaluation.comparison.baseline_model_id` resolution into the sklearn/random baseline plugins (currently a skip-warning). Separately, the H.c open item (retire the now-redundant [scripts/examples/test_models_resnet20_fix.py](../../scripts/examples/test_models_resnet20_fix.py)) is its own cleanup, not part of this bundle.
+
+### Story H.f.4: Empirical capacity-vs-budget crossover study [Planned]
+
+`features.md` CR-10 / FR-3 / FR-25 / UR-1. Promotes H.f.3's lightweight tutorial table into a **rigorous, reproducible experiment**: prove that a more-expressive model's advantage is *latent until training (and data) are scaled* — the curriculum-grade capacity-vs-budget lesson (the developer's legacy-NLP-vs-LLM analogy: the higher-capacity model underperforms until the regime is scaled dramatically). H.f.3's table already shows the crossover on the 1,700-image subset (`simple_cnn` 0.275@5ep → 0.403@40ep vs sklearn MLP 0.352); this story establishes it as a *controlled study* — a budget ladder and (optionally) a larger dataset — so the crossover point and the scaling trend are demonstrated, not anecdotal. **The low-budget/high-budget pairing is the curriculum payload.**
+
+**Scope to confirm with the developer before executing** — the runs are long and the larger-data step is a DataRefinery dependency. Open decisions:
+
+1. **Dataset size.** Stay on the 1,700-image DR-1 subset (fast, already materialized), step up to a mid-size subset (~10k), or full CIFAR-10 (50k)? Larger data = a **new DataRefinery instance** (data prep is DataRefinery's job — FR-6 loose coupling; ModelFoundry consumes it read-only) and materially longer runs (likely GPU-justified).
+2. **Model/budget ladder.** Which points: `random` → sklearn `mlp_classifier` → `simple_cnn` @ {5, 10, 20, 40, …} epochs → `resnet8` / `resnet20` @ scaled budgets? Sweep epochs only, or also a data-fraction axis?
+3. **Artifact + home.** A `scripts/experiments/` runner that materializes the ladder and emits a results table + an accuracy-vs-budget figure, plus a short writeup. In-repo curriculum doc, or feeding an external curriculum?
+4. **Compute ceiling.** CPU-only (stays in the existing `smoke-pytorch` env but caps the budget) vs a GPU run for the larger-data points.
+
+Provisional tasks (firm up after scoping):
+
+- [ ] Confirm scope (dataset, ladder, artifact home, compute) with the developer.
+- [ ] (If larger data) materialize the larger CIFAR-10 instance via **DataRefinery** (upstream; consumed read-only — no ModelFoundry data prep).
+- [ ] Add `scripts/experiments/budget_crossover.py`: materialize each ladder point through the public surface (cached + deterministic, FR-25), collect `evaluation["test"]["accuracy"]`, emit a results table + an accuracy-vs-budget figure.
+- [ ] Write up the finding (crossover point, scaling trend) — curriculum-oriented; reproducible via the committed recipes/variants + the runner.
+- [ ] Verify: the runner reproduces the documented numbers; a deterministic re-run is byte-stable; `ruff`/`mypy` clean on any new script.
+
+**Version:** likely **no bump** (experiment script + docs + recipes; no `src/`/wheel change) — confirm at scoping; a reusable harness landed in `src/` would make it a minor.
+
+**Dependencies / out of scope:** the larger dataset is a DataRefinery materialization (upstream); ModelFoundry never does data prep (FR-6). Automatic *in-run* baseline comparison (FR-12 `baseline_model_id`, Gap C/D) stays a separate `plan_features` item — this study runs the ladder as explicit side-by-side materializations.
 
 ### Story H.g: Re-establish the doc-guard contracts in code — decouple tests from `docs/specs` [Planned]
 

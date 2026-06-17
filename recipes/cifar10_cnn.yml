@@ -1,10 +1,12 @@
 # Copyright (c) 2026 Pointmatic
 # SPDX-License-Identifier: Apache-2.0
 #
-# Minimal PyTorch CNN baseline over CIFAR-10 — a teaching recipe (Story H.f.1).
-# Deliberately tiny: a `simple_cnn` with no Optuna study, no variants, and a short
-# CPU training budget, so the model-swap diff against the sklearn / random recipes
-# is legible. See the README "Swapping the model" tutorial.
+# PyTorch CNN baseline over CIFAR-10 — a teaching recipe (Stories H.f.1 / H.f.3).
+# A `simple_cnn` with no Optuna study, so the model-swap diff against the sklearn /
+# random recipes stays legible. The base uses a deliberately SMALL training budget
+# (5 epochs): at that budget the more-expressive CNN *underperforms* the flattened-
+# pixel sklearn MLP. The `well_trained` variant (40 epochs) scales the budget until
+# the CNN overtakes it — the capacity-vs-budget story (see the README tutorial).
 #
 # Same DataRefinery binding as every CIFAR recipe here — across flavors only
 # `plugin` + `Architecture` change.
@@ -37,3 +39,12 @@ Evaluation:
   splits: [val, test]
   primary_metric: accuracy
   metrics: [accuracy, macro_f1, confusion_matrix]
+
+variants:
+  # Capacity is latent until the training budget is scaled. The 5-epoch base CNN
+  # loses to the flattened-pixel sklearn MLP; with 40 epochs it overtakes — a
+  # legacy-vs-modern-model lesson in one `--variant` flag:
+  #   modelfoundry materialize recipes/cifar10_cnn.yml --variant well_trained
+  well_trained:
+    Training:
+      max_epochs: 40
