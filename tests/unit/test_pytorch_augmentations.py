@@ -367,3 +367,39 @@ def test_random_erasing_p0_is_identity_across_realizers(data: Any) -> None:
     mf_out = build_realizer("random_erasing", {"p": 0.0}, seed=8)(_chw_float(img))
     assert np.array_equal(dr_out, img)
     assert torch.equal(mf_out, _chw_float(img))
+
+
+# --- spawn-safety: composed policy + realizers must pickle (Story H.b) ---
+
+
+def test_composed_transform_is_picklable_and_deterministic() -> None:
+    """Composed policy + realizers must pickle for `spawn` DataLoader workers (H.b).
+
+    Pre-H.b the composer and each realizer were local closures
+    (`compose_augmentations.<locals>.apply`, `build_realizer.<locals>.crop`, ...),
+    which `pickle` cannot serialize.
+    """
+    import pickle
+
+    ops = [
+        AugmentationOp(name="rc", op="random_crop", params={"size": 4, "padding": 1}),
+        AugmentationOp(name="hf", op="horizontal_flip", params={"p": 1.0}),
+        AugmentationOp(name="cj", op="color_jitter", params={"brightness": 0.2}),
+    ]
+    transform = compose_augmentations(ops, master_seed=7)
+    assert transform is not None
+
+    restored = pickle.loads(pickle.dumps(transform))  # pre-fix: unpicklable local closure
+
+    img = torch.rand(3, 4, 4)
+    assert torch.equal(transform(img), restored(img))  # pickling preserves determinism
+
+
+def test_single_realizer_is_picklable() -> None:
+    """Each `build_realizer` output must itself pickle (composition holds a list of them)."""
+    import pickle
+
+    realizer = build_realizer("random_crop", {"size": 4, "padding": 1}, seed=11)
+    restored = pickle.loads(pickle.dumps(realizer))
+    img = torch.rand(3, 4, 4)
+    assert torch.equal(realizer(img), restored(img))

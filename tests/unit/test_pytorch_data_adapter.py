@@ -209,6 +209,32 @@ def test_iteration_is_invariant_to_num_workers(tmp_path: Path) -> None:
     assert torch.equal(images_1, images_2)
 
 
+def test_iteration_invariant_to_num_workers_with_augmentations(tmp_path: Path) -> None:
+    """Spawn-safe augmentations stay num_workers-invariant (H.b).
+
+    A `DataLoader` with workers over an *augmented* dataset must iterate — the dataset
+    + its composed transform pickle to the worker processes. Pre-fix the local-closure
+    transform crashed under the macOS `spawn` start method with
+    `Can't get local object 'compose_augmentations.<locals>.apply'`.
+    """
+    from modelfoundry.plugins.pytorch.augmentations import (
+        AugmentationOp,
+        compose_augmentations,
+    )
+
+    wrapped = _wrap(_build_instance(tmp_path))
+    ops = [AugmentationOp(name="hf", op="horizontal_flip", params={"p": 1.0})]
+
+    def collect(num_workers: int) -> Any:
+        aug = compose_augmentations(ops, master_seed=7)
+        ds = DataRefineryDataset(wrapped, "train", augmentations=aug)
+        spec = TrainingSpec(max_epochs=1, batch_size=2, num_workers=num_workers)
+        images = [batch for batch, _ in build_dataloader(ds, spec, master_seed=7)]
+        return torch.cat(images)
+
+    assert torch.equal(collect(0), collect(2))
+
+
 def test_normalize_applies_in_datarefinery_pixel_units(tmp_path: Path) -> None:
     """Apply normalize in DataRefinery's 0-255 pixel units (H.a regression).
 

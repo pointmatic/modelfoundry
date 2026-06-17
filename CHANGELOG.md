@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.1] - 2026-06-17
+
+Patch — make lazy augmentations spawn-safe so the flagship CIFAR-10 / ResNet-20 recipe can
+materialize on macOS (Story H.b). No output-byte change for existing instances.
+
+### Fixed
+
+- Lazy augmentation realizers and the policy composer were Python **local closures** (`build_realizer.<locals>.crop`, `compose_augmentations.<locals>.apply`), which cannot be pickled. With `Training.num_workers >= 1` under the macOS `spawn` start method, `DataLoader` worker creation pickles the dataset (carrying its transform) and crashed with `AttributeError: Can't get local object …` — so `recipes/cifar10_resnet20.yml` (`num_workers: 2`) died on the first optimization trial and could not materialize on the first-class platform (QR-4). The realizers are now module-level picklable classes (`_HorizontalFlip` / `_RandomCrop` / `_ColorJitter` / `_RandomErasing`) and the composer a `_ComposedTransform` class; `torch` / `torchvision` stay lazily imported in `__call__`, and the seeding/visual semantics are unchanged (the Hypothesis equivalence tests still pass). Guarded by pickle round-trip tests and an augmentations × `num_workers ∈ {0, 2}` invariance test.
+
 ## [0.9.0] - 2026-06-16
 
 Minor — add a public **pre-materialize architecture summary** to the library/CLI-equal surface

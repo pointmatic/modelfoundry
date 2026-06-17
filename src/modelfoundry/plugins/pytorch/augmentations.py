@@ -130,108 +130,177 @@ def _validate(op: str, params: dict[str, Any]) -> BaseModel:
         ) from exc
 
 
+# Realizers are **module-level classes**, not local closures (Story H.b). A closure
+# captured by a `DataLoader` dataset cannot be pickled, so under the macOS `spawn`
+# start method worker creation crashed with `Can't get local object
+# 'build_realizer.<locals>.crop'`. A class instance holds only validated params + the
+# masked seed (all picklable), so the composed policy survives the pickling spawn
+# requires. `torch` / `torchvision` stay lazily imported inside `__call__`, preserving
+# the import-safe-without-`[pytorch]` rule.
+
+
+class _Realizer:
+    """Base for a deterministic, picklable augmentation realizer.
+
+    Subclasses implement `__call__(img) -> img`, drawing all randomness from a fresh
+    `torch.Generator` seeded from `seed` — so the same `(op, params, seed)` always
+    produces the same output.
+    """
+
+    def __init__(self, seed: int) -> None:
+        self._seed = seed & _I64
+
+    def _generator(self) -> torch.Generator:
+        import torch
+
+        return torch.Generator().manual_seed(self._seed)
+
+    @staticmethod
+    def _uniform(g: torch.Generator, low: float, high: float) -> float:
+        import torch
+
+        return float(torch.empty((), dtype=torch.float32).uniform_(low, high, generator=g))
+
+    def __call__(self, img: torch.Tensor) -> torch.Tensor:  # pragma: no cover - abstract
+        raise NotImplementedError
+
+
+class _HorizontalFlip(_Realizer):
+    def __init__(self, p: float, seed: int) -> None:
+        super().__init__(seed)
+        self._p = p
+
+    def __call__(self, img: torch.Tensor) -> torch.Tensor:
+        from torchvision.transforms.v2 import functional as F  # type: ignore[import-untyped]
+
+        if self._uniform(self._generator(), 0.0, 1.0) < self._p:
+            flipped: torch.Tensor = F.horizontal_flip(img)
+            return flipped
+        return img
+
+
+class _RandomCrop(_Realizer):
+    def __init__(self, th: int, tw: int, padding: int, pad_mode: str, seed: int) -> None:
+        super().__init__(seed)
+        self._th, self._tw, self._padding, self._pad_mode = th, tw, padding, pad_mode
+
+    def __call__(self, img: torch.Tensor) -> torch.Tensor:
+        import torch
+        from torchvision.transforms.v2 import functional as F
+
+        th, tw, padding = self._th, self._tw, self._padding
+        if padding > 0:
+            img = F.pad(img, [padding, padding, padding, padding], padding_mode=self._pad_mode)
+        _, h, w = img.shape
+        if h < th or w < tw:
+            raise PluginError(
+                f"random_crop size ({th}, {tw}) exceeds padded image ({h}, {w})",
+                stage="build_augmentation",
+                detail={"op": "random_crop"},
+            )
+        if h == th and w == tw:
+            return img
+        g = self._generator()
+        i = int(torch.randint(0, h - th + 1, (), generator=g))
+        j = int(torch.randint(0, w - tw + 1, (), generator=g))
+        cropped: torch.Tensor = F.crop(img, i, j, th, tw)
+        return cropped
+
+
+class _ColorJitter(_Realizer):
+    def __init__(self, b: float, c: float, s: float, hue: float, seed: int) -> None:
+        super().__init__(seed)
+        self._b, self._c, self._s, self._hue = b, c, s, hue
+
+    def __call__(self, img: torch.Tensor) -> torch.Tensor:
+        import torch
+        from torchvision.transforms.v2 import functional as F
+
+        b, c, s, hue = self._b, self._c, self._s, self._hue
+        g = self._generator()
+        # Randomized op order, matching torchvision ColorJitter's behavior.
+        for which in torch.randperm(4, generator=g).tolist():
+            if which == 0 and b > 0.0:
+                img = F.adjust_brightness(img, 1.0 + self._uniform(g, -b, b))
+            elif which == 1 and c > 0.0:
+                img = F.adjust_contrast(img, 1.0 + self._uniform(g, -c, c))
+            elif which == 2 and s > 0.0:
+                img = F.adjust_saturation(img, 1.0 + self._uniform(g, -s, s))
+            elif which == 3 and hue > 0.0:
+                img = F.adjust_hue(img, self._uniform(g, -hue, hue))
+        return img
+
+
+class _RandomErasing(_Realizer):
+    def __init__(
+        self, p: float, scale: tuple[float, float], ratio: tuple[float, float], seed: int
+    ) -> None:
+        super().__init__(seed)
+        self._p, self._scale, self._ratio = p, scale, ratio
+
+    def __call__(self, img: torch.Tensor) -> torch.Tensor:
+        import torch
+        from torchvision.transforms.v2 import functional as F
+
+        prob, scale, ratio = self._p, self._scale, self._ratio
+        g = self._generator()
+        if self._uniform(g, 0.0, 1.0) >= prob:
+            return img
+        _, h, w = img.shape
+        area = h * w
+        log_ratio = (math.log(ratio[0]), math.log(ratio[1]))
+        for _ in range(10):
+            target_area = self._uniform(g, scale[0], scale[1]) * area
+            aspect = math.exp(self._uniform(g, log_ratio[0], log_ratio[1]))
+            eh = round(math.sqrt(target_area * aspect))
+            ew = round(math.sqrt(target_area / aspect))
+            if eh < h and ew < w:
+                i = int(torch.randint(0, h - eh + 1, (), generator=g))
+                j = int(torch.randint(0, w - ew + 1, (), generator=g))
+                erased: torch.Tensor = F.erase(
+                    img, i, j, eh, ew, v=torch.zeros((), dtype=img.dtype)
+                )
+                return erased
+        return img
+
+
+class _ComposedTransform:
+    """Picklable left-to-right composition of realizers (replaces a local closure)."""
+
+    def __init__(self, realizers: list[Transform]) -> None:
+        self._realizers = realizers
+
+    def __call__(self, img: torch.Tensor) -> torch.Tensor:
+        for realize in self._realizers:
+            img = realize(img)
+        return img
+
+
 def build_realizer(op: str, params: dict[str, Any] | None, seed: int) -> Transform:
-    """Return a deterministic transform for augmentation op `op`.
+    """Return a deterministic, picklable transform for augmentation op `op`.
 
     The returned callable maps a normalized CHW float tensor to an augmented one,
     drawing all randomness from a `torch.Generator` seeded from `seed` — so the
     same `(op, params, seed)` always produces the same output.
     """
     p = _validate(op, params or {})
-    import torch
-    from torchvision.transforms.v2 import functional as F  # type: ignore[import-untyped]
-
-    masked_seed = seed & _I64
-
-    def _generator() -> torch.Generator:
-        return torch.Generator().manual_seed(masked_seed)
-
-    def _uniform(g: torch.Generator, low: float, high: float) -> float:
-        return float(torch.empty((), dtype=torch.float32).uniform_(low, high, generator=g))
 
     if op == "horizontal_flip":
         assert isinstance(p, HorizontalFlipParams)
-        prob = p.p
-
-        def flip(img: torch.Tensor) -> torch.Tensor:
-            if _uniform(_generator(), 0.0, 1.0) < prob:
-                flipped: torch.Tensor = F.horizontal_flip(img)
-                return flipped
-            return img
-
-        return flip
+        return _HorizontalFlip(p.p, seed)
 
     if op == "random_crop":
         assert isinstance(p, RandomCropParams)
         th, tw = (p.size, p.size) if isinstance(p.size, int) else p.size
-        padding, pad_mode = p.padding, _PAD_MODE[p.padding_mode]
-
-        def crop(img: torch.Tensor) -> torch.Tensor:
-            if padding > 0:
-                img = F.pad(img, [padding, padding, padding, padding], padding_mode=pad_mode)
-            _, h, w = img.shape
-            if h < th or w < tw:
-                raise PluginError(
-                    f"random_crop size ({th}, {tw}) exceeds padded image ({h}, {w})",
-                    stage="build_augmentation",
-                    detail={"op": op},
-                )
-            if h == th and w == tw:
-                return img
-            g = _generator()
-            i = int(torch.randint(0, h - th + 1, (), generator=g))
-            j = int(torch.randint(0, w - tw + 1, (), generator=g))
-            cropped: torch.Tensor = F.crop(img, i, j, th, tw)
-            return cropped
-
-        return crop
+        return _RandomCrop(th, tw, p.padding, _PAD_MODE[p.padding_mode], seed)
 
     if op == "color_jitter":
         assert isinstance(p, ColorJitterParams)
-        b, c, s, hue = p.brightness, p.contrast, p.saturation, p.hue
-
-        def jitter(img: torch.Tensor) -> torch.Tensor:
-            g = _generator()
-            # Randomized op order, matching torchvision ColorJitter's behavior.
-            for which in torch.randperm(4, generator=g).tolist():
-                if which == 0 and b > 0.0:
-                    img = F.adjust_brightness(img, 1.0 + _uniform(g, -b, b))
-                elif which == 1 and c > 0.0:
-                    img = F.adjust_contrast(img, 1.0 + _uniform(g, -c, c))
-                elif which == 2 and s > 0.0:
-                    img = F.adjust_saturation(img, 1.0 + _uniform(g, -s, s))
-                elif which == 3 and hue > 0.0:
-                    img = F.adjust_hue(img, _uniform(g, -hue, hue))
-            return img
-
-        return jitter
+        return _ColorJitter(p.brightness, p.contrast, p.saturation, p.hue, seed)
 
     if op == "random_erasing":
         assert isinstance(p, RandomErasingParams)
-        prob, scale, ratio = p.p, p.scale, p.ratio
-
-        def erase(img: torch.Tensor) -> torch.Tensor:
-            g = _generator()
-            if _uniform(g, 0.0, 1.0) >= prob:
-                return img
-            _, h, w = img.shape
-            area = h * w
-            log_ratio = (math.log(ratio[0]), math.log(ratio[1]))
-            for _ in range(10):
-                target_area = _uniform(g, scale[0], scale[1]) * area
-                aspect = math.exp(_uniform(g, log_ratio[0], log_ratio[1]))
-                eh = round(math.sqrt(target_area * aspect))
-                ew = round(math.sqrt(target_area / aspect))
-                if eh < h and ew < w:
-                    i = int(torch.randint(0, h - eh + 1, (), generator=g))
-                    j = int(torch.randint(0, w - ew + 1, (), generator=g))
-                    erased: torch.Tensor = F.erase(
-                        img, i, j, eh, ew, v=torch.zeros((), dtype=img.dtype)
-                    )
-                    return erased
-            return img
-
-        return erase
+        return _RandomErasing(p.p, p.scale, p.ratio, seed)
 
     raise PluginError(f"augmentation op {op!r} is not constructible", stage="build_augmentation")
 
@@ -247,6 +316,10 @@ def compose_augmentations(
     returned callable applies the ops left-to-right; it is `None` when the policy
     is empty (the no-augmentation path `data.py` expects).
 
+    The returned `_ComposedTransform` and its realizers are picklable (Story H.b), so
+    a `DataLoader` carrying an augmented dataset survives the pickling that worker
+    processes require under the macOS `spawn` start method.
+
     Per-record variety (a distinct draw per example, independent of `num_workers`)
     is the trainer's concern (Story C.h): it re-salts the seed with the record id
     via this same scope. Composed here with the policy-level seed, the transform is
@@ -261,9 +334,4 @@ def compose_augmentations(
     if not realizers:
         return None
 
-    def apply(img: torch.Tensor) -> torch.Tensor:
-        for realize in realizers:
-            img = realize(img)
-        return img
-
-    return apply
+    return _ComposedTransform(realizers)
