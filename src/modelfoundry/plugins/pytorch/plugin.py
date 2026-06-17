@@ -232,6 +232,31 @@ class PyTorchPlugin:
 
         return summary.write_summary(model, summary.derive_input_size(data), model_dir)
 
+    def summarize_model(self, model: Any, data: DataRefineryInstance) -> dict[str, Any]:
+        """Return the FR-27 `ModelSummary` (as a dict) for a built model, in-memory.
+
+        The in-memory sibling of `write_model_summary` — no files written. Adds a
+        top-level `output_shape` (the network's output, i.e. the root module's
+        output size) for callers that just want the final logits shape. Powers
+        `ModelFoundry.summary()` (Story H.a.2) for pre-materialize architecture
+        inspection. Lazy import keeps this module torch-free at discovery.
+        """
+        from modelfoundry.plugins.pytorch import summary
+
+        model_summary, _ = summary.summarize(model, summary.derive_input_size(data))
+        result: dict[str, Any] = model_summary.model_dump()
+        output_shape = next(
+            (
+                layer["output_shape"]
+                for layer in result["layers"]
+                if layer["depth"] == 0 and layer["output_shape"]
+            ),
+            None,
+        )
+        if output_shape is not None:
+            result["output_shape"] = output_shape
+        return result
+
     def load_model(self, path: Path) -> Any:
         from modelfoundry.plugins.pytorch import persistence
 

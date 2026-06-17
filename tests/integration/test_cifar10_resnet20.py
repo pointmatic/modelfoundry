@@ -139,6 +139,22 @@ def test_cifar10_resnet20_materializes_end_to_end(tmp_path: Path) -> None:
 # --- the deliverable recipe itself is well-formed (fast; no training) ---
 
 
+def test_summary_inspects_architecture_without_training() -> None:
+    """`summary()` reports ResNet-20 structure without training (H.a.2).
+
+    Param count + output shape from the public surface — no `materialize()`, no
+    framework import in caller code.
+    """
+    from modelfoundry import ModelFoundry
+
+    _require_dr1_instance()
+    mf = ModelFoundry.from_recipe(_DELIVERABLE, data=_DATA_ROOT)
+    summary = mf.summary()
+
+    assert summary["total_params"] == _RESNET20_PARAMS
+    assert summary["output_shape"][-1] == 10
+
+
 def test_deliverable_recipe_validates_clean() -> None:
     # The full 20-check FR-2 validator passes for the deliverable and every
     # variant. Bind the DR-1 instance ONCE (the `Data:` block is variant-

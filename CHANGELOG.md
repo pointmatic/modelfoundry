@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-06-16
+
+Minor — add a public **pre-materialize architecture summary** to the library/CLI-equal surface
+(Story H.a.2). Backend-agnostic; no new runtime dependency; no cache impact.
+
+### Added
+
+- `ModelFoundry.summary() -> dict[str, Any]` (FR-27 surface): builds the recipe's model via the plugin and returns its structured summary — `total_params` / `trainable_params` / `non_trainable_params` / per-layer `layers` rows + a top-level `output_shape` (the network's final output, e.g. `[1, 10]`) — **without** `materialize()` / training and **without** any framework import in caller code. The PyTorch plugin contributes the in-memory `summarize_model(model, data)` (the torchinfo sibling of `write_model_summary`); plugins without it raise `PluginError`. This closes the gap that previously forced architecture inspection through `plugins.pytorch.architecture.build_model` + a direct `torch` import (see `scripts/examples/test_models_resnet20_fix.py`, whose strict-xfail spec drove this feature).
+
 ## [0.8.4] - 2026-06-16
 
 Patch — fix a normalization-units bug that prevented the PyTorch plugin's models from learning

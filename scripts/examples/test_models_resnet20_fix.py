@@ -10,20 +10,14 @@ It binds the real ``recipes/cifar10_resnet20.yml`` to the materialized DataRefin
 instance under ``./data`` (the original pointed at the non-existent ``models/resnet20.yaml``
 + ``./cache``).
 
-It also doubles as a **red/green spec for a missing surface.** ModelFoundry exposes the
-torchinfo ``ModelSummary`` (param count, layer table, output shape) only *after*
-``materialize()`` (``ModelInstance.summary`` / ``.summary_text``, FR-27). There is no
-public way to inspect a recipe's architecture *without training it* — which is exactly
-why the original example had to import the ``plugins.pytorch.architecture.build_model``
-internal and call ``torch`` directly. The two ``summary()`` tests below are
-``xfail(strict=True)``: they flip to a hard failure the moment a public pre-materialize
-summary lands, prompting removal of the marker.
-
-    Proposed surface (the gap this script specs):
-        ModelFoundry.from_recipe(recipe, data=...).summary() -> dict[str, Any]
-    returning the FR-27 ``ModelSummary`` shape (``total_params`` / ``trainable_params`` /
-    per-layer ``output_shape`` rows) without materializing/training and without the
-    caller importing any framework.
+Every check uses the public surface, including ``ModelFoundry.summary()`` (Story H.a.2) —
+the pre-materialize, backend-agnostic architecture summary that lets the param-count and
+output-shape checks run *without training the model* and *without importing a framework*.
+That method was added precisely to close the gap this script first specced as strict
+``xfail``s: the original example had to import ``plugins.pytorch.architecture.build_model``
+and call ``torch`` directly because no such public surface existed. ``summary()`` returns
+the FR-27 ``ModelSummary`` shape (``total_params`` / ``trainable_params`` / per-layer rows)
+plus a top-level ``output_shape``.
 
 Run: ``pyve test --env smoke-pytorch scripts/examples/test_models_resnet20_fix.py``.
 This file lives outside ``testpaths=["tests"]``, so its xfails never gate ``pyve test``.
@@ -45,13 +39,6 @@ RECIPE = "recipes/cifar10_resnet20.yml"
 DATA = "./data"
 RESNET20_PARAMS = 272_474
 NUM_CLASSES = 10
-
-_SUMMARY_GAP = (
-    "ModelFoundry has no public pre-materialize architecture summary: param count / "
-    "output shape are reachable only via ModelInstance.summary after materialize() "
-    "(FR-27), or by importing the plugins.pytorch internals the canonical surface "
-    "forbids. Proposed: ModelFoundry.from_recipe(...).summary()."
-)
 
 
 @pytest.fixture(scope="module")
@@ -87,25 +74,23 @@ def test_binds_to_cifar10_base(mf: ModelFoundry) -> None:
     assert mf.data.instance_num_classes() == NUM_CLASSES
 
 
-# --- red (xfail strict): the missing pre-materialize architecture summary ---
+# --- green: pre-materialize architecture summary via the public surface (H.a.2) ---
 
 
-@pytest.mark.xfail(reason=_SUMMARY_GAP, strict=True)
 def test_param_count_via_public_summary(mf: ModelFoundry) -> None:
     """Canonical replacement for the original ``test_resnet20_param_count``.
 
-    No torch, no plugin internals — red until ``ModelFoundry.summary()`` exists.
+    No torch, no plugin internals — `summary()` builds and inspects the model
+    without training it.
     """
-    summary = mf.summary()  # AttributeError today: no public summary surface
+    summary = mf.summary()
     assert summary["total_params"] == RESNET20_PARAMS
 
 
-@pytest.mark.xfail(reason=_SUMMARY_GAP, strict=True)
 def test_output_is_ten_way_via_public_summary(mf: ModelFoundry) -> None:
     """Canonical replacement for the original ``test_resnet20_forward_shape``.
 
-    The head maps to NUM_CLASSES logits, read off the summary's network output
-    shape — red until ``ModelFoundry.summary()`` exists.
+    The head maps to NUM_CLASSES logits, read off the summary's network output shape.
     """
-    summary = mf.summary()  # AttributeError today: no public summary surface
+    summary = mf.summary()
     assert tuple(summary["output_shape"])[-1] == NUM_CLASSES

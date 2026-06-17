@@ -137,6 +137,31 @@ class ModelFoundry:
 
         return validate_recipe(self.recipe, self.data, self.plugin)
 
+    def summary(self) -> dict[str, Any]:
+        """Inspect the recipe's architecture WITHOUT training it (FR-27 surface).
+
+        Builds the model from the recipe via the plugin and returns its structured
+        summary as a backend-agnostic dict — `total_params` / `trainable_params` /
+        `non_trainable_params` / per-layer `layers` rows + a top-level `output_shape`
+        (the network's final output, e.g. `[1, 10]`). No `materialize()`, no framework
+        import in caller code (Story H.a.2). The probe input shape is derived from the
+        bound data instance's record schema.
+
+        Raises:
+            PluginError: when the resolved plugin does not implement summarization
+            (the sklearn stub, for example).
+        """
+        summarizer = getattr(self.plugin, "summarize_model", None)
+        if summarizer is None:
+            raise PluginError(
+                f"plugin {self.recipe.plugin!r} does not support architecture summary "
+                f"(no `summarize_model`)",
+                stage="summary",
+            )
+        model = self.plugin.build_model(self.recipe.Architecture)
+        result: dict[str, Any] = summarizer(model, self.data)
+        return result
+
     def materialize(self, *, stage_observer: StageObserver | None = None) -> ModelInstance:
         """Materialize the recipe into a cached ModelInstance and return a handle to it (FR-3).
 

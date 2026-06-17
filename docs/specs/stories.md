@@ -32,7 +32,7 @@ Now that the core functionality is in place, we can focus on improving the imple
 
 ---
 
-> **Release cadence for Phase H.** These are independent post-`v0.8.3` bug fixes, so they take **per-story patch bumps** (the G.c–G.e precedent), not a single end-of-phase bundle — this lets the accuracy-killer (H.a) ship as `v0.8.4` immediately rather than waiting on the phase. Order is execution order *and* priority order: H.a (model trains to chance) → H.b (flagship recipe can't materialize on macOS) → H.c (examples).
+> **Release cadence for Phase H.** Per-story bumps (the G.c–G.e precedent), not an end-of-phase bundle — so each fix ships when it's ready. Bugfix stories take a **patch**; the one **feature** in the phase (H.a.2, `ModelFoundry.summary()`) takes a **minor** per the Version Cadence, which is why versions run `H.a` v0.8.4 → `H.a.2` v0.9.0 → `H.b` v0.9.1 (monotonic across execution order). Execution / priority order: H.a (model trains to chance) → H.a.1 (canonical example, no bump) → H.a.2 (summary surface) → H.b (flagship recipe can't materialize on macOS) → H.c (examples cleanup).
 
 ### Story H.a: v0.8.4 Fix normalization units mismatch in `DataRefineryDataset` — model trains to chance [Done]
 
@@ -57,9 +57,23 @@ Now that the core functionality is in place, we can focus on improving the imple
 - [x] **Red** (`xfail(strict=True)` — the gap): param count + output shape via a proposed `ModelFoundry.summary()`. There is **no public pre-materialize architecture summary** — FR-27's `ModelSummary` is reachable only *after* `materialize()` (`ModelInstance.summary`), or by importing the `plugins.pytorch` internals the contract forbids. The markers flip to a hard failure (strict XPASS) the moment the surface lands, prompting their removal.
 - [x] Verify: `pyve test --env smoke-pytorch scripts/examples/test_models_resnet20_fix.py` → **3 passed, 2 xfailed**; `ruff check` + `ruff format --check` clean. Skips cleanly without torch or the `./data` instance; the xfails never gate `pyve test` (outside `testpaths`).
 
-**Out of scope (recommend `plan_features`):** add **`ModelFoundry.summary() -> dict[str, Any]`** — build the model from the recipe (the plugin's existing `build_model` + the torchinfo `summarize` already used for `ModelInstance.summary`) and return the FR-27 `ModelSummary` shape *without training and without a framework import*. Removing the two strict-xfail markers in `test_models_resnet20_fix.py` is the acceptance signal. Secondary friction worth folding in: `from_recipe` eagerly requires a materialized DR instance, so a recipe's architecture can't be inspected offline — a recipe-only (data-binding-free) summary path would close that too. This also lets Story **H.c** simply retire the broken original example rather than repair it.
+**Resolved by Story H.a.2 (next):** the proposed `ModelFoundry.summary()` was implemented immediately, so the two strict-xfail markers here are now plain green tests. The remaining secondary friction (a recipe-only, data-binding-free summary path; a `summary` CLI verb) is recorded under H.a.2's out-of-scope. This also lets Story **H.c** simply retire the broken original example rather than repair it.
 
-### Story H.b: v0.8.5 Make the composed augmentation transform spawn-safe (picklable) [Planned]
+### Story H.a.2: v0.9.0 Public pre-materialize architecture summary — `ModelFoundry.summary()` [Done]
+
+`features.md` CR-10 / CR-11 / FR-27 / UR-1. Implements the surface Story H.a.1 specced as strict xfails: a public, backend-agnostic way to inspect a recipe's architecture **without training it and without a framework import**. Before this, FR-27's `ModelSummary` was reachable only *after* `materialize()` (`ModelInstance.summary`), so the original example reached into `plugins.pytorch.architecture.build_model` + `torch`. Additive, no cache impact, no new runtime dep → **feature/minor** per the Version Cadence; owns **v0.9.0**.
+
+- [x] **Failing tests first** — `tests/unit/test_pytorch_summary.py::test_plugin_summarize_model_returns_dict_with_totals_and_output_shape` and `tests/integration/test_cifar10_resnet20.py::test_summary_inspects_architecture_without_training`. Confirmed **red** (`AttributeError: 'ModelFoundry' object has no attribute 'summary'`) → **green**.
+- [x] Add the PyTorch plugin's in-memory `summarize_model(model, data) -> dict` ([plugin.py](../../src/modelfoundry/plugins/pytorch/plugin.py)) — the torchinfo sibling of `write_model_summary` (reuses `summary.summarize` + `summary.derive_input_size`, no files written), adding a top-level `output_shape` (the depth-0 root module's output size).
+- [x] Add `ModelFoundry.summary() -> dict[str, Any]` ([modelfoundry.py](../../src/modelfoundry/core/modelfoundry.py)): builds the model via `self.plugin.build_model(self.recipe.Architecture)` and delegates to the plugin's `summarize_model` (duck-typed like the runner's `write_model_summary`); raises `PluginError` for a plugin that doesn't implement it (e.g. the sklearn stub).
+- [x] Resolve H.a.1's red spec: removed the two `xfail(strict=True)` markers in [test_models_resnet20_fix.py](../../scripts/examples/test_models_resnet20_fix.py) (now plain green) and updated its docstring; the example now exercises `summary()` through the public surface end-to-end (**5 passed**).
+- [x] Bump version to v0.9.0 in [_version.py](../../src/modelfoundry/_version.py) (`0.8.4 → 0.9.0`).
+- [x] Update CHANGELOG.md (`## [0.9.0]` under Added). Release-metadata guard green against `__version__`.
+- [x] Verify: the new unit + integration tests red→green; `ruff check` + `ruff format --check` + `mypy src tests` (144 files) clean. (Full-suite rerun at the gate.)
+
+**Out of scope (recommend `plan_features`):** a **recipe-only** (data-binding-free) summary path — `summary()` currently needs the bound DR instance for the input-probe shape, so a recipe's architecture still can't be inspected fully offline; and surfacing `summary()` as a CLI verb (`modelfoundry summary <recipe>`) to keep the library/CLI surfaces co-equal (CR-10).
+
+### Story H.b: v0.9.1 Make the composed augmentation transform spawn-safe (picklable) [Planned]
 
 `features.md` QR-3 / QR-4 (macOS is the first-class pre-production platform). [augmentations.py:264](../../src/modelfoundry/plugins/pytorch/augmentations.py#L264) — `compose_augmentations` returns a **local closure** `apply`, attached as the train dataset's transform. With `num_workers ≥ 1` under the `spawn` start method (macOS default), the `DataLoader` must pickle the dataset and fails: `AttributeError: Can't get local object 'compose_augmentations.<locals>.apply'`. `recipes/cifar10_resnet20.yml` sets `num_workers: 2`, so the flagship recipe **cannot materialize on macOS as written** — it dies on optimization trial 0. The `worker_init_fn` was already made spawn-safe (B.j); the transform was not. Owns **v0.8.5** (bugfix patch).
 

@@ -144,3 +144,18 @@ def test_derive_input_size_prefers_image_field() -> None:
     # A non-image 3-element shape must not win over the image entry.
     stub = _SchemaStub({"bbox": {"shape": [4, 4, 4]}, "image": {"shape": [8, 16, 3]}})
     assert derive_input_size(stub) == (1, 3, 8, 16)
+
+
+# --- in-memory plugin summary (H.a.2: ModelFoundry.summary() support) ---
+
+
+def test_plugin_summarize_model_returns_dict_with_totals_and_output_shape() -> None:
+    from modelfoundry.plugins.pytorch.plugin import PyTorchPlugin
+
+    data = _SchemaStub({"image": {"dtype": "uint8", "shape": [32, 32, 3]}})
+    result = PyTorchPlugin().summarize_model(_resnet20(), data)
+
+    assert result["total_params"] == _RESNET20_PARAMS
+    assert result["trainable_params"] == _RESNET20_PARAMS
+    assert result["output_shape"][-1] == 10  # 10-way classification head
+    assert isinstance(result["layers"], list) and result["layers"]
