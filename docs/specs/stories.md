@@ -145,7 +145,7 @@ This is a **story bundle**, not a single unit of work (decomposed 2026-06-17 at 
 
 **Architectural fork (developer's call — flagged at the gate).** Gap A has two fixes: **(A) per-plugin op registration** — sklearn/random register the Loss/Optimizer ops their recipes use (localized; keeps the schema requiring those blocks; lets sklearn's Optimizer block actually drive the MLPClassifier `solver`/`learning_rate_init`); or **(B) core-schema relaxation** — make `Loss`/`Optimizer` optional in `ModelRecipe` (like `Optimization`) so baseline/dummy plugins needn't declare them. The bundle assumes **Option A** (smaller, pre-production-appropriate, makes the recipe meaningful); Option B is a larger core change (recipe model + validator + every plugin) better suited to `plan_features`.
 
-**Bundle order & versions:** H.f.1 (sklearn validate fix + minimal recipes, **patch v0.9.3** — restores the documented flow) → H.f.2 (random plugin, **minor v0.10.0**) → H.f.3 (README tutorial, no bump) → H.f.4 (capacity-vs-budget study — scope TBD, likely no bump). H.f.4 was added 2026-06-17 after H.f.3's measurements surfaced the crossover the developer wants proven rigorously.
+**Bundle order & versions:** H.f.1 (sklearn validate fix + minimal recipes, **patch v0.9.3** — restores the documented flow) → H.f.2 (random plugin, **minor v0.10.0**) → H.f.3 (README tutorial, no bump) → H.f.4 (capacity-vs-budget study, *static stopping*, no bump) → H.f.5 (sophisticated regime — cosine LR + early stopping, no bump). H.f.4/H.f.5 were added 2026-06-17 after H.f.3's measurements surfaced the crossover and its noise; H.f.4 establishes the static-stopping baseline, H.f.5 the dynamic regime that the noise motivates.
 
 ### Story H.f.1: v0.9.3 Make the sklearn baseline validate end-to-end — register + wire its Loss/Optimizer ops [Done]
 
@@ -204,6 +204,20 @@ Tasks:
 **Version:** **no bump** (experiment script + committed figure/results; no `src/`/wheel change).
 
 **Dependencies / out of scope:** the larger dataset is a DataRefinery materialization (upstream); ModelFoundry never does data prep (FR-6). Automatic *in-run* baseline comparison (FR-12 `baseline_model_id`, Gap C/D) stays a separate `plan_features` item — this study runs the ladder as explicit side-by-side materializations.
+
+### Story H.f.5: Sophisticated training regime — cosine LR schedule + early stopping vs static stopping [Done]
+
+`features.md` CR-10 / FR-3 / FR-25 / QR-3 / UR-1. H.f.4's *static-stopping* sweep was noisy/non-monotonic because the minimal recipes train at a constant LR with no early stopping, so the final-epoch checkpoint overfits/oscillates (proven: a 20-epoch run's first 10 epochs are byte-identical to the 10-epoch run, after which val degrades `0.40 → 0.28`). This story builds the **dynamic regime** the finding pointed to — a **cosine LR schedule + early stopping** — entirely as a **recipe change** (the PyTorch plugin already ships `cosine` / `reduce_on_plateau` schedule ops + `Training.early_stopping`; no plugin code), and reports whether it stabilizes and/or improves the sweep vs H.f.4's static baseline. Experiment + recipe variant + docs, no `src/`/wheel change → **no version bump**.
+
+- [x] **Test-first** — `scripts/experiments/test_regime_comparison.py` (dynamic-recipe builder injects `cosine(T_max=ceiling)` + `early_stopping(val_loss/min)` + arch/epochs; static-vs-dynamic table renderer). Red (`ModuleNotFoundError`) → green (2 passed).
+- [x] Added a committed `scheduled` variant to [recipes/cifar10_cnn.yml](../../recipes/cifar10_cnn.yml) (cosine `T_max: 40` + early stopping `val_loss`/`min`/`patience: 5`); confirmed `validate().passed` + materializes (early-stops at 27 epochs, test 0.42).
+- [x] Added [scripts/experiments/regime_comparison.py](../../scripts/experiments/regime_comparison.py): for `simple_cnn` + `resnet20` @ {5,10,20,40} ceilings, materializes the dynamic regime, records test accuracy **and actual epochs run**, compares to H.f.4's committed static numbers, emits a comparison table + overlay figure (`mlp`/`random` as references).
+- [x] Ran it on CPU; committed the figure ([regime_comparison.png](../../scripts/experiments/regime_comparison.png)), the raw table, and an honest findings writeup ([regime_comparison.md](../../scripts/experiments/regime_comparison.md)).
+- [x] Verify: helper test green; `scheduled` validates + materializes; `ruff` + `ruff format` + `mypy` clean on the new script; main suite unaffected (`scripts/experiments/`, outside `testpaths`).
+
+**Finding.** The regime is a **recipe-only** change and it **fixes the small model**: `simple_cnn` improves at every ceiling and its static 20ep *crash* (0.274) becomes the *best* dynamic point (**0.451**), smoothly clearing the MLP (0.352). It does **not** rescue `resnet20` on the 1,700-image subset (mixed-to-worse; early stopping fires at epoch 10 as `val_loss` plateaus on the 300-image val split). **Not a `resnet20` bug** — it is the canonical CIFAR ResNet-20 (He 2015; 6n+2/n=3, stem→16, stages [16,32,64], 272,474 params verified, option-B 1×1 projection shortcuts). So the high-capacity model is *data-starved*, not mis-built — reinforcing that the deferred larger-data study is the path for `resnet20`.
+
+**Version:** **no bump** (experiment + recipe variant + docs; no `src/`/wheel change).
 
 ### Story H.g: Re-establish the doc-guard contracts in code — decouple tests from `docs/specs` [Planned]
 
