@@ -17,6 +17,7 @@ from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
 
+import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
@@ -142,6 +143,91 @@ def _build_instance(tmp_path: Path) -> DataRefineryInstance:
     )
 
 
+def _overfit_recipe_yaml() -> str:
+    # No Transformations -> the adapter scales to [0,1] (no fitted stats needed).
+    return textwrap.dedent(
+        """
+        schema_version: 2
+        plugin: image_classification
+        seed: 1
+        Input: {sources: [{name: t, type: image_folder, path: /x}]}
+        Output:
+          record_schema: {image: {dtype: uint8, shape: [4, 4, 3]}, label: {dtype: str},
+                          path: {dtype: str}}
+        Labels: {field: label, source: {kind: derived, derivation: parent_directory_name}}
+        Splits: {ratios: {train: 0.6, val: 0.2, test: 0.2}, seed: 1, stratify_by: label}
+        """
+    ).strip()
+
+
+def _build_overfit_instance(tmp_path: Path) -> DataRefineryInstance:
+    """A memorizable RANDOM-pixel instance that forces overfitting.
+
+    Train images are unique noise the linear model can fit exactly while val is
+    held-out noise, so the model overfits: `val_loss` bottoms out early then rises
+    while training continues — i.e. best-`val_loss` epoch != final epoch. No
+    normalize op, so the adapter scales to [0,1] and no fitted statistics are
+    needed. This is the condition under which "keep final" vs "restore best
+    (early)" produce different weights (the H.f.9 regression guard).
+    """
+    recipe_path = tmp_path / "dr_overfit.yml"
+    recipe_path.write_text(_overfit_recipe_yaml(), encoding="utf-8")
+    dr_recipe = dr_load_recipe(recipe_path)
+    recipe_hash = hashlib.sha256(to_canonical_bytes(dr_recipe)).hexdigest()
+
+    inst = tmp_path / "overfit_inst"
+    inst.mkdir()
+    (inst / "recipe.json").write_text(dr_recipe.model_dump_json(), encoding="utf-8")
+
+    rng = np.random.default_rng(0)
+    dataset_dir = inst / "dataset"
+    dataset_dir.mkdir()
+    images_dir = inst / "images"
+    images_dir.mkdir()
+    counts: dict[str, int] = {}
+    for split, per_class in (("train", 8), ("val", 4), ("test", 4)):
+        records = []
+        for cls in _CLASSES:
+            for i in range(per_class):
+                px = rng.integers(0, 256, size=(4, 4, 3), dtype=np.uint8)
+                png = images_dir / f"{split}_{cls}_{i}.png"
+                Image.fromarray(px, "RGB").save(png)
+                records.append(
+                    {"record_id": f"{split}/{cls}/img_{i}", "label": cls, "path": str(png)}
+                )
+        (dataset_dir / f"{split}.jsonl").write_text(
+            "\n".join(json.dumps(r) for r in records), encoding="utf-8"
+        )
+        counts[split] = len(records)
+
+    manifest = DRManifest(
+        datarefinery_version="0.19.0",
+        plugin="image_classification",
+        plugin_version="1",
+        recipe_hash=recipe_hash,
+        input_hash="0" * 64,
+        seed=1,
+        created_at=datetime.now(UTC),
+        elapsed_seconds=0.1,
+        record_counts=counts,
+        warnings=[],
+        sinks={},
+        sinks_skipped={},
+    )
+    (inst / "manifest.json").write_text(manifest.model_dump_json(), encoding="utf-8")
+
+    loaded = dr.Instance.load(inst)
+    return DataRefineryInstance(
+        path=inst,
+        manifest=loaded.manifest,
+        recipe=loaded.recipe,
+        splits=tuple(loaded.manifest.record_counts.keys()),
+        label_schema=loaded.recipe.Labels.model_dump(),
+        record_schema={k: v.model_dump() for k, v in loaded.recipe.Output.record_schema.items()},
+        fitted_statistics=loaded.fitted_statistics,
+    )
+
+
 def _recipe(
     *,
     loss: str = "cross_entropy",
@@ -149,6 +235,7 @@ def _recipe(
     patience: int = 10,
     monitor: str = "val_loss",
     mode: str = "min",
+    with_early_stopping: bool = True,
 ) -> ModelRecipe:
     return ModelRecipe(
         schema_version=1,
@@ -171,7 +258,11 @@ def _recipe(
             num_workers=0,
             device="cpu",
             checkpoint_cadence=1,
-            early_stopping=EarlyStoppingSpec(monitor=monitor, mode=mode, patience=patience),
+            early_stopping=(
+                EarlyStoppingSpec(monitor=monitor, mode=mode, patience=patience)
+                if with_early_stopping
+                else None
+            ),
         ),
         Evaluation=EvaluationSpec(splits=["val"], primary_metric="accuracy", metrics=["accuracy"]),
     )
@@ -290,6 +381,52 @@ def test_best_weights_are_restored_into_model_after_early_stop(tmp_path: Path) -
         assert torch.equal(model_state[key].cpu(), best_tensor.cpu()), (
             f"{key} was not restored to the best-monitor checkpoint"
         )
+
+
+def test_final_weights_kept_when_no_early_stopping(tmp_path: Path) -> None:
+    # H.f.9 regression guard. With NO early stopping the recipe asked to train the
+    # FULL schedule, so run_training must return the converged FINAL epoch — not an
+    # early best-monitor (val_loss/min) epoch. The v0.10.1 fix restored best weights
+    # unconditionally, so a no-early-stopping cosine run shipped the early min-val_loss
+    # epoch (val_loss bottoms out early then rises under overfitting while val accuracy
+    # keeps improving — the canonical 160-epoch ResNet-20 run reported 0.731 instead of
+    # ~0.79). The v0.10.2 gate restores best weights ONLY when early stopping is set.
+    import pandas as pd  # type: ignore[import-untyped]
+
+    from modelfoundry.pipeline.checkpoint import Checkpoint
+
+    data = _build_overfit_instance(tmp_path)
+    out = tmp_path / "instance"
+    recipe = _recipe(max_epochs=20, with_early_stopping=False)
+
+    enable_deterministic_algorithms(derive_seed(_SEED, "weight_init"))
+    model = build_model(recipe.Architecture)
+    run_training(recipe.Training, model, recipe, data, _SEED, out)
+
+    history = pd.read_parquet(out / "training" / "history.parquet")
+    best_i = int(history["val_loss"].idxmin())
+    final_i = len(history) - 1
+    # The fixture must actually overfit (best-val_loss strictly before final) or the
+    # guard is trivial — "keep final" and "restore best" would coincide.
+    assert best_i < final_i, (best_i + 1, final_i + 1, history["val_loss"].tolist())
+
+    def _weights(name: str) -> dict[str, torch.Tensor]:
+        payload = torch.load(out / "model" / "checkpoints" / name, weights_only=False)
+        return Checkpoint.model_validate(payload).weights
+
+    final_weights = _weights(f"checkpoint-epoch-{len(history):04d}.pt")
+    best_weights = _weights("checkpoint-best.pt")
+    model_state = model.state_dict()
+
+    # Returned model is the FINAL epoch (kept), not the early best-monitor epoch.
+    for key, final_tensor in final_weights.items():
+        assert torch.equal(model_state[key].cpu(), final_tensor.cpu()), (
+            f"{key}: returned model is not the converged final epoch"
+        )
+    # Non-trivial: final and best genuinely differ here.
+    assert any(
+        not torch.equal(final_weights[k].cpu(), best_weights[k].cpu()) for k in final_weights
+    ), "final == best; the overfit fixture did not separate them"
 
 
 def test_best_weights_track_the_monitor(tmp_path: Path) -> None:

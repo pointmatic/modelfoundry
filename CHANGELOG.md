@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.2] - 2026-06-17
+
+Patch — gate restore-best-weights on early stopping (Story H.f.10), correcting the over-applied
+v0.10.1 restore. **Cache-invalidating** for recipes that train **without** early stopping:
+materialized weights/evaluation change (the converged final model instead of an early best-monitor
+epoch); re-materialize (pre-production OR-9; no `schema_version` bump). Early-stopping recipes are
+byte-identical to v0.10.1.
+
+### Fixed
+
+- v0.10.1 restored the best-monitor weights into the model **unconditionally** at the end of `run_training`. That is correct *with* early stopping, but for a full-schedule (no-early-stopping) run it restored an early best-monitor epoch instead of the converged final model. The default monitor is `val_loss`, whose minimum under a cosine anneal lands very early (it then rises from overconfidence while `val_accuracy` keeps improving), so the canonical 160-epoch ResNet-20 benchmark shipped the epoch-8 model and scored test 0.7312 instead of the converged **0.7764**. Restore is now gated on `Training.early_stopping` being configured (restore_best_weights semantics); with no early stopping the converged final model is kept. Guarded by `test_final_weights_kept_when_no_early_stopping`.
+
+## [0.10.1] - 2026-06-17
+
+Patch — restore the best-monitor checkpoint into the evaluated/persisted model (Story H.f.8).
+**Cache-invalidating** for recipes that early-stop with best ≠ final epoch: materialized
+weights/evaluation change; re-materialize (pre-production OR-9; no `schema_version` bump).
+
+### Fixed
+
+- The trainer tracked and promoted the best-monitor weights, but the runner evaluated — and `save_model` persisted — the in-memory **final-epoch** model; `run_training` never restored the best weights. With early stopping the final epoch is `patience` epochs of non-improvement past the best, so every early-stopping run shipped a stale model (and the on-disk best checkpoint was overwritten with it). This disproportionately penalized models that early-stop aggressively (ResNet-20): post-fix, full-data `resnet20` recovers from 0.646 → 0.679, and the H.f.7 `simple_cnn`-edges-`resnet20` reversal flips back to the canonical ordering (`resnet20` 0.679 > `simple_cnn` 0.672). `run_training` now snapshots the best-monitor `state_dict` and restores it before returning. Guarded by `test_best_weights_are_restored_into_model_after_early_stop`.
+
 ## [0.10.0] - 2026-06-17
 
 Minor — add a first-class **random/chance baseline plugin** (Story H.f.2): the comparison floor

@@ -181,14 +181,20 @@ def run_training(
     _write_history(history, training_dir / "history.parquet")
 
     assert best_value is not None  # max_epochs > 0, so the loop always ran once
-    # restore_best_weights: the runner evaluates AND persists this in-memory model,
-    # so it must carry the best-monitor weights — NOT the final epoch, which with
-    # early stopping is `patience` epochs of non-improvement past the best. Without
-    # this, early stopping silently shipped a stale model (the H.f.8 bug). The
-    # promoted on-disk `weights/state_dict.pt` already holds the best weights; this
-    # aligns the live model with it before evaluation/persistence.
-    assert best_state is not None
-    model.load_state_dict(best_state)
+    # restore_best_weights — gated on early stopping (H.f.9). The runner evaluates
+    # AND persists this in-memory model, so when early stopping is configured it
+    # must carry the best-monitor weights, NOT the final epoch (which is `patience`
+    # epochs of non-improvement past the best — the H.f.8 bug). But when there is
+    # NO early stopping, the recipe asked to train the *full* schedule, so the
+    # converged final model is the deliverable; restoring an early best-monitor
+    # epoch would undo the schedule. The trap: the default monitor is `val_loss`,
+    # whose minimum under a cosine anneal can land very early (val_loss rises from
+    # overconfidence while val accuracy keeps improving), so an unconditional
+    # restore shipped that early epoch (the H.f.9 regression). A configurable
+    # restore criterion for the no-early-stopping case is tracked in `## Future`.
+    if training.early_stopping is not None:
+        assert best_state is not None
+        model.load_state_dict(best_state)
     return TrainingResult(
         epochs_run=len(history),
         best_epoch=best_epoch,

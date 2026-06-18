@@ -21,9 +21,14 @@
 #     (no color_jitter; canonical CIFAR augmentation)
 #   - no Optuna study (the regime is fixed, not searched)
 #
-# Compute (measured-rate extrapolation from H.f.6: ~13.6 s/epoch @ 17k on MPS):
-#   - MPS, this 28k-train instance: ~23 s/epoch × 160 ≈ ~1 hour
-#   - CPU: ~5+ hours (set device: cpu only if no accelerator is available)
+# Compute + MEASURED result (Story H.f.9, MPS, seed 20260617, v0.10.2):
+#   - Wall clock: ~1,560 s (~26 min) for the full 160 epochs on Apple-silicon MPS
+#     (faster than the ~1 h extrapolation from H.f.6). CPU: ~5+ hours.
+#   - Converged accuracy: test 0.7764 / val 0.7936 (final epoch 160). +0.10 over
+#     the AdamW/early-stop baseline (resnet20 0.679) — the regime is the dominant
+#     factor. Requires v0.10.2: under v0.10.1's unconditional best-weights restore
+#     this no-early-stopping run reported 0.7312 (shipped the early min-val_loss
+#     epoch); see Story H.f.10.
 #
 # Run (from the repo root, with the crop+flip full instance materialized; the
 # DataRefinery cache root defaults to ./data):
