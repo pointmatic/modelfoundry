@@ -129,6 +129,7 @@ def run_training(
     best_value: float | None = None
     best_epoch = 0
     stale_epochs = 0
+    best_state: dict[str, torch.Tensor] | None = None
 
     for epoch in range(1, training.max_epochs + 1):
         learning_rate = float(optimizer.param_groups[0]["lr"])
@@ -168,6 +169,10 @@ def run_training(
             _write_checkpoint(
                 checkpoints_dir / "checkpoint-best.pt", epoch, model, value, recipe_hash16
             )
+            # Snapshot the best-monitor weights in memory so they can be restored
+            # into `model` after the loop (below). Cloned + detached so subsequent
+            # epochs do not mutate the snapshot.
+            best_state = {k: v.detach().clone() for k, v in model.state_dict().items()}
         else:
             stale_epochs += 1
             if patience is not None and stale_epochs >= patience:
@@ -176,6 +181,14 @@ def run_training(
     _write_history(history, training_dir / "history.parquet")
 
     assert best_value is not None  # max_epochs > 0, so the loop always ran once
+    # restore_best_weights: the runner evaluates AND persists this in-memory model,
+    # so it must carry the best-monitor weights — NOT the final epoch, which with
+    # early stopping is `patience` epochs of non-improvement past the best. Without
+    # this, early stopping silently shipped a stale model (the H.f.8 bug). The
+    # promoted on-disk `weights/state_dict.pt` already holds the best weights; this
+    # aligns the live model with it before evaluation/persistence.
+    assert best_state is not None
+    model.load_state_dict(best_state)
     return TrainingResult(
         epochs_run=len(history),
         best_epoch=best_epoch,

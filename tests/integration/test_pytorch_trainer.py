@@ -142,7 +142,14 @@ def _build_instance(tmp_path: Path) -> DataRefineryInstance:
     )
 
 
-def _recipe(*, loss: str = "cross_entropy", max_epochs: int = 3, patience: int = 10) -> ModelRecipe:
+def _recipe(
+    *,
+    loss: str = "cross_entropy",
+    max_epochs: int = 3,
+    patience: int = 10,
+    monitor: str = "val_loss",
+    mode: str = "min",
+) -> ModelRecipe:
     return ModelRecipe(
         schema_version=1,
         plugin="pytorch",
@@ -164,7 +171,7 @@ def _recipe(*, loss: str = "cross_entropy", max_epochs: int = 3, patience: int =
             num_workers=0,
             device="cpu",
             checkpoint_cadence=1,
-            early_stopping=EarlyStoppingSpec(monitor="val_loss", mode="min", patience=patience),
+            early_stopping=EarlyStoppingSpec(monitor=monitor, mode=mode, patience=patience),
         ),
         Evaluation=EvaluationSpec(splits=["val"], primary_metric="accuracy", metrics=["accuracy"]),
     )
@@ -241,6 +248,48 @@ def test_class_weighted_loss_persists_weights(tmp_path: Path) -> None:
     assert payload["classes"] == ["c0", "c1", "c2"]
     assert payload["class_counts"] == [4, 4, 4]  # balanced fixture
     assert len(payload["class_weights"]) == 3
+
+
+def test_best_weights_are_restored_into_model_after_early_stop(tmp_path: Path) -> None:
+    # restore_best_weights contract (H.f.8 regression guard). The runner evaluates
+    # AND persists the in-memory model `run_training` returns; with early stopping
+    # the final epoch is `patience` epochs of non-improvement past the best, so the
+    # returned model MUST be the best-monitor checkpoint, not the stale final epoch.
+    # The H.f.8 bug kept the final epoch — early stopping silently shipped a
+    # `patience`-epochs-stale model (and `save_model` then overwrote the on-disk
+    # best with it), which disproportionately penalized models that early-stop.
+    #
+    # Monitor val_accuracy/max on the trivially-separable fixture: accuracy plateaus
+    # at its max within a couple epochs, early-stopping fires `patience` epochs
+    # later, but the weights keep drifting — so best_epoch < final_epoch and the two
+    # weight sets differ, which is the only case that distinguishes the two
+    # behaviors.
+    from modelfoundry.pipeline.checkpoint import Checkpoint
+
+    data = _build_instance(tmp_path)
+    out = tmp_path / "instance"
+    recipe = _recipe(max_epochs=10, patience=2, monitor="val_accuracy", mode="max")
+
+    enable_deterministic_algorithms(derive_seed(_SEED, "weight_init"))
+    model = build_model(recipe.Architecture)
+    result = run_training(recipe.Training, model, recipe, data, _SEED, out)
+
+    # Early stopping fired strictly before the final epoch — the only configuration
+    # under which "restore best" and "keep final" produce different weights.
+    assert result.best_epoch < result.epochs_run, (  # type: ignore[attr-defined]
+        result.best_epoch,  # type: ignore[attr-defined]
+        result.epochs_run,  # type: ignore[attr-defined]
+    )
+
+    payload = torch.load(out / "model" / "checkpoints" / "checkpoint-best.pt", weights_only=False)
+    best_weights = Checkpoint.model_validate(payload).weights
+
+    model_state = model.state_dict()
+    assert set(model_state) == set(best_weights)
+    for key, best_tensor in best_weights.items():
+        assert torch.equal(model_state[key].cpu(), best_tensor.cpu()), (
+            f"{key} was not restored to the best-monitor checkpoint"
+        )
 
 
 def test_best_weights_track_the_monitor(tmp_path: Path) -> None:
