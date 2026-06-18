@@ -16,6 +16,7 @@ import textwrap
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pyarrow as pa
@@ -367,9 +368,9 @@ def test_best_weights_are_restored_into_model_after_early_stop(tmp_path: Path) -
 
     # Early stopping fired strictly before the final epoch — the only configuration
     # under which "restore best" and "keep final" produce different weights.
-    assert result.best_epoch < result.epochs_run, (  # type: ignore[attr-defined]
-        result.best_epoch,  # type: ignore[attr-defined]
-        result.epochs_run,  # type: ignore[attr-defined]
+    assert result.best_epoch < result.epochs_run, (
+        result.best_epoch,
+        result.epochs_run,
     )
 
     payload = torch.load(out / "model" / "checkpoints" / "checkpoint-best.pt", weights_only=False)
@@ -410,9 +411,10 @@ def test_final_weights_kept_when_no_early_stopping(tmp_path: Path) -> None:
     # guard is trivial — "keep final" and "restore best" would coincide.
     assert best_i < final_i, (best_i + 1, final_i + 1, history["val_loss"].tolist())
 
-    def _weights(name: str) -> dict[str, torch.Tensor]:
+    def _weights(name: str) -> dict[str, Any]:
         payload = torch.load(out / "model" / "checkpoints" / name, weights_only=False)
-        return Checkpoint.model_validate(payload).weights
+        weights: dict[str, Any] = Checkpoint.model_validate(payload).weights
+        return weights
 
     final_weights = _weights(f"checkpoint-epoch-{len(history):04d}.pt")
     best_weights = _weights("checkpoint-best.pt")
