@@ -290,7 +290,7 @@ are likewise deferred until a concrete, declared workflow exists to enumerate (s
   `requires-python = ">=3.12,<3.14"` range.
 - **Bootstrap (one-time):**
   ```bash
-  pyve env init root                   # .pyve/envs/root/venv (venv on the .tool-versions interpreter)
+  pyve env init root                   # .venv (repo root; venv on the .tool-versions interpreter)
   pyve run pip install -e ".[pytorch]" # editable package + runtime closure (CPU) for ad-hoc runs
   ```
 - **Install dependencies:** the editable package + its runtime closure (no dev/test tooling).
@@ -537,7 +537,7 @@ and map to those already-declared (or future) `test` envs, not to a gap in the c
 # lazy [env.smoke-pytorch] / [env.smoke-tensorflow] / [env.smoke-huggingface] / [env.typecheck]).
 
 # 1. Utility root (venv): the ad-hoc env to instantiate a ModelFoundry / run scripts.
-pyve env init root                              # .pyve/envs/root/venv (python 3.12.13 from .tool-versions)
+pyve env init root                              # .venv (repo root; python 3.12.13 from .tool-versions)
 pyve run pip install -e ".[pytorch]"            # editable package + runtime closure (CPU)
 #   (pyve, project-guide, direnv, git installed globally — not pyve-managed)
 
