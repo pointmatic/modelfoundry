@@ -52,6 +52,8 @@ The combiner bytes, the flat→discriminated-union conversion, and the validator
 
 **Version:** **no bump** (throwaway spike; no shipped `src/` change).
 
+---
+
 ### Story I.b: Segment model + segment-aware canonical bytes [Done]
 
 F1. Replace the flat total dump ([canonical.py:25](../../src/modelfoundry/recipe/canonical.py#L25)) with the segmented combiner from I.a.
@@ -64,6 +66,8 @@ F1. Replace the flat total dump ([canonical.py:25](../../src/modelfoundry/recipe
 
 **Version:** **no bump** (bundled — Phase I cadence).
 
+---
+
 ### Story I.c: Discriminated-union plugin surfaces + validator adaptation [Done]
 
 F2. Convert the flat shared specs (`Loss`/`Optimizer`/`Schedule`/`Training`/`Evaluation`/`Visualization`) from `extra="allow"` op-bags ([models.py:34-54](../../src/modelfoundry/recipe/models.py#L34)) to discriminated unions per I.a; recipe stays flat on disk.
@@ -75,6 +79,8 @@ F2. Convert the flat shared specs (`Loss`/`Optimizer`/`Schedule`/`Training`/`Eva
 
 **Version:** **no bump** (bundled).
 
+---
+
 ### Story I.d: `extensions:` namespace [Done]
 
 F3. A sanctioned declarative bag where `extra` is relaxed only inside the namespace; enters identity only when non-empty.
@@ -85,9 +91,13 @@ F3. A sanctioned declarative bag where `extra` is relaxed only inside the namesp
 
 **Version:** **no bump** (bundled).
 
-### Story I.e: No implicit defaults + `num_workers` reclassification (Option A) — split into I.e.1 / I.e.2
+---
 
-> **Restructured (developer-approved 2026-06-22):** the original I.e model changes are **mechanically coupled** to I.f's recipe/fixture rewrite — all 29 recipe files set `num_workers` (removing it from `extra="forbid"` `TrainingSpec` breaks them) and most omit `precision`/`calibration_bins`/`sampler`/`pruner`/`baseline_trial` (dropping their defaults makes them required → omitting recipes fail to load). I.e-then-I.f as written yields a **red suite between the two stories**. To keep the suite green at every boundary, each model change lands **with** its corresponding recipe/fixture rewrite: split into **I.e.1** (`num_workers`) + **I.e.2** (no-implicit-defaults); **I.f** rescoped to the conscious golden re-pin + invalid-fixture verification.
+### Story I.e: No implicit defaults + `num_workers` reclassification (Option A) — split into I.e.1 - I.e.3
+
+> **Restructured (developer-approved 2026-06-22):** the original I.e model changes are **mechanically coupled** to I.f's recipe/fixture rewrite — all 29 recipe files set `num_workers` (removing it from `extra="forbid"` `TrainingSpec` breaks them) and most omit `precision`/`calibration_bins`/`sampler`/`pruner`/`baseline_trial` (dropping their defaults makes them required → omitting recipes fail to load). I.e-then-I.f as written yields a **red suite between the two stories**. To keep the suite green at every boundary, each model change lands **with** its corresponding recipe/fixture rewrite: split into **I.e.1** (`num_workers`) + **I.e.2/I.e.3** (no-implicit-defaults); **I.f** rescoped to the conscious golden re-pin + invalid-fixture verification.
+
+---
 
 ### Story I.e.1: `num_workers` → execution context (Option A) [Done]
 
@@ -99,24 +109,42 @@ F4 (part). Move `num_workers` out of recipe identity into execution context, str
 
 **Version:** **no bump** (bundled).
 
-### Story I.e.2: No implicit defaults [Planned]
+---
 
-F4 (part). The interpreting code supplies no behavior-affecting value; the scaffolder emits all values — landed **with** the recipe/fixture rewrite so the suite stays green.
+### Story I.e.2: No implicit defaults — Part a: emit explicit values (corpus + scaffolder) [Done]
 
-- [ ] Drop value-`default=`s from the param models / specs per the I.a catalog (`precision`, `checkpoint_cadence`, `calibration_bins`, `sampler`, `pruner`, `baseline_trial`, viz `mode`, …); **keep mode-selecting optionals** (`Inference=None`, `early_stopping=None`, `Optimization=None`, `Optimizer.schedule=None`, `Data.variant=None`; the "absent ⇒ behavior" mapping moves into the versioned segment contract).
-- [ ] Scaffolder ([init.py:87](../../src/modelfoundry/scaffolder/init.py#L87)) becomes the value-emitter — emit every behavior-affecting field explicitly.
-- [ ] Rewrite the recipes/fixtures/template to author the now-required values (the green-preserving half of the former I.f recipe rewrite).
+F4 (part). Make every behavior-affecting value **explicit in the recipe text** while the model defaults still exist — a purely additive, **provably zero-byte change** (an explicit value equal to the current default leaves `model_dump`, hence `recipe_hash`, unchanged). This is the user-facing no-implicit-defaults deliverable; I.e.3 then removes the now-redundant code defaults.
+
+- [x] Scaffolder ([init.py](../../src/modelfoundry/scaffolder/init.py)) becomes the value-emitter — emits `precision`/`checkpoint_cadence`/`device` (Training) + `calibration_bins` (Evaluation) explicitly. (The baseline scaffold has no `Optimization`/`Visualizations`, so `sampler`/`pruner`/`baseline_trial`/viz `mode` are N/A there.) Test in [test_cli_init.py](../../tests/cli/test_cli_init.py).
+- [x] Rewrite the **29 ModelFoundry recipe/fixture files** to author the missing values (= current defaults). One-time text migration, comment-preserving, inserting `precision`/`checkpoint_cadence`/`calibration_bins` (+ `device` and `baseline_trial` where missing). **Correction to the planning estimate: the corpus is 29 MF recipes, not 37** — the other 8 `recipes/*.yaml` are *DataRefinery* data-prep recipes (`InputSource`/`Transformations`/`Splits`, no `Training`/`Architecture`), out of scope for the MF no-implicit-defaults rule.
+- [x] Verified zero byte change: the migration script snapshotted `recipe_hash` for all 28 loadable files and confirmed **0 changed**; the `_PINNED_HASH` `xfail` stays put (no new invalidation). Byte-neutrality also pinned as an invariant test in [test_segmented_identity.py](../../tests/unit/test_segmented_identity.py) (`test_explicit_default_values_are_byte_neutral`).
 
 **Version:** **no bump** (bundled).
 
+---
+
+### Story I.e.3: No implicit defaults — Part b: drop the code defaults (enforcement) [Planned]
+
+F4 (part). The interpreting code supplies no behavior-affecting value. With the corpus already authoring every value (I.e.2), dropping the model defaults is green — only the test fixtures that relied on the defaults need fixing.
+
+- [ ] Drop value-`default=`s from the param models / specs per the I.a catalog (`precision`, `checkpoint_cadence`, `device`, `calibration_bins`, `sampler`, `pruner`, `baseline_trial`, viz `mode`) — make them required. **Keep mode-selecting optionals** (`Inference=None`, `early_stopping=None`, `Optimization=None`, `Optimizer.schedule=None`, `Evaluation.comparison=None`, `Data.variant=None`; the "absent ⇒ behavior" mapping moves into the versioned segment contract). **Keep `Optimization.n_jobs=1`** as a constrained invariant (single legal value, not a free default — I.a Decision 4).
+- [ ] Fix the inline test recipe dicts + direct `TrainingSpec`/`EvaluationSpec`/`OptimizationSpec`/`VisualizationSpec` constructions that omitted the now-required fields (~17–45 test files).
+- [ ] Confirm green: the corpus authors every value (from I.e.2), so making fields required breaks no recipe — only test fixtures churn.
+
+**Version:** **no bump** (bundled).
+
+---
+
 ### Story I.f: Golden re-pin + invalid-fixture verification [Planned]
 
-F6 (enforcement portion, rescoped — the recipe/fixture/template rewrites moved into I.e.1/I.e.2 to keep each story green). What remains is the conscious sign-off + invalid-fixture correctness.
+F6 (enforcement portion, rescoped — the recipe/fixture/template rewrites moved into I.e.1-I.e.3 to keep each story green). What remains is the conscious sign-off + invalid-fixture correctness.
 
 - [ ] Confirm the 14 invalid fixtures still fail for the *right* reason under the new schema (flat-discriminated + explicit-values); adjust as needed so each trips exactly its documented check.
 - [ ] **Consciously re-pin `_PINNED_HASH`** in [test_canonical.py](../../tests/unit/test_canonical.py) and remove its `xfail` — the deliberate reviewer sign-off the test exists to force (the one cache-invalidating change has fully landed).
 
 **Version:** **no bump** (bundled).
+
+---
 
 ### Story I.g: Per-segment versioning + migration-registry seam [Planned]
 
@@ -126,6 +154,8 @@ F5. Replace the single global `schema_version` gate ([loader.py:26](../../src/mo
 - [ ] Migration registry keyed by `(segment, from, to)` — the **seam only**, empty (pre-1.0 zero support window; users re-materialize).
 
 **Version:** **no bump** (bundled).
+
+---
 
 ### Story I.h: Enforcement, release & docs — owns the bump [Planned]
 

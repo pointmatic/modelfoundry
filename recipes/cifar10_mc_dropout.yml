@@ -51,6 +51,8 @@ Training:
   max_epochs: 5
   batch_size: 128
   device: cpu
+  precision: fp32
+  checkpoint_cadence: 1
 
 # Stochastic inference: keep Dropout active and average T seeded passes (R2.1).
 # Omit this block (or set mode: point) for the default single-pass point estimate.
@@ -74,3 +76,4 @@ Evaluation:
     - ece
     - calibration_curve
     - predictive_entropy
+  calibration_bins: 10

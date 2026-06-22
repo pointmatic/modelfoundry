@@ -41,6 +41,8 @@ Training:
     monitor: val_loss
     mode: min
     patience: 2
+  precision: fp32
+  checkpoint_cadence: 1
 
 Optimization:
   sampler: tpe
@@ -58,6 +60,7 @@ Evaluation:
   splits: [val, test]
   primary_metric: accuracy
   metrics: [accuracy, macro_f1, confusion_matrix, calibration_curve]
+  calibration_bins: 10
 
 OutputExpectations:
   # Floor calibrated below the observed val macro_f1 with margin (the 10-colour

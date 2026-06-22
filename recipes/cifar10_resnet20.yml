@@ -104,6 +104,8 @@ Training:
     monitor: val_loss
     mode: min
     patience: 10
+  precision: fp32
+  checkpoint_cadence: 1
 
 Optimization:
   sampler: tpe         # `random` is the documented cheaper fallback (see header)
@@ -123,6 +125,7 @@ Evaluation:
   splits: [val, test]
   primary_metric: accuracy
   metrics: [accuracy, macro_f1, confusion_matrix, calibration_curve]
+  calibration_bins: 10
 
 Visualizations:
   - {op: training_curves, mode: reporting}

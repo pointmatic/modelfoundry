@@ -31,3 +31,10 @@ def test_init_scaffolds_a_recipe_from_the_bound_instance(
     assert recipe["plugin"] == "pytorch"
     assert recipe["Architecture"]["num_classes"] == 3
     assert "Evaluation" in recipe
+
+    # No-implicit-defaults (Story I.e.2): the scaffolder emits every behavior-
+    # affecting value explicitly, rather than relying on a code-supplied default.
+    assert recipe["Training"]["precision"] == "fp32"
+    assert recipe["Training"]["checkpoint_cadence"] == 1
+    assert recipe["Training"]["device"] == "auto"
+    assert recipe["Evaluation"]["calibration_bins"] == 10

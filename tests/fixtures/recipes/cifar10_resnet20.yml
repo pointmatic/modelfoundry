@@ -48,6 +48,8 @@ Training:
     monitor: val_loss   # the one monitor both validator check 6 and the trainer accept
     mode: min
     patience: 2
+  precision: fp32
+  checkpoint_cadence: 1
 
 Optimization:
   sampler: tpe
@@ -67,6 +69,7 @@ Evaluation:
   splits: [val, test]
   primary_metric: accuracy
   metrics: [accuracy, macro_f1, confusion_matrix, calibration_curve]
+  calibration_bins: 10
 
 Visualizations:
   - {op: training_curves, mode: reporting}

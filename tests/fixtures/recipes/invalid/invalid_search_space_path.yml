@@ -20,6 +20,8 @@ Training:
   max_epochs: 2
   batch_size: 8
   device: cpu
+  precision: fp32
+  checkpoint_cadence: 1
 Evaluation:
   splits:
   - val
@@ -28,6 +30,7 @@ Evaluation:
   - accuracy
   - macro_f1
   - confusion_matrix
+  calibration_bins: 10
 Optimization:
   sampler: tpe
   pruner: median
@@ -38,3 +41,4 @@ Optimization:
       log_uniform:
       - 0.0001
       - 0.01
+  baseline_trial: enqueue_recipe_defaults

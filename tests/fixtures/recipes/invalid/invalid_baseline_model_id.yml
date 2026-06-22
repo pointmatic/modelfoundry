@@ -20,6 +20,8 @@ Training:
   max_epochs: 2
   batch_size: 8
   device: cpu
+  precision: fp32
+  checkpoint_cadence: 1
 Evaluation:
   splits:
   - val
@@ -30,3 +32,4 @@ Evaluation:
   - confusion_matrix
   comparison:
     baseline_model_id: not a valid id!!
+  calibration_bins: 10

@@ -24,6 +24,8 @@ Training:
     monitor: bogus_metric
     mode: min
     patience: 3
+  precision: fp32
+  checkpoint_cadence: 1
 Evaluation:
   splits:
   - val
@@ -32,3 +34,4 @@ Evaluation:
   - accuracy
   - macro_f1
   - confusion_matrix
+  calibration_bins: 10

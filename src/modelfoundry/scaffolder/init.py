@@ -93,10 +93,16 @@ def _baseline_recipe(
     eval_split: str,
     has_val: bool,
 ) -> dict[str, Any]:
+    # No-implicit-defaults (Story I.e.2): the scaffolder is the value-emitter — it
+    # writes every behavior-affecting field explicitly (= the current model
+    # defaults) so the recipe text is self-contained and audit-visible, and the
+    # interpreting code supplies nothing implicitly.
     training: dict[str, Any] = {
         "max_epochs": _BASELINE_EPOCHS,
         "batch_size": _BASELINE_BATCH_SIZE,
         "device": "auto",
+        "precision": "fp32",
+        "checkpoint_cadence": 1,
     }
     if has_val:
         # `val_loss` is the validator-recognized per-epoch monitor (FR-2 check 6);
@@ -127,6 +133,7 @@ def _baseline_recipe(
                 "per_class_recall",
                 "confusion_matrix",
             ],
+            "calibration_bins": 10,
         },
         # A modest better-than-chance baseline assertion; tighten it once you have
         # a trained model. `round(...)` keeps the recipe bytes deterministic.

@@ -52,8 +52,11 @@ Training:
   max_epochs: 10
   batch_size: 32
   device: auto
+  precision: fp32
+  checkpoint_cadence: 1
 
 Evaluation:
   splits: [val, test]
   primary_metric: macro_f1
   metrics: [accuracy, macro_f1, per_class_f1, per_class_precision, per_class_recall, confusion_matrix]
+  calibration_bins: 10

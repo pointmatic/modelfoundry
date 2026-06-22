@@ -20,6 +20,8 @@ Training:
   max_epochs: 2
   batch_size: 8
   device: cpu
+  precision: fp32
+  checkpoint_cadence: 1
 Evaluation:
   splits:
   - val
@@ -27,3 +29,4 @@ Evaluation:
   metrics:
   - accuracy
   - bogus_metric
+  calibration_bins: 10

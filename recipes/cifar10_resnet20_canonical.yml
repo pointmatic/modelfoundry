@@ -77,11 +77,13 @@ Training:
   checkpoint_cadence: 40
   # NO early_stopping: train the full cosine schedule. The v0.10.1 best-weights
   # fix restores the best-val-loss checkpoint into the evaluated/persisted model.
+  precision: fp32
 
 Evaluation:
   splits: [val, test]
   primary_metric: accuracy
   metrics: [accuracy, macro_f1, confusion_matrix, calibration_curve]
+  calibration_bins: 10
 
 Visualizations:
   - {op: training_curves, mode: reporting}

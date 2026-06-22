@@ -33,11 +33,14 @@ Training:
   max_epochs: 5
   batch_size: 128
   device: cpu
+  precision: fp32
+  checkpoint_cadence: 1
 
 Evaluation:
   splits: [val, test]
   primary_metric: accuracy
   metrics: [accuracy, macro_f1, confusion_matrix]
+  calibration_bins: 10
 
 variants:
   # Capacity is latent until the training budget is scaled. The 5-epoch base CNN
