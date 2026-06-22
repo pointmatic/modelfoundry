@@ -146,12 +146,14 @@ F6 (enforcement portion, rescoped — the recipe/fixture/template rewrites moved
 
 ---
 
-### Story I.g: Per-segment versioning + migration-registry seam [Planned]
+### Story I.g: Per-segment versioning + migration-registry seam [Done]
 
 F5. Replace the single global `schema_version` gate ([loader.py:26](../../src/modelfoundry/recipe/loader.py#L26)) with per-segment versions + a thin combiner umbrella.
 
-- [ ] Per-segment version fields + gate; thin top-level umbrella for the combination-function version.
-- [ ] Migration registry keyed by `(segment, from, to)` — the **seam only**, empty (pre-1.0 zero support window; users re-materialize).
+- [x] Per-segment version scheme + umbrella gate. New [recipe/versioning.py](../../src/modelfoundry/recipe/versioning.py): `SUPPORTED_COMBINER_VERSIONS` (umbrella = the recipe's `schema_version`, versions the `join_stable` combination function) + `SEGMENT_VERSIONS` (`core`/`plugin`/`overlays`/`extensions`, **code-tracked, not recipe fields** — keeping them out of the recipe text is byte-neutral, avoiding a second Phase I invalidation after I.f's re-pin). Loader sources `SUPPORTED_SCHEMA_VERSIONS` from the umbrella (back-compat alias).
+- [x] Migration registry keyed by `(segment, from, to)` — the **seam only**, empty pre-1.0. `migrate_segment()` routes single-step chains and refuses-with-pointer on a missing step (the sanctioned "re-materialize" behavior); tested directly. Recipe-level per-segment version fields are deferred to a future (post-1.0) schema change, landed only when migrations become necessary.
+
+> **Design note (developer-flagged 2026-06-22):** per-segment versions are code constants, not recipe fields — authoring them into the recipe would enter the canonical bytes and trigger a second Phase I invalidation right after the conscious re-pin. The scheme + seam land byte-neutrally; the pinned hash is unchanged.
 
 **Version:** **no bump** (bundled).
 

@@ -22,8 +22,12 @@ from pydantic import ValidationError as PydanticValidationError
 from modelfoundry.core.errors import RecipeError
 from modelfoundry.recipe.models import ModelRecipe
 from modelfoundry.recipe.variants import apply_variant
+from modelfoundry.recipe.versioning import SUPPORTED_COMBINER_VERSIONS
 
-SUPPORTED_SCHEMA_VERSIONS: frozenset[int] = frozenset({1})
+# The recipe's `schema_version` is the **umbrella** (combination-function) version
+# (Story I.g; per-segment versions live in `recipe.versioning`). Kept under this
+# name for back-compat with existing importers (validator check 1, tests).
+SUPPORTED_SCHEMA_VERSIONS: frozenset[int] = SUPPORTED_COMBINER_VERSIONS
 
 
 def load_recipe(
