@@ -1,0 +1,77 @@
+# Copyright (c) 2026 Pointmatic
+# SPDX-License-Identifier: Apache-2.0
+#
+# Probabilistic CIFAR-10 example (Subphase H-1, Story H.q) — MC-dropout inference
+# with imbalance-aware evaluation and a class-weighted loss. A `simple_cnn`-shaped
+# stack with a `Dropout` layer before the head; the `Inference: mc_dropout` block
+# keeps that dropout ACTIVE at inference and runs T=30 seeded forward passes,
+# deploying their mean as the prediction and persisting per-record predictive
+# uncertainty (predictive_entropy / mc_variance) to evaluation/predictions.parquet.
+#
+# Read the uncertainty back from a materialized instance with no external config:
+#   from modelfoundry import ModelFoundry
+#   mi = ModelFoundry.from_recipe("recipes/cifar10_mc_dropout.yml", data="./data").materialize()
+#   mi.uncertainty                 # per-record [split, record_id, predictive_entropy, mc_variance]
+#   mi.metrics["test"]["predictive_entropy"]   # mean predictive entropy per split
+#
+# Same DataRefinery binding as every CIFAR recipe here — only the model + the
+# Inference/Loss/Evaluation blocks change.
+schema_version: 1
+plugin: pytorch
+seed: 20260621
+
+Data:
+  recipe: recipes/cifar10-base.yaml
+
+# simple_cnn's three conv blocks + an explicit Dropout before the classifier head
+# (the named `simple_cnn` baseline has no dropout, so MC-dropout needs the layers
+# form). Dropout is the only source of inter-pass variation under MC sampling.
+Architecture:
+  num_classes: 10
+  layers:
+    - {op: ConvBlock, in_channels: 3, out_channels: 32, with_pool: true}
+    - {op: ConvBlock, in_channels: 32, out_channels: 64, with_pool: true}
+    - {op: ConvBlock, in_channels: 64, out_channels: 128, with_pool: true}
+    - {op: AdaptiveAvgPool2d, output_size: 1}
+    - {op: Flatten}
+    - {op: Dropout, p: 0.3}
+    - {op: Linear, in_features: 128, out_features: 10}
+
+# Imbalance-aware training: weights are fit on the TRAIN split only (R3.3) and
+# persisted to training/class_weights.json.
+Loss:
+  op: cross_entropy_class_weighted
+  weight_source: train
+
+Optimizer:
+  op: adamw
+  learning_rate: 0.001
+
+Training:
+  max_epochs: 5
+  batch_size: 128
+  num_workers: 0
+  device: cpu
+
+# Stochastic inference: keep Dropout active and average T seeded passes (R2.1).
+# Omit this block (or set mode: point) for the default single-pass point estimate.
+Inference:
+  mode: mc_dropout
+  mc_samples: 30
+
+# Imbalance-aware, calibration- and uncertainty-reporting evaluation. ece /
+# calibration_curve are computed over the MC-aggregated mean probabilities (R3.2);
+# predictive_entropy is the reportable predictive-uncertainty metric (R2.5).
+Evaluation:
+  splits: [val, test]
+  primary_metric: macro_f1
+  metrics:
+    - accuracy
+    - macro_f1
+    - per_class_f1
+    - per_class_precision
+    - per_class_recall
+    - confusion_matrix
+    - ece
+    - calibration_curve
+    - predictive_entropy

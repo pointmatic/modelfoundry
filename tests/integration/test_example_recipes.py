@@ -78,3 +78,40 @@ def test_mlp_recipe_materializes_above_chance(tmp_path: Path) -> None:
     instance = _foundry(_MLP_RECIPE, config).materialize()
     test_acc = instance.evaluation["test"]["accuracy"]
     assert test_acc >= 0.25, f"sklearn MLP baseline below expectation: {test_acc:.3f}"
+
+
+# --- Story H.q: the probabilistic (MC-dropout) consumer example recipe ---
+
+_MC_DROPOUT_RECIPE = "recipes/cifar10_mc_dropout.yml"
+
+
+def test_mc_dropout_recipe_validates() -> None:
+    # The Subphase-H-1 probabilistic example: MC-dropout inference + imbalance
+    # metrics + class-weighted loss, bound to the same DR-1 CIFAR-10 instance.
+    assert _foundry(_MC_DROPOUT_RECIPE).validate().passed is True
+
+
+def test_mc_dropout_recipe_materializes_with_uncertainty(tmp_path: Path) -> None:
+    config = RuntimeConfig(cache_root=tmp_path / "mf_cache")
+    instance = _foundry(_MC_DROPOUT_RECIPE, config).materialize()
+    # The MC path persists per-record uncertainty + the reportable metric.
+    assert instance.uncertainty is not None
+    assert "predictive_entropy" in instance.metrics["test"]
+
+
+# --- Story H.q: the advanced (pretrained-encoder/LoRA) consumer example recipe ---
+
+_ADVANCED_RECIPE = "recipes/advanced_encoder_lora.yml"
+
+
+def test_advanced_encoder_lora_recipe_loads() -> None:
+    # The advanced example needs a 224x224x3 DR instance + the `[huggingface]`
+    # extra to materialize (proven in test_pretrained_encoder.py), so this guards
+    # only that the committed recipe is structurally well-formed: the canonical
+    # Encoder -> LoRA -> Pooling -> Head composition, single-pass inference.
+    from modelfoundry.recipe.loader import load_recipe
+
+    recipe = load_recipe(_ADVANCED_RECIPE)
+    ops = [layer["op"] for layer in recipe.Architecture["layers"]]
+    assert ops == ["Encoder", "LoRA", "Pooling", "Head"]
+    assert recipe.Inference is None

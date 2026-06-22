@@ -122,6 +122,42 @@ Every run is content-addressed and reproducible, so each comparison is cached an
 
 > **This is a teaching illustration, not a benchmark.** On the 1,700-image subset the per-epoch trajectory is noisy and non-monotonic — the minimal recipes use no LR schedule or early stopping, so a single run can dip or spike between budgets (a swept study even shows `resnet20` *degrading* past its peak). The endpoint contrast above is real and reproducible, but a *robust* capacity-vs-budget crossover needs more data and a proper training regime. See [`scripts/experiments/`](scripts/experiments/) for the full sweep and that finding.
 
+## Advanced paths — transfer learning & predictive uncertainty
+
+Two further example recipes exercise the same recipe-as-truth workflow on richer modeling paths.
+
+### Probabilistic — MC-dropout predictive uncertainty
+
+[`recipes/cifar10_mc_dropout.yml`](recipes/cifar10_mc_dropout.yml) declares a stochastic-inference block. `Dropout` is kept **active at inference** and the model runs **T seeded forward passes**; their mean is the deployed prediction, and the spread across passes is per-record predictive uncertainty:
+
+```yaml
+Inference:
+  mode: mc_dropout      # omit the block (or use mode: point) for single-pass point estimates
+  mc_samples: 30        # T — the consumer targets 20–50
+```
+
+Uncertainty is **persisted in the materialized instance** and reads back from disk with no external config:
+
+```python
+mi = ModelFoundry.from_recipe("recipes/cifar10_mc_dropout.yml", data="./data").materialize()
+
+mi.uncertainty                            # per-record DataFrame: [split, record_id, predictive_entropy, mc_variance]
+mi.metrics["test"]["predictive_entropy"]  # mean predictive entropy per split (the reportable metric)
+mi.predictions                            # pred_label/pred_proba_* are the MC means; + the uncertainty columns
+```
+
+The per-record `predictive_entropy` / `mc_variance` columns live in `evaluation/predictions.parquet`, and `ece` / `calibration_curve` are computed over the MC-aggregated means, so calibration reflects the stochastic predictor actually deployed. The recipe also pairs MC-dropout with imbalance-aware evaluation (per-class precision/recall/F1) and a train-fitted class-weighted loss. Same single-pass behavior is unchanged for any recipe that does not declare the block.
+
+### Advanced — pretrained encoder + LoRA (transfer learning)
+
+[`recipes/advanced_encoder_lora.yml`](recipes/advanced_encoder_lora.yml) composes a frozen pretrained image encoder, parameter-efficiently fine-tuned with a LoRA adapter: `Encoder → LoRA → Pooling → Head`. This path needs the `huggingface` extra:
+
+```bash
+pip install ml-modelfoundry[huggingface,pytorch]
+```
+
+Without it the recipe still loads and validates, but `materialize()` raises a `MaterializeError` carrying the install pointer. Two more requirements: the bound DataRefinery instance must match the encoder's **native input contract** (e.g. `vit-tiny-patch16-224` pins 224×224×3 — a pretrained backbone does not adapt to the data the way `simple_cnn` does; `validate()` fails fast on a mismatch), and the base weights load from an **offline warm HF cache** (download once with network, then reruns are reproducible with no run-time network). Only the trainable head/pooling + LoRA adapter deltas are persisted; the frozen base is re-fetched from the warm cache on load, so the instance round-trips from disk.
+
 ## Library API
 
 `ModelFoundry.from_recipe(...)` binds a recipe to a materialized DataRefinery instance; the verbs (`validate` / `materialize` / `status` / `inspect` / `report` / `clean` / `check`) are thin methods over that binding, co-equal with the CLI.

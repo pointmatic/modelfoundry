@@ -1,0 +1,60 @@
+# Copyright (c) 2026 Pointmatic
+# SPDX-License-Identifier: Apache-2.0
+#
+# Advanced transfer-learning example (Subphase H-1, Story H.q) — a pretrained
+# image encoder, parameter-efficiently fine-tuned with a LoRA adapter:
+#   Encoder (frozen ViT) -> LoRA -> Pooling -> Head
+#
+# REQUIREMENTS (this recipe is illustrative; the runnable end-to-end proof lives
+# in tests/integration/test_pretrained_encoder.py under the smoke-huggingface env):
+#   1. Install the extra:  pip install "modelfoundry[huggingface,pytorch]"
+#      Without it, the recipe still loads + validates, but materialize() raises a
+#      MaterializeError carrying the install pointer (extras-gated, Story H.l).
+#   2. Bind a DataRefinery instance produced at the encoder's NATIVE input contract
+#      — vit-tiny-patch16-224 pins 224x224x3. The data must match the encoder
+#      (a pretrained backbone does not adapt to the data the way simple_cnn does);
+#      validate() fails fast on a shape/preprocessing mismatch (Story H.j.3).
+#      Resizing/normalization belong UPSTREAM in DataRefinery (FR-6), not here.
+#   3. Offline warm cache: the base weights load from the local HF cache with no
+#      run-time network (HF_HUB_OFFLINE=1 / local_files_only). Download once with
+#      network, then reruns are reproducible offline (Story H.i / R1.5).
+#
+# Persistence (Q3): only the trainable head/pooling + the LoRA adapter deltas are
+# saved (~hundreds of KB); the frozen base is re-fetched from the warm cache via
+# Encoder.id on load — ModelInstance.load(path).predict(X) round-trips from disk.
+schema_version: 1
+plugin: pytorch
+seed: 20260621
+
+# Replace with YOUR 224x224x3 DataRefinery image recipe (see REQUIREMENTS #2).
+Data:
+  recipe: your-224x224x3-image-dataset.yaml
+
+Architecture:
+  num_classes: 10
+  layers:
+    # Frozen pretrained ViT backbone, loaded from the offline warm HF cache.
+    - {op: Encoder, source: huggingface, id: WinKawaks/vit-tiny-patch16-224, frozen: true}
+    # peft injects trainable low-rank adapters into the ViT attention projections
+    # (transformers-5.x names q_proj/v_proj, per the H.i spike) — the base stays frozen.
+    - {op: LoRA, rank: 8, alpha: 16, target_modules: ["q_proj", "v_proj"]}
+    - {op: Pooling, type: mean}
+    - {op: Head, type: mlp, hidden_dims: [64], num_classes: 10}
+
+Loss:
+  op: cross_entropy
+
+Optimizer:
+  op: adamw
+  learning_rate: 0.001
+
+Training:
+  max_epochs: 10
+  batch_size: 32
+  num_workers: 0
+  device: auto
+
+Evaluation:
+  splits: [val, test]
+  primary_metric: macro_f1
+  metrics: [accuracy, macro_f1, per_class_f1, per_class_precision, per_class_recall, confusion_matrix]
