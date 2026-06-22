@@ -58,13 +58,24 @@ class MCAggregate:
     mc_variance: torch.Tensor
 
 
+def predictive_entropy(probs: torch.Tensor) -> torch.Tensor:
+    """Shannon entropy (nats) of each `(..., C)` probability distribution → `(...,)`.
+
+    The single source of the entropy definition: H.n's per-record MC uncertainty
+    column and H.o's `metrics.json` predictive-uncertainty metric both derive from
+    this, so the persisted column and the reported scalar stay consistent.
+    """
+    safe = probs.clamp_min(torch.finfo(probs.dtype).tiny)
+    return -(probs * safe.log()).sum(dim=-1)
+
+
 def mc_aggregate(passes: torch.Tensor) -> MCAggregate:
     """Aggregate a `(T, N, C)` stack of per-pass probabilities into `MCAggregate`."""
     mean = passes.mean(dim=0)
-    safe = mean.clamp_min(torch.finfo(mean.dtype).tiny)
-    predictive_entropy = -(mean * safe.log()).sum(dim=1)
     mc_variance = passes.var(dim=0, unbiased=False).mean(dim=1)
-    return MCAggregate(mean=mean, predictive_entropy=predictive_entropy, mc_variance=mc_variance)
+    return MCAggregate(
+        mean=mean, predictive_entropy=predictive_entropy(mean), mc_variance=mc_variance
+    )
 
 
 def enable_mc_dropout(model: nn.Module) -> None:

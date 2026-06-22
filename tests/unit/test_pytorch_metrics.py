@@ -112,6 +112,15 @@ def test_ece_golden() -> None:
     assert _metric("ece") == pytest.approx(1.37 / 6, abs=1e-6)
 
 
+def test_predictive_entropy_golden() -> None:
+    # Story H.o (R2.5): the metric is the mean over records of the Shannon entropy
+    # (nats) of each probability row — computed here by an independent per-row loop
+    # (the fixture has no zero entries, so no clamp is needed). ≈ 0.7338.
+    rows = [-float((p * p.log()).sum()) for p in _PROBS]
+    expected = sum(rows) / len(rows)
+    assert _metric("predictive_entropy") == pytest.approx(expected, abs=1e-6)
+
+
 def test_calibration_curve_golden() -> None:
     # The reliability curve underlying the ECE above (ascending confidence,
     # empty bins dropped). Bin edges are the equal-width 0.1 buckets.

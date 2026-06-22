@@ -37,6 +37,7 @@ from modelfoundry.plugins.pytorch.stochastic import (
     enable_mc_dropout,
     mc_aggregate,
     mc_pass_seed,
+    predictive_entropy,
 )
 from modelfoundry.plugins.sklearn.metrics import calibration_curve
 from modelfoundry.recipe.models import EvaluationSpec, InferenceSpec
@@ -255,6 +256,11 @@ def _compute_metrics(
                 probs, targets, num_classes=num_classes, n_bins=n_bins, norm="l1"
             )
         )
+    if "predictive_entropy" in requested:
+        # R2.5: mean predictive entropy per split. `probs` is the MC-aggregated
+        # mean on the stochastic path, so this reports the deployed predictor's
+        # uncertainty and matches the per-record column persisted by H.n.
+        out["predictive_entropy"] = float(predictive_entropy(probs).mean())
     return out
 
 

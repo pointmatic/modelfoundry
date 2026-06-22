@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.0] - 2026-06-21
+
+Minor — **predictive-uncertainty metric + MC-aggregated calibration** (Story H.o, R2.5 / R3.2): a
+recipe-selectable `predictive_entropy` metric (mean predictive entropy per split) joins `metrics.json`,
+making uncertainty quality reportable. For an `mc_dropout` recipe the metric — and `ece` /
+`calibration_curve` — are computed over the MC-aggregated mean probabilities (the deployed stochastic
+predictor), since H.n already made the MC mean the evaluated prediction.
+
+### Added
+
+- **`predictive_entropy` evaluation metric** — recipe-selectable (added to the validator's `EVALUATION_METRIC_VOCABULARY`); `_compute_metrics` reports the mean per-record predictive entropy per split (R2.5). On the MC path it equals the mean of the per-record `predictive_entropy` column persisted in H.n (both derive from `stochastic.predictive_entropy` over the MC means — one entropy definition, single-sourced).
+
+### Changed
+
+- `ece` / `calibration_curve` for a stochastic recipe are computed over the MC-aggregated mean probabilities, so calibration reflects the deployed predictor (R3.2) — a consequence of H.n's mean-as-prediction routing, now confirmed and tested.
+
 ## [0.14.0] - 2026-06-21
 
 Minor — **MC-dropout aggregation, uncertainty persistence & the `ModelInstance` accessor** (Story H.n,

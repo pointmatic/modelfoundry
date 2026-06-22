@@ -245,6 +245,17 @@ def _detail_text(check: Any) -> str:
 # --- Per-check PASS path (one parametrized test covering 1..20) ---
 
 
+def test_predictive_entropy_is_a_selectable_metric() -> None:
+    # Story H.o (R2.5): the MC predictive-uncertainty metric joins the
+    # recipe-selectable evaluation vocabulary (check 11).
+    report = validate(
+        _recipe({"Evaluation": {"metrics": ["macro_f1", "accuracy", "predictive_entropy"]}}),
+        _instance(),
+        _Plugin(),
+    )
+    assert not _failures_for(report, 11)
+
+
 @pytest.mark.parametrize("check_id", list(range(1, 22)))
 def test_check_passes_on_good_recipe(check_id: int) -> None:
     report = validate(_recipe(), _instance(), _Plugin())

@@ -37,6 +37,7 @@ EVALUATION_METRIC_VOCABULARY: frozenset[str] = frozenset(
         "confusion_matrix",
         "ece",
         "calibration_curve",
+        "predictive_entropy",
     }
 )
 

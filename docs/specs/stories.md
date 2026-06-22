@@ -481,13 +481,15 @@ R2.2 / R2.3, acceptance criterion 3. Aggregate the T passes and surface the resu
 
 **Version:** **minor → v0.14.0** — new `src/` aggregation + persistence + accessor surface.
 
-### Story H.o: Predictive-uncertainty metric + MC-aggregated calibration [Planned]
+### Story H.o: v0.15.0 Predictive-uncertainty metric + MC-aggregated calibration [Done]
 
 R2.5 / R3.2, acceptance criterion 6 (uncertainty + calibration portion). Make uncertainty quality reportable.
 
-- [ ] Add the **predictive-uncertainty metric** (mean predictive entropy per split, Q4) to `_compute_metrics` / `metrics.json` ([evaluation.py:145](../../src/modelfoundry/plugins/pytorch/evaluation.py#L145)) alongside the existing calibration outputs (R2.5).
-- [ ] For the probabilistic model, compute `ece` / `calibration_curve` **over the MC-aggregated mean probabilities** (R2.2), so calibration reflects the stochastic predictor actually deployed (R3.2).
-- [ ] Test: `metrics.json` carries the uncertainty metric; calibration is computed over MC means for a stochastic recipe (criterion 6).
+- [x] Added the **predictive-uncertainty metric** (mean predictive entropy per split, Q4) to `_compute_metrics` / `metrics.json` ([evaluation.py](../../src/modelfoundry/plugins/pytorch/evaluation.py)): recipe-selectable `predictive_entropy` (registered in the validator's `EVALUATION_METRIC_VOCABULARY`, [validator.py](../../src/modelfoundry/recipe/validator.py)); the metric value is the mean over records of the per-record predictive entropy of the deployed `probs`. Single-sourced the entropy definition by factoring `stochastic.predictive_entropy(probs)` ([stochastic.py](../../src/modelfoundry/plugins/pytorch/stochastic.py)), now used by **both** `mc_aggregate` (H.n's per-record column) and this metric — so the persisted column and the reported scalar are identical on the MC path. Golden unit test in [test_pytorch_metrics.py](../../tests/unit/test_pytorch_metrics.py) (independent per-row computation, ≈0.7338). Red→green.
+- [x] For the probabilistic model, `ece` / `calibration_curve` are computed **over the MC-aggregated mean probabilities** (R3.2): this fell out of H.n (the MC mean is the deployed `probs` fed to `_compute_metrics` / `_calibration`), so H.o **confirms + tests** it rather than re-plumbing. The integration test proves it by asserting the `predictive_entropy` *metric* equals the mean of the persisted per-record `predictive_entropy` *column* — both derive from the same MC means — and that `ece` is present for the stochastic recipe.
+- [x] Tests (criterion 6): torch-free vocabulary guard in [test_recipe_validator.py](../../tests/unit/test_recipe_validator.py) (`predictive_entropy` passes check 11); golden metric in `test_pytorch_metrics.py`; end-to-end [test_mc_dropout_evaluation.py](../../tests/integration/test_mc_dropout_evaluation.py)::`test_mc_dropout_reports_predictive_entropy_metric` (metric present, ≥0, equals the per-record-column mean, `ece` present). Confirmed **red** (3: vocabulary check 11, golden, metric absent) → **green**.
+- [x] Bumped version to v0.15.0 in [_version.py](../../src/modelfoundry/_version.py) (`0.14.0 → 0.15.0`). CHANGELOG `## [0.15.0]` (Added: `predictive_entropy` metric; Changed: calibration over MC means confirmed). Release-metadata guard green.
+- [x] Verify: red→green; **`pyve test --env testenv` → 507 passed, 47 skipped, 1 xfailed**; **`smoke-pytorch` → 717 passed, 2 skipped, 1 xfailed**; `ruff check` + `ruff format --check` clean; **`mypy src tests` (typecheck env, 157 files) clean**.
 
 **Version:** **minor → v0.15.0** — new `src/` metric + calibration routing.
 

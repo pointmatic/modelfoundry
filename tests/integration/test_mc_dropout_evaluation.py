@@ -58,7 +58,7 @@ def _recipe_dict(*, mc_samples: int | None) -> dict[str, Any]:
         "Evaluation": {
             "splits": ["val"],
             "primary_metric": "accuracy",
-            "metrics": ["accuracy", "macro_f1"],
+            "metrics": ["accuracy", "macro_f1", "ece", "calibration_curve", "predictive_entropy"],
         },
     }
     if mc_samples is not None:
@@ -117,6 +117,20 @@ def test_uncertainty_accessor_reconstructs_from_disk(tmp_path: Path, data: Any) 
 def test_point_mode_uncertainty_accessor_is_none(tmp_path: Path, data: Any) -> None:
     instance = _materialize(tmp_path, data, tag="pt", mc_samples=None)
     assert instance.uncertainty is None
+
+
+def test_mc_dropout_reports_predictive_entropy_metric(tmp_path: Path, data: Any) -> None:
+    # Story H.o (R2.5 / R3.2): metrics.json carries the predictive-uncertainty
+    # metric, and it equals the mean of the persisted per-record entropy — both
+    # derive from the MC-aggregated mean probs, so the metric (and ece below)
+    # reflect the deployed stochastic predictor.
+    instance = _materialize(tmp_path, data, tag="mc", mc_samples=16)
+    metrics = instance.metrics["val"]
+    assert "predictive_entropy" in metrics
+    assert metrics["predictive_entropy"] >= 0
+    per_record_mean = float(instance.predictions["predictive_entropy"].mean())
+    assert metrics["predictive_entropy"] == pytest.approx(per_record_mean, abs=1e-5)
+    assert "ece" in metrics  # calibration computed over the MC means (R3.2)
 
 
 def test_mc_dropout_predictions_are_deterministic(tmp_path: Path, data: Any) -> None:
