@@ -54,6 +54,7 @@ from modelfoundry.plugins.pytorch.schedules import SCHEDULE_OPERATIONS
 from modelfoundry.plugins.pytorch.visualization_specs import VISUALIZATION_OPERATIONS
 from modelfoundry.recipe.models import (
     EvaluationSpec,
+    InferenceSpec,
     ModelRecipe,
     OptimizationSpec,
     TrainingSpec,
@@ -196,13 +197,16 @@ class PyTorchPlugin:
         model: Any,
         data: DataRefineryInstance,
         temp_dir: Path,
+        *,
+        inference: InferenceSpec | None = None,
+        seed: int = 0,
     ) -> EvaluationResult:
         # Lazy import keeps this module (loaded on every discovery) torch-free.
         from modelfoundry.plugins.pytorch.evaluation import (
             run_evaluation as _run_evaluation,
         )
 
-        return _run_evaluation(evaluation, model, data, temp_dir)
+        return _run_evaluation(evaluation, model, data, temp_dir, inference=inference, seed=seed)
 
     def render_visualization(
         self,

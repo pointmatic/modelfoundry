@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0] - 2026-06-21
+
+Minor — **MC-dropout aggregation, uncertainty persistence & the `ModelInstance` accessor** (Story H.n,
+R2.2 / R2.3): a recipe declaring `Inference: {mode: mc_dropout, mc_samples: T}` now materializes with the
+**MC-aggregated mean as the deployed prediction** and **per-record predictive uncertainty** persisted
+into `evaluation/predictions.parquet`, reconstructable from disk via `ModelInstance.uncertainty`. This
+wires H.m's seeded T-pass mechanism into the evaluation stage. Default single-pass (point-estimate)
+recipes are byte-unchanged — the uncertainty columns are additive and MC-only.
+
+### Added
+
+- **MC aggregation** (`plugins/pytorch/stochastic.py`) — `mc_aggregate((T,N,C)) -> MCAggregate` returns the mean class probabilities (point prediction), `predictive_entropy` (entropy of the mean distribution), and `mc_variance` (population variance across passes, averaged over classes) (R2.2). `mc_pass_seed` centralizes the per-pass dropout-salt seed convention.
+- **Per-record uncertainty persistence** — on the `mc_dropout` path the evaluation stage runs `mc_samples` seeded active-dropout passes per split, deploys the mean as the prediction, and adds `predictive_entropy` / `mc_variance` columns to `evaluation/predictions.parquet` (R2.3). Deterministic across runs (R2.4).
+- **`ModelInstance.uncertainty`** — reconstructs the per-record `[split, record_id, predictive_entropy, mc_variance]` from the persisted instance with no external config (criterion 3); `None` for a single-pass instance.
+
+### Changed
+
+- `Plugin.run_evaluation` gains additive keyword-only `inference` / `seed` parameters (default single-pass when omitted); the runner threads `recipe.Inference` + the master seed. The sklearn/random baselines accept and ignore them (no dropout).
+
 ## [0.13.0] - 2026-06-21
 
 Minor — the **MC-dropout stochastic-inference surface** (Story H.m, R2.1 / R2.4): a recipe can declare

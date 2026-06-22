@@ -16,10 +16,13 @@ torch = pytest.importorskip("torch")
 
 from torch import Tensor, nn  # noqa: E402
 
+from modelfoundry.pipeline.seeding import derive_seed  # noqa: E402
 from modelfoundry.plugins.pytorch.architecture import build_model  # noqa: E402
 from modelfoundry.plugins.pytorch.stochastic import (  # noqa: E402
     enable_mc_dropout,
+    mc_aggregate,
     mc_forward_proba,
+    mc_pass_seed,
 )
 
 _N, _C, _H, _W = 4, 3, 4, 4
@@ -100,3 +103,41 @@ def test_default_eval_pass_is_unchanged_dropout_inactive() -> None:
         first = torch.softmax(model(batch), dim=1)
         second = torch.softmax(model(batch), dim=1)
     assert torch.equal(first, second)
+
+
+# --- aggregation (Story H.n, R2.2) ---
+
+
+def test_mc_pass_seed_matches_the_dropout_salt_convention() -> None:
+    # The per-pass seed is the shared seeded-dropout discipline + a per-pass salt.
+    expected = derive_seed(7, "dropout", (3).to_bytes(4, "big", signed=False))
+    assert mc_pass_seed(7, 3) == expected
+
+
+def test_mc_aggregate_mean_is_the_point_prediction() -> None:
+    passes = torch.tensor([[[0.6, 0.4]], [[0.8, 0.2]]])  # (T=2, N=1, C=2)
+    agg = mc_aggregate(passes)
+    assert torch.allclose(agg.mean, torch.tensor([[0.7, 0.3]]), atol=1e-6)
+
+
+def test_mc_aggregate_predictive_entropy_of_the_mean() -> None:
+    passes = torch.tensor([[[0.6, 0.4]], [[0.8, 0.2]]])
+    agg = mc_aggregate(passes)
+    mean = torch.tensor([0.7, 0.3])
+    expected = float(-(mean * mean.log()).sum())
+    assert agg.predictive_entropy.shape == (1,)
+    assert abs(float(agg.predictive_entropy[0]) - expected) < 1e-6
+
+
+def test_mc_aggregate_variance_across_passes() -> None:
+    passes = torch.tensor([[[0.6, 0.4]], [[0.8, 0.2]]])
+    agg = mc_aggregate(passes)
+    # population variance of [0.6, 0.8] = 0.01 per class, mean over classes = 0.01.
+    assert agg.mc_variance.shape == (1,)
+    assert abs(float(agg.mc_variance[0]) - 0.01) < 1e-6
+
+
+def test_mc_aggregate_zero_uncertainty_when_passes_identical() -> None:
+    passes = torch.tensor([[[0.6, 0.4]], [[0.6, 0.4]]])
+    agg = mc_aggregate(passes)
+    assert float(agg.mc_variance[0]) == pytest.approx(0.0, abs=1e-7)

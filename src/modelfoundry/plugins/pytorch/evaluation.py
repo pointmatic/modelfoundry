@@ -33,10 +33,18 @@ from torch.utils.data import DataLoader
 
 from modelfoundry.pipeline.data_binding import DataRefineryInstance
 from modelfoundry.plugins.pytorch.data import DataRefineryDataset
+from modelfoundry.plugins.pytorch.stochastic import (
+    enable_mc_dropout,
+    mc_aggregate,
+    mc_pass_seed,
+)
 from modelfoundry.plugins.sklearn.metrics import calibration_curve
-from modelfoundry.recipe.models import EvaluationSpec
+from modelfoundry.recipe.models import EvaluationSpec, InferenceSpec
 
 _EVAL_BATCH_SIZE = 64
+# Per-record predictive-uncertainty columns added to predictions.parquet on the
+# MC-dropout path only (R2.3); absent on the default single-pass path.
+_UNCERTAINTY_COLUMNS = ("predictive_entropy", "mc_variance")
 
 
 @dataclass(frozen=True)
@@ -56,13 +64,25 @@ def run_evaluation(
     model: nn.Module,
     data: DataRefineryInstance,
     temp_dir: Path,
+    *,
+    inference: InferenceSpec | None = None,
+    seed: int = 0,
 ) -> EvaluationResult:
-    """Evaluate `model` over `evaluation.splits`, writing artifacts under `temp_dir`."""
+    """Evaluate `model` over `evaluation.splits`, writing artifacts under `temp_dir`.
+
+    On the default single-pass path the probabilities are one `.eval()` forward
+    pass. When `inference.mode == "mc_dropout"`, the deployed prediction is the
+    mean over `inference.mc_samples` seeded active-dropout passes (R2.2) and
+    per-record predictive uncertainty (`predictive_entropy`, `mc_variance`) is
+    added to `predictions.parquet` (R2.3); `seed` is the recipe master seed that
+    drives the per-pass dropout RNG (R2.4).
+    """
     eval_dir = temp_dir / "evaluation"
     eval_dir.mkdir(parents=True, exist_ok=True)
     device = next(model.parameters()).device
     model.eval()
 
+    mc = inference is not None and inference.mode == "mc_dropout"
     requested = set(evaluation.metrics)
     warnings: list[str] = []
     metrics: dict[str, dict[str, Any]] = {}
@@ -74,13 +94,26 @@ def run_evaluation(
     for split in evaluation.splits:
         dataset = DataRefineryDataset(data, split)
         classes = _class_names(dataset)
-        probs, targets = _infer(model, dataset, device)
+        if mc:
+            assert inference is not None and inference.mc_samples is not None  # mode == mc_dropout
+            passes, targets = _infer_mc(
+                model, dataset, device, n_samples=inference.mc_samples, master_seed=seed
+            )
+            agg = mc_aggregate(passes)
+            probs = agg.mean
+            uncertainty: dict[str, Any] | None = {
+                "predictive_entropy": agg.predictive_entropy,
+                "mc_variance": agg.mc_variance,
+            }
+        else:
+            probs, targets = _infer(model, dataset, device)
+            uncertainty = None
         preds = probs.argmax(dim=1)
 
         metrics[split] = _compute_metrics(
             requested, probs, targets, len(classes), evaluation.calibration_bins
         )
-        prediction_rows.extend(_prediction_rows(split, dataset, probs, preds, classes))
+        prediction_rows.extend(_prediction_rows(split, dataset, probs, preds, classes, uncertainty))
 
         if "confusion_matrix" in requested:
             cm = _confusion(preds, targets, len(classes))
@@ -98,7 +131,7 @@ def run_evaluation(
     metrics_path.write_text(json.dumps(metrics, indent=2, sort_keys=True), encoding="utf-8")
 
     predictions_path = eval_dir / "predictions.parquet"
-    _write_predictions(prediction_rows, classes, predictions_path)
+    _write_predictions(prediction_rows, classes, predictions_path, with_uncertainty=mc)
 
     confusion_path = None
     if confusion:
@@ -137,6 +170,44 @@ def _infer(
             probs_chunks.append(torch.softmax(logits, dim=1).cpu())
             target_chunks.append(labels)
     return torch.cat(probs_chunks), torch.cat(target_chunks)
+
+
+def _infer_mc(
+    model: nn.Module,
+    dataset: DataRefineryDataset,
+    device: torch.device,
+    *,
+    n_samples: int,
+    master_seed: int,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Run `n_samples` seeded active-dropout passes over `dataset` (R2.1 / R2.4).
+
+    Returns `(passes, targets)` where `passes` is `(T, N, C)` per-pass
+    probabilities. Each pass seeds the global torch RNG from
+    `mc_pass_seed(master_seed, t)` before iterating the (deterministically-ordered,
+    `shuffle=False`) loader, so the whole T-pass sequence reproduces.
+    """
+    loader: DataLoader[tuple[torch.Tensor, int]] = DataLoader(
+        dataset, batch_size=_EVAL_BATCH_SIZE, shuffle=False, num_workers=0
+    )
+    enable_mc_dropout(model)
+    per_pass: list[torch.Tensor] = []
+    targets: torch.Tensor | None = None
+    for t in range(n_samples):
+        torch.manual_seed(mc_pass_seed(master_seed, t))
+        probs_chunks: list[torch.Tensor] = []
+        target_chunks: list[torch.Tensor] = []
+        with torch.no_grad():
+            for images, labels in loader:
+                logits = model(images.to(device))
+                probs_chunks.append(torch.softmax(logits, dim=1).cpu())
+                if t == 0:
+                    target_chunks.append(labels)
+        per_pass.append(torch.cat(probs_chunks))
+        if t == 0:
+            targets = torch.cat(target_chunks)
+    assert targets is not None  # n_samples >= 1 (validated: mc_samples > 0)
+    return torch.stack(per_pass), targets
 
 
 # --- metrics ---
@@ -218,6 +289,7 @@ def _prediction_rows(
     probs: torch.Tensor,
     preds: torch.Tensor,
     classes: list[str],
+    uncertainty: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     record_ids = dataset.record_ids()
     rows: list[dict[str, Any]] = []
@@ -232,16 +304,27 @@ def _prediction_rows(
         }
         for c, name in enumerate(classes):
             row[f"pred_proba_{name}"] = float(probs[i, c])
+        if uncertainty is not None:
+            for col, values in uncertainty.items():
+                row[col] = float(values[i])
         rows.append(row)
     return rows
 
 
-def _write_predictions(rows: list[dict[str, Any]], classes: list[str], path: Path) -> None:
+def _write_predictions(
+    rows: list[dict[str, Any]],
+    classes: list[str],
+    path: Path,
+    *,
+    with_uncertainty: bool = False,
+) -> None:
     import pandas as pd  # type: ignore[import-untyped]
 
     columns = ["split", "record_id", "true_label", "pred_label"] + [
         f"pred_proba_{name}" for name in classes
     ]
+    if with_uncertainty:
+        columns += list(_UNCERTAINTY_COLUMNS)
     frame = pd.DataFrame(rows).reindex(columns=columns)
     frame.to_parquet(path, index=False)
 

@@ -36,7 +36,13 @@ from modelfoundry.pipeline.progress import ProgressReporter
 from modelfoundry.pipeline.seeding import derive_seed
 from modelfoundry.plugins.base import OperationSpec, Plugin
 from modelfoundry.plugins.sklearn import metrics
-from modelfoundry.recipe.models import EvaluationSpec, ModelRecipe, OptimizationSpec, TrainingSpec
+from modelfoundry.recipe.models import (
+    EvaluationSpec,
+    InferenceSpec,
+    ModelRecipe,
+    OptimizationSpec,
+    TrainingSpec,
+)
 
 _U32 = (1 << 32) - 1
 _ESTIMATOR_FILE = "estimator.joblib"
@@ -233,7 +239,13 @@ class SklearnPlugin:
         model: Any,
         data: DataRefineryInstance,
         temp_dir: Path,
+        *,
+        inference: InferenceSpec | None = None,
+        seed: int = 0,
     ) -> SklearnEvaluationResult:
+        # MC-dropout (R2) is a torch-only concept; the sklearn/random baselines
+        # have no dropout, so the stochastic-inference block is accepted (uniform
+        # Plugin signature) but does not change their single-pass evaluation.
         from modelfoundry.plugins.sklearn.data import feature_matrix
 
         eval_dir = temp_dir / "evaluation"

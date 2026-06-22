@@ -97,6 +97,28 @@ class ModelInstance:
         """The per-record predictions DataFrame (or `None`)."""
         return _read_parquet(self.path / "evaluation" / "predictions.parquet")
 
+    @cached_property
+    def uncertainty(self) -> Any:
+        """Per-record MC-dropout predictive uncertainty, reconstructed from disk (R2.3).
+
+        For an instance materialized with `Inference: {mode: mc_dropout, ...}`,
+        returns a DataFrame of `[split, record_id, predictive_entropy,
+        mc_variance]` read from `evaluation/predictions.parquet` — the MC-aggregated
+        mean prediction lives in `predictions` (its `pred_label` / `pred_proba_*`
+        columns). Returns `None` for a single-pass (point-estimate) instance, which
+        carries no uncertainty columns. No external config object is needed
+        (criterion 3).
+        """
+        predictions = self.predictions
+        if predictions is None or "predictive_entropy" not in predictions.columns:
+            return None
+        columns = [
+            c
+            for c in ("split", "record_id", "predictive_entropy", "mc_variance")
+            if c in predictions.columns
+        ]
+        return predictions[columns]
+
     # --- optimization accessors ---
 
     @cached_property

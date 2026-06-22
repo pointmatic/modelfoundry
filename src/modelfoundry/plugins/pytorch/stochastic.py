@@ -23,10 +23,48 @@ discovery; the plugin delegates here lazily.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import torch
 from torch import nn
 
 from modelfoundry.pipeline.seeding import derive_seed
+
+
+def mc_pass_seed(master_seed: int, pass_index: int) -> int:
+    """Seed for MC-dropout pass `pass_index` — the dropout salt convention (R2.4).
+
+    `derive_seed(master_seed, "dropout", pass_index)` — the established
+    seeded-dropout scope (`trainer.py`) extended with a per-pass salt. Centralized
+    here so every stochastic call site (the per-batch `mc_forward_proba`, the
+    evaluation T-pass loop) derives the seed identically.
+    """
+    return derive_seed(master_seed, "dropout", pass_index.to_bytes(4, "big", signed=False))
+
+
+@dataclass(frozen=True)
+class MCAggregate:
+    """Aggregation of T MC-dropout passes (R2.2).
+
+    `mean` is the `(N, C)` mean class-probability distribution — the deployed
+    point prediction. `predictive_entropy` is the `(N,)` Shannon entropy of that
+    mean distribution (total predictive uncertainty). `mc_variance` is the `(N,)`
+    population variance of the per-class probabilities across passes, averaged
+    over classes (a spread-across-passes uncertainty signal).
+    """
+
+    mean: torch.Tensor
+    predictive_entropy: torch.Tensor
+    mc_variance: torch.Tensor
+
+
+def mc_aggregate(passes: torch.Tensor) -> MCAggregate:
+    """Aggregate a `(T, N, C)` stack of per-pass probabilities into `MCAggregate`."""
+    mean = passes.mean(dim=0)
+    safe = mean.clamp_min(torch.finfo(mean.dtype).tiny)
+    predictive_entropy = -(mean * safe.log()).sum(dim=1)
+    mc_variance = passes.var(dim=0, unbiased=False).mean(dim=1)
+    return MCAggregate(mean=mean, predictive_entropy=predictive_entropy, mc_variance=mc_variance)
 
 
 def enable_mc_dropout(model: nn.Module) -> None:
@@ -63,8 +101,7 @@ def mc_forward_proba(
     passes: list[torch.Tensor] = []
     with torch.no_grad():
         for t in range(n_samples):
-            salt = t.to_bytes(4, "big", signed=False)
-            torch.manual_seed(derive_seed(master_seed, "dropout", salt))
+            torch.manual_seed(mc_pass_seed(master_seed, t))
             logits = model(batch)
             passes.append(torch.softmax(logits, dim=1).cpu())
     return torch.stack(passes)

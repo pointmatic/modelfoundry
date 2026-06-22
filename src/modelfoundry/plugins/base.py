@@ -33,6 +33,7 @@ from pydantic import BaseModel, ConfigDict
 from modelfoundry.pipeline.progress import ProgressReporter
 from modelfoundry.recipe.models import (
     EvaluationSpec,
+    InferenceSpec,
     ModelRecipe,
     OptimizationSpec,
     TrainingSpec,
@@ -154,6 +155,9 @@ class Plugin(Protocol):
         model: Any,
         data: DataRefineryInstance,
         temp_dir: Path,
+        *,
+        inference: InferenceSpec | None = None,
+        seed: int = 0,
     ) -> EvaluationResult: ...
 
     def render_visualization(
