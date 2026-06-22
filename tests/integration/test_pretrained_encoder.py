@@ -1,0 +1,89 @@
+# Copyright (c) 2026 Pointmatic
+# SPDX-License-Identifier: Apache-2.0
+"""End-to-end smoke for the pretrained-encoder path (Story H.j.1, R1.1/R1.3/R1.5).
+
+Materializes an `Encoder` -> `Pooling` -> `Head` recipe over a synthetic
+DataRefinery instance authored at the encoder's native 224x224 resolution, then
+asserts the run produces a `ModelInstance` (criterion 1) and reproduces offline
+across two fresh-cache materializes (criterion 2). Weights load from the OFFLINE
+warm HF cache (no network).
+
+Gated on `torch` + `transformers`: skips in `testenv` / `smoke-pytorch`, runs in
+`smoke-huggingface`.
+"""
+
+from __future__ import annotations
+
+import os
+from collections.abc import Iterator
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
+os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+
+from datarefinery_instances.builder import (  # type: ignore[import-not-found]
+    build_dr_instance,
+)
+
+from modelfoundry.core.config import RuntimeConfig
+
+torch = pytest.importorskip("torch")
+pytest.importorskip("transformers")
+
+_RECIPE = "tests/fixtures/recipes/pretrained_encoder_smoke.yml"
+_IMG = 224  # the tiny-ViT's native input resolution
+_CLASSES = ("c0", "c1", "c2")
+
+
+@pytest.fixture(autouse=True)
+def _restore_determinism() -> Iterator[None]:
+    yield
+    torch.use_deterministic_algorithms(False)
+
+
+def _instance(root: Path) -> Any:
+    return build_dr_instance(
+        root,
+        classes=_CLASSES,
+        split_counts={"train": 12, "val": 6},
+        image_size=_IMG,
+        seed=7,
+    )
+
+
+def test_pretrained_encoder_materializes_end_to_end(tmp_path: Path) -> None:
+    from modelfoundry import ModelFoundry, ModelInstance
+
+    data = _instance(tmp_path / "dr")
+    config = RuntimeConfig(cache_root=tmp_path / "mf_cache")
+    instance = ModelFoundry.from_recipe(_RECIPE, data=data, config=config).materialize()
+
+    assert isinstance(instance, ModelInstance)
+    # The encoder path trained + evaluated: val metrics are present and finite.
+    val_acc = instance.evaluation["val"]["accuracy"]
+    assert 0.0 <= val_acc <= 1.0
+    # predictions.parquet covers the val split with one row per evaluated record.
+    predictions = instance.predictions
+    assert len(predictions) == 6
+    assert predictions["split"].unique().tolist() == ["val"]
+
+
+def test_pretrained_encoder_offline_run_reproduces(tmp_path: Path) -> None:
+    from modelfoundry import ModelFoundry
+
+    # Two fresh-cache materializes of the same (recipe, data, seed) → identical
+    # offline result (R1.5 / criterion 2): frozen encoder + seeded head, cpu,
+    # deterministic mode, num_workers=0.
+    data_a = _instance(tmp_path / "dr_a")
+    data_b = _instance(tmp_path / "dr_b")
+    config_a = RuntimeConfig(cache_root=tmp_path / "cache_a")
+    config_b = RuntimeConfig(cache_root=tmp_path / "cache_b")
+
+    inst_a = ModelFoundry.from_recipe(_RECIPE, data=data_a, config=config_a).materialize()
+    inst_b = ModelFoundry.from_recipe(_RECIPE, data=data_b, config=config_b).materialize()
+
+    assert inst_a.evaluation["val"]["accuracy"] == inst_b.evaluation["val"]["accuracy"]
+    assert inst_a.evaluation["val"]["macro_f1"] == inst_b.evaluation["val"]["macro_f1"]

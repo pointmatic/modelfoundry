@@ -1,0 +1,42 @@
+# Copyright (c) 2026 Pointmatic
+# SPDX-License-Identifier: Apache-2.0
+#
+# Story H.j.1 end-to-end smoke: the pretrained-encoder path (Encoder -> Pooling ->
+# Head) materialized over a synthetic DataRefinery instance authored at the
+# encoder's NATIVE 224x224 resolution (the developer's "synthetic is sufficient"
+# call; resize/data-prep belongs upstream in DataRefinery per FR-6 — the bound
+# instance already matches the encoder's input contract that H.j.2/H.j.3 will
+# validate). Frozen tiny-ViT + a small trainable head keeps the CPU budget low.
+# No Optimization / Visualizations (the minimal teaching shape, like the sklearn
+# baselines). Bound in-test against the synthesized 224x224 instance.
+schema_version: 1
+plugin: pytorch
+seed: 20260621
+
+Data:
+  recipe: dr_recipe.yml
+
+Architecture:
+  num_classes: 3
+  layers:
+    - {op: Encoder, source: huggingface, id: WinKawaks/vit-tiny-patch16-224, frozen: true}
+    - {op: Pooling, type: mean}
+    - {op: Head, type: mlp, hidden_dims: [16], num_classes: 3}
+
+Loss:
+  op: cross_entropy
+
+Optimizer:
+  op: adamw
+  learning_rate: 0.001
+
+Training:
+  max_epochs: 1
+  batch_size: 4
+  num_workers: 0
+  device: cpu
+
+Evaluation:
+  splits: [val]
+  primary_metric: accuracy
+  metrics: [accuracy, macro_f1]

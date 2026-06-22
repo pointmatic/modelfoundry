@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] - 2026-06-21
+
+Minor — activate the pretrained-encoder architecture path (Story H.j.1, R1.1/R1.3/R1.4/R1.5): the
+PyTorch plugin now composes a HuggingFace `Encoder` → `Pooling` → `Head` into a trainable classifier
+behind the `[huggingface]` extra. Additive; existing recipes' canonical bytes and materialized output
+are unchanged (the ops were already in the registered vocabulary; no field defaults changed) — no
+cache impact, no `schema_version` bump. **LoRA is not yet active** (Story H.k).
+
+### Added
+
+- `Encoder` op (`source: huggingface`, `id`, `frozen`): instantiates a pretrained encoder by id from the **offline warm HF cache** (`local_files_only=True`; no run-time network), honoring `frozen` to freeze/unfreeze encoder weights (R1.1/R1.5).
+- `Pooling` op (`mean` | `max` | `attention`) over the encoder's token sequence and a classification `Head` (`mlp`, `hidden_dims`, `num_classes`, `id2label`) composed over the pooled features (R1.3). The composite's `forward` runs the encoder on `pixel_values` (the R1 image modality), pools, then classifies.
+- An `Encoder` + `Pooling` + `Head` recipe now materializes a `ModelInstance` end-to-end via `materialize()` when `[huggingface]` is installed, and reproduces offline across re-materializes (criteria 1–2). Weight-init/dropout for the fresh head/pool (and any HF-initialized submodule) is seeded by the existing `prepare_for_build(seed)` discipline, preserving the determinism invariants.
+
+### Changed
+
+- The deferred-path stub (`_require_huggingface`, which raised `NotImplementedError`) is replaced by the real composite build path. The extras gate is preserved (R1.4): without `[huggingface]`, a recipe referencing these ops fails at materialize time with the install pointer while recipe load/validate still succeed against the in-tree vocabulary.
+
 ## [0.10.2] - 2026-06-17
 
 Patch — gate restore-best-weights on early stopping (Story H.f.10), correcting the over-applied

@@ -124,8 +124,10 @@ class BaselineParams(_ArchParams):
     in_channels: int = 3
 
 
-# Deferred pretrained-encoder path — registered so recipe-time validation works
-# without `[huggingface]`; `build_model` raises at materialize time if missing.
+# Pretrained-encoder path — registered so recipe-time validation works without
+# `[huggingface]`; `build_model` composes Encoder->Pooling->Head when the extra is
+# present (Story H.j.1) and raises ImportError with a pointer when it is missing.
+# `LoRA` is registered but its build path lands in Story H.k.
 
 
 class EncoderParams(_ArchParams):
@@ -419,7 +421,10 @@ def build_model(arch_spec: dict[str, Any]) -> Any:
         )
         model = _kit().baselines[arch_type](params.num_classes, params.in_channels)
     elif layers is not None:
-        model = _compose(layers)
+        if _has_hf_ops(layers):
+            model = _compose_pretrained(layers, num_classes)
+        else:
+            model = _compose(layers)
     else:
         raise PluginError(
             "Architecture must declare either 'type' (a baseline) or 'layers'", stage="build_model"
@@ -445,8 +450,6 @@ def _compose(layers: Any) -> Any:
                 stage="build_model",
             )
         op = layer["op"]
-        if op in _HF_OPS:
-            _require_huggingface(op)
         spec = ARCHITECTURE_OPERATIONS.get(op)
         if spec is None:
             raise PluginError(
@@ -455,6 +458,13 @@ def _compose(layers: Any) -> Any:
         params = _validate(f"layers[{i}]", op, spec.param_model, _without_op(layer))
         modules.append(kit.build_op(op, params))
     return nn.Sequential(*modules)
+
+
+def _has_hf_ops(layers: Any) -> bool:
+    """True if any layer is a pretrained-encoder op (`Encoder`/`LoRA`/`Pooling`/`Head`)."""
+    return isinstance(layers, list) and any(
+        isinstance(layer, dict) and layer.get("op") in _HF_OPS for layer in layers
+    )
 
 
 def _without_op(layer: dict[str, Any]) -> dict[str, Any]:
@@ -472,15 +482,181 @@ def _validate(where: str, op: str, model: type[BaseModel], params: dict[str, Any
         ) from exc
 
 
-def _require_huggingface(op: str) -> None:
+# --- pretrained-encoder path (Encoder -> Pooling -> Head, Story H.j.1) --------
+
+
+@functools.lru_cache(maxsize=1)
+def _hf_kit() -> Any:
+    """Build (once) the torch module classes for the pretrained-encoder path.
+
+    Imported lazily so the registry stays import-safe without `[pytorch]` /
+    `[huggingface]`. The composite's `forward` runs the encoder on `pixel_values`
+    (the image modality R1 targets — the bound DR instance feeds `(N, C, H, W)`
+    image tensors; a text encoder would key on `input_ids`, a later modality),
+    pools the token sequence, then classifies.
+    """
+    import torch
+    from torch import nn
+
+    class _MeanPool(nn.Module):
+        def forward(self, h: torch.Tensor) -> torch.Tensor:
+            return h.mean(dim=1)
+
+    class _MaxPool(nn.Module):
+        def forward(self, h: torch.Tensor) -> torch.Tensor:
+            pooled: torch.Tensor = h.max(dim=1).values
+            return pooled
+
+    class _AttentionPool(nn.Module):
+        """Learned single-query attention pool over the token sequence."""
+
+        def __init__(self, hidden: int, proj_dim: int) -> None:
+            super().__init__()
+            self.proj = nn.Linear(hidden, proj_dim)
+            self.query = nn.Parameter(torch.empty(proj_dim))
+            nn.init.normal_(self.query, std=0.02)
+
+        def forward(self, h: torch.Tensor) -> torch.Tensor:
+            k = self.proj(h)  # (N, S, proj)
+            scores = (k @ self.query) / (k.shape[-1] ** 0.5)  # (N, S)
+            attn = scores.softmax(dim=1).unsqueeze(-1)  # (N, S, 1)
+            pooled: torch.Tensor = (h * attn).sum(dim=1)  # (N, hidden)
+            return pooled
+
+    class _MLPHead(nn.Module):
+        def __init__(self, in_dim: int, hidden_dims: list[int], num_classes: int) -> None:
+            super().__init__()
+            layers: list[nn.Module] = []
+            prev = in_dim
+            for hidden in hidden_dims:
+                layers += [nn.Linear(prev, hidden), nn.ReLU()]
+                prev = hidden
+            layers.append(nn.Linear(prev, num_classes))
+            self.net = nn.Sequential(*layers)
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            out: torch.Tensor = self.net(x)
+            return out
+
+    class _PretrainedClassifier(nn.Module):
+        def __init__(self, encoder: nn.Module, pooling: nn.Module, head: nn.Module) -> None:
+            super().__init__()
+            self.encoder = encoder
+            self.pooling = pooling
+            self.head = head
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            out = self.encoder(pixel_values=x)
+            hidden = getattr(out, "last_hidden_state", None)
+            if hidden is None:
+                hidden = out[0]
+            logits: torch.Tensor = self.head(self.pooling(hidden))
+            return logits
+
+    return _HFKit(
+        mean_pool=_MeanPool,
+        max_pool=_MaxPool,
+        attention_pool=_AttentionPool,
+        mlp_head=_MLPHead,
+        classifier=_PretrainedClassifier,
+    )
+
+
+class _HFKit:
+    def __init__(
+        self, mean_pool: Any, max_pool: Any, attention_pool: Any, mlp_head: Any, classifier: Any
+    ) -> None:
+        self.mean_pool = mean_pool
+        self.max_pool = max_pool
+        self.attention_pool = attention_pool
+        self.mlp_head = mlp_head
+        self.classifier = classifier
+
+
+def _build_pooling(kit: _HFKit, params: PoolingParams, hidden: int) -> Any:
+    if params.type == "mean":
+        return kit.mean_pool()
+    if params.type == "max":
+        return kit.max_pool()
+    if params.type == "attention":
+        return kit.attention_pool(hidden, params.hidden_dim or hidden)
+    raise PluginError(
+        f"Pooling.type {params.type!r} not in {{mean, max, attention}}", stage="build_model"
+    )
+
+
+def _compose_pretrained(layers: Any, num_classes: int) -> Any:
+    """Compose `Encoder` -> `Pooling` -> `Head` into a classifier module (R1.1/R1.3).
+
+    Raises `ImportError` (with an install pointer) when `[huggingface]` is absent
+    — the extras gate (R1.4); `PluginError` for a malformed composition or the
+    not-yet-supported `LoRA` op (its build path lands in Story H.k).
+    """
     try:
-        import transformers  # type: ignore[import-not-found, unused-ignore]  # noqa: F401
+        import transformers  # type: ignore[import-not-found, unused-ignore]
     except ImportError as exc:
         raise ImportError(
-            f"Architecture op {op!r} requires the [huggingface] extra "
-            f"(pip install 'ml-modelfoundry[huggingface]')"
+            "Architecture ops Encoder/Pooling/Head require the [huggingface] extra "
+            "(pip install 'ml-modelfoundry[huggingface]')"
         ) from exc
-    raise NotImplementedError(
-        f"the pretrained-encoder op {op!r} is contract-supported but its build path "
-        f"is deferred to a future cycle"
-    )
+    transformers.logging.set_verbosity_error()  # quiet the benign LOAD REPORT (H.i finding #3)
+    from transformers import AutoModel
+
+    encoder_p: EncoderParams | None = None
+    pooling_p: PoolingParams | None = None
+    head_p: HeadParams | None = None
+    for i, layer in enumerate(layers):
+        if not isinstance(layer, dict) or "op" not in layer:
+            raise PluginError(
+                f"Architecture.layers[{i}] must be a mapping with an 'op' key", stage="build_model"
+            )
+        op = layer["op"]
+        if op == "LoRA":
+            raise PluginError(
+                "the LoRA op's build path lands in Story H.k; Encoder/Pooling/Head compose "
+                "without it",
+                stage="build_model",
+            )
+        if op not in ("Encoder", "Pooling", "Head"):
+            raise PluginError(
+                f"the pretrained-encoder path composes only Encoder/Pooling/Head; got {op!r}",
+                stage="build_model",
+            )
+        params = _validate(
+            f"layers[{i}]", op, ARCHITECTURE_OPERATIONS[op].param_model, _without_op(layer)
+        )
+        if op == "Encoder":
+            encoder_p = params
+        elif op == "Pooling":
+            pooling_p = params
+        else:
+            head_p = params
+
+    if encoder_p is None or head_p is None:
+        raise PluginError(
+            "the pretrained-encoder path requires an Encoder and a Head op", stage="build_model"
+        )
+    if encoder_p.source != "huggingface":
+        raise PluginError(
+            f"Encoder.source {encoder_p.source!r} not supported (only 'huggingface' today; "
+            "other sources add later without a contract change)",
+            stage="build_model",
+        )
+    if head_p.num_classes != num_classes:
+        raise PluginError(
+            f"Head.num_classes ({head_p.num_classes}) must match Architecture.num_classes "
+            f"({num_classes})",
+            stage="build_model",
+        )
+    if pooling_p is None:
+        pooling_p = PoolingParams()  # default: mean pooling
+
+    kit = _hf_kit()
+    encoder = AutoModel.from_pretrained(encoder_p.id, local_files_only=True)
+    if encoder_p.frozen:
+        for p in encoder.parameters():
+            p.requires_grad_(False)
+    hidden = int(encoder.config.hidden_size)
+    pooling = _build_pooling(kit, pooling_p, hidden)
+    head = kit.mlp_head(hidden, list(head_p.hidden_dims), head_p.num_classes)
+    return kit.classifier(encoder, pooling, head)
