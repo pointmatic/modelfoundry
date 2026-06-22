@@ -27,7 +27,6 @@ os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 torch = pytest.importorskip("torch")
 pytest.importorskip("transformers")
 
-from modelfoundry.core.errors import PluginError  # noqa: E402
 from modelfoundry.plugins.pytorch.architecture import build_model  # noqa: E402
 
 # A tiny ViT warm in the local HF hub cache (seeded by the H.i spike). 224x224,
@@ -108,9 +107,8 @@ def test_model_is_self_describing_for_round_trip() -> None:
     )
 
 
-def test_lora_op_is_out_of_scope_until_h_k() -> None:
-    # LoRA is registered in the vocabulary but its build path lands in Story H.k.
-    spec = {
+def _lora_spec() -> dict[str, object]:
+    return {
         "num_classes": _CLASSES,
         "layers": [
             {"op": "Encoder", "source": "huggingface", "id": _VIT, "frozen": True},
@@ -119,5 +117,21 @@ def test_lora_op_is_out_of_scope_until_h_k() -> None:
             {"op": "Head", "type": "mlp", "hidden_dims": [16], "num_classes": _CLASSES},
         ],
     }
-    with pytest.raises((PluginError, NotImplementedError), match=r"(?i)lora.*H\.k|H\.k.*lora"):
-        build_model(spec)
+
+
+def test_lora_composition_builds_and_forwards() -> None:
+    model = build_model(_lora_spec())
+    model.eval()
+    with torch.no_grad():
+        logits = model(_batch(2))
+    assert tuple(logits.shape) == (2, _CLASSES)
+
+
+def test_lora_injects_trainable_adapters_into_a_frozen_encoder() -> None:
+    model = build_model(_lora_spec())
+    enc_params = dict(model.encoder.named_parameters())
+    # peft injects `lora_` adapter params, trainable; the base encoder stays frozen.
+    lora_trainable = [n for n, p in enc_params.items() if "lora_" in n and p.requires_grad]
+    base_trainable = [n for n, p in enc_params.items() if "lora_" not in n and p.requires_grad]
+    assert lora_trainable, "LoRA must inject trainable adapter params"
+    assert not base_trainable, "the base encoder weights must stay frozen under LoRA"

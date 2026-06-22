@@ -35,6 +35,7 @@ from modelfoundry.pipeline.checkpoint import Checkpoint
 from modelfoundry.plugins.pytorch.architecture import build_model
 
 _STATE_DICT = "weights/state_dict.pt"
+_COMPOSITE_WEIGHTS = "weights/composite.pt"
 _ARCHITECTURE = "architecture.json"
 _BEST_CHECKPOINT = "checkpoints/checkpoint-best.pt"
 
@@ -44,6 +45,12 @@ def save_model(model: nn.Module, model_dir: str | Path) -> None:
 
     Writes `weights/state_dict.pt`, the canonical `architecture.json` (from the
     spec `build_model` attached to the module), and `checkpoints/checkpoint-best.pt`.
+
+    For the pretrained-encoder composite (`Encoder`(+`LoRA`)`->Pooling->Head`) the
+    base encoder weights are **not** re-persisted (Q3 decision, Story H.i/H.k):
+    only the trainable head/pooling and — when present — the LoRA adapter deltas
+    are written; the base is re-fetched from the offline warm cache via
+    `architecture.json`'s `Encoder.id` at load time (R1.5).
     """
     model_dir = Path(model_dir)
     architecture = getattr(model, "architecture_spec", None)
@@ -53,6 +60,10 @@ def save_model(model: nn.Module, model_dir: str | Path) -> None:
             "(no `architecture_spec`); architecture.json would be unrecoverable",
             stage="save_model",
         )
+
+    if _arch_has_encoder(architecture):
+        _save_composite(model, model_dir, architecture)
+        return
 
     (model_dir / "weights").mkdir(parents=True, exist_ok=True)
     (model_dir / "checkpoints").mkdir(parents=True, exist_ok=True)
@@ -88,11 +99,68 @@ def load_model(model_dir: str | Path) -> nn.Module:
         )
 
     architecture = json.loads(architecture_path.read_text(encoding="utf-8"))
+    if _arch_has_encoder(architecture):
+        return _load_composite(model_dir, architecture)
     model: nn.Module = build_model(architecture)
     state_dict = torch.load(weights_path, map_location="cpu", weights_only=True)
     model.load_state_dict(state_dict)
     model.eval()
     return model
+
+
+def _arch_has_encoder(architecture: Any) -> bool:
+    """True for the pretrained-encoder composite (an `Encoder` op in `layers`)."""
+    if not isinstance(architecture, dict):
+        return False
+    layers = architecture.get("layers")
+    if not isinstance(layers, list):
+        return False
+    return any(isinstance(layer, dict) and layer.get("op") == "Encoder" for layer in layers)
+
+
+def _save_composite(model: nn.Module, model_dir: Path, architecture: dict[str, Any]) -> None:
+    (model_dir / "weights").mkdir(parents=True, exist_ok=True)
+    (model_dir / _ARCHITECTURE).write_text(_canonical_json(architecture), encoding="utf-8")
+    payload: dict[str, Any] = {
+        "head": model.head.state_dict(),  # type: ignore[union-attr]
+        "pooling": model.pooling.state_dict(),  # type: ignore[union-attr]
+    }
+    encoder = model.encoder
+    if hasattr(encoder, "peft_config"):  # a peft-wrapped (LoRA) encoder
+        payload["adapter"] = _peft_adapter_state(encoder)
+    torch.save(payload, model_dir / _COMPOSITE_WEIGHTS)
+
+
+def _load_composite(model_dir: Path, architecture: dict[str, Any]) -> nn.Module:
+    weights_path = model_dir / _COMPOSITE_WEIGHTS
+    if not weights_path.is_file():
+        raise InstanceError(
+            f"missing {weights_path}; no composite weights to load",
+            detail={"path": str(weights_path)},
+        )
+    # Rebuilds the base encoder from the offline warm cache (Encoder.id) + a fresh
+    # LoRA/head/pooling structure; only the saved trainable deltas are loaded back.
+    model: nn.Module = build_model(architecture)
+    payload = torch.load(weights_path, map_location="cpu", weights_only=True)
+    model.head.load_state_dict(payload["head"])  # type: ignore[union-attr]
+    model.pooling.load_state_dict(payload["pooling"])  # type: ignore[union-attr]
+    adapter = payload.get("adapter")
+    if adapter is not None:
+        _load_peft_adapter(model.encoder, adapter)
+    model.eval()
+    return model
+
+
+def _peft_adapter_state(encoder: Any) -> Any:
+    from peft import get_peft_model_state_dict  # type: ignore[import-not-found, unused-ignore]
+
+    return get_peft_model_state_dict(encoder)
+
+
+def _load_peft_adapter(encoder: Any, adapter: Any) -> None:
+    from peft import set_peft_model_state_dict  # type: ignore[import-not-found, unused-ignore]
+
+    set_peft_model_state_dict(encoder, adapter)
 
 
 def predict(model: nn.Module, X: Any) -> np.ndarray | Any:

@@ -115,3 +115,28 @@ def test_input_contract_passes_at_native_resolution(tmp_path: Path) -> None:
     data = _instance(tmp_path / "dr224")  # 224x224, the encoder's native size
     report = ModelFoundry.from_recipe(_RECIPE, data=data).validate()
     assert _check(report, 21).passed  # type: ignore[attr-defined]
+
+
+_LORA_RECIPE = "tests/fixtures/recipes/pretrained_encoder_lora_smoke.yml"
+
+
+def test_lora_instance_materializes_and_round_trips_from_disk(tmp_path: Path) -> None:
+    # Story H.k / criterion 9: a persisted LoRA ModelInstance reloads from disk
+    # alone (base re-fetched from the warm cache + adapter/head deltas) and
+    # reproduces predictions with no external config object.
+    import numpy as np
+
+    from modelfoundry import ModelFoundry, ModelInstance
+
+    data = _instance(tmp_path / "dr")
+    config = RuntimeConfig(cache_root=tmp_path / "cache")
+    instance = ModelFoundry.from_recipe(_LORA_RECIPE, data=data, config=config).materialize()
+    assert isinstance(instance, ModelInstance)
+
+    x = np.random.default_rng(0).random((3, _IMG, _IMG, 3), dtype=np.float32)
+    preds = instance.predict(x)
+    proba = instance.predict_proba(x)
+
+    reloaded = ModelInstance.load(instance.path)
+    assert np.array_equal(preds, reloaded.predict(x))
+    assert np.allclose(proba, reloaded.predict_proba(x))

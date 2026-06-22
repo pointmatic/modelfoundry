@@ -426,15 +426,18 @@ R1.4 / FR-2 / QR-1, acceptance criterion 1. The "make it safe" half: implement t
 
 **Version:** **patch → v0.11.1** — a `src/` validation/guard addition that prevents a misconfiguration class, not a new user-facing capability; keeps H.k at v0.12.0. Not cache-invalidating (a validate-time check changes no materialized bytes).
 
-### Story H.k: Activate `LoRA` adapters + serialization (round-trip from disk) [Planned]
+### Story H.k: Activate `LoRA` adapters + serialization (round-trip from disk) [Done]
 
 R1.2, acceptance criteria 1 & 9. Builds on H.j; applies low-rank adapters for parameter-efficient fine-tuning, serialized per the H.i decision.
 
-- [ ] Implement `LoRA` (`rank`, `alpha`, `dropout`, `target_modules`) over the encoder's named modules (R1.2).
-- [ ] Persist per the H.i/Q3 decision (base + adapter deltas separately) so `save_model`/`load_model` round-trip a LoRA instance; `model/architecture.json` + weights rebuild from disk alone.
-- [ ] Round-trip test: `ModelInstance.load(path).predict(X)` on a persisted LoRA instance reproduces predictions from disk with no external config (criterion 9).
+- [x] **Failing tests first** — `tests/unit/test_pytorch_hf_architecture.py::test_lora_composition_builds_and_forwards` + `::test_lora_injects_trainable_adapters_into_a_frozen_encoder` confirmed **red** (LoRA rejected with "lands in Story H.k") → **green**.
+- [x] Implemented `LoRA` (`rank`, `alpha`, `dropout`, `target_modules`) ([architecture.py](../../src/modelfoundry/plugins/pytorch/architecture.py), `_apply_lora`): `_compose_pretrained` now accepts an `Encoder -> LoRA -> Pooling -> Head` chain and wraps the encoder via peft `get_peft_model(LoraConfig(...))` — trainable low-rank adapters injected into the named modules, base frozen (R1.2). The composite `forward`/build/determinism path is unchanged (peft preserves `.config` + the forward signature).
+- [x] **Persisted per the H.i/Q3 decision (base + adapter deltas separately)** ([persistence.py](../../src/modelfoundry/plugins/pytorch/persistence.py)): `save_model`/`load_model` branch on `_arch_has_encoder` — a pretrained-encoder composite writes `weights/composite.pt` = `{head, pooling, adapter?}` (LoRA adapter via `get_peft_model_state_dict`, ~hundreds of KB; **base not re-persisted**) + `architecture.json`; `_load_composite` rebuilds the base from the offline warm cache (`Encoder.id`) + a fresh LoRA/head/pooling structure, then loads the saved deltas (`set_peft_model_state_dict`). Covers the frozen-encoder (H.j.1) composite too — both now persist base-from-cache.
+- [x] **Round-trip test (criterion 9)** — `tests/integration/test_pretrained_encoder.py::test_lora_instance_materializes_and_round_trips_from_disk` + [recipes/pretrained_encoder_lora_smoke.yml](../../tests/fixtures/recipes/pretrained_encoder_lora_smoke.yml): a materialized LoRA `ModelInstance` reloads from disk alone and reproduces `predict`/`predict_proba` byte-for-byte (`np.array_equal` / `np.allclose`).
+- [x] Bumped version to v0.12.0 in [_version.py](../../src/modelfoundry/_version.py) (`0.11.1 → 0.12.0`); CHANGELOG `## [0.12.0]` (Added: LoRA + composite serialization; Changed: encoder composites persist base-from-cache). Release-metadata guard green.
+- [x] Verify: red→green; `ruff` clean; `mypy src tests` (152 files) clean; **`pyve test --env testenv` → 498 passed**; **`smoke-pytorch` → 686 passed** (baseline persistence byte-unchanged); **`smoke-huggingface`** encoder + arch (incl. LoRA build + round-trip) → 15 passed.
 
-**Version:** **minor → v0.12.0** — new `src/` capability (LoRA fine-tuning + its serialization).
+**Version:** **minor → v0.12.0** — new `src/` capability (LoRA fine-tuning + its serialization). Persistence-format change for the brand-new pretrained-encoder path only (re-materialize v0.11.0 `Encoder` instances; pre-prod OR-9, release-note only; baselines byte-unchanged; no `schema_version` bump).
 
 ### Story H.l: R1 contract, extras-gating & offline-cache tests [Planned]
 

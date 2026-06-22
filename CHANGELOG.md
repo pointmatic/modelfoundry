@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] - 2026-06-21
+
+Minor — activate **`LoRA` adapters** for the pretrained-encoder path and their serialization (Story
+H.k, R1.2): `Encoder -> LoRA -> Pooling -> Head` now composes, fine-tunes parameter-efficiently, and
+round-trips from disk. **Persistence-format change for the (brand-new) pretrained-encoder path only:**
+encoder composites now persist base-from-cache + trainable deltas instead of a full `state_dict.pt` —
+re-materialize any v0.11.0 `Encoder` instances (pre-production OR-9: release-note only; baseline
+recipes are byte-unchanged; no `schema_version` bump; recipe canonical bytes unaffected).
+
+### Added
+
+- **`LoRA` op** (`rank`, `alpha`, `dropout`, `target_modules`) — peft injects trainable low-rank adapters into the encoder's named modules while the base stays frozen (R1.2). `target_modules` names the encoder's attention linears (e.g. transformers-5.x ViT `q_proj`/`v_proj`, per the H.i spike).
+- **Composite serialization (Q3 decision, H.i/H.k)** — `save_model`/`load_model` persist the pretrained-encoder composite as the trainable head/pooling + (when LoRA) the peft adapter deltas (`weights/composite.pt`, ~hundreds of KB), with the base encoder re-fetched from the offline warm cache via `architecture.json`'s `Encoder.id`. `ModelInstance.load(path).predict(X)` reproduces a LoRA instance's predictions from disk with no external config (criterion 9).
+
+### Changed
+
+- Pretrained-encoder composites (both frozen-encoder and LoRA) no longer re-persist the base encoder weights into `state_dict.pt`; they use the new `composite.pt` format. Baseline (`type:`) recipes are unaffected — they keep the full-`state_dict` path byte-for-byte.
+
 ## [0.11.1] - 2026-06-21
 
 Patch — add the DR↔MF input-shape/preprocessing contract as FR-2 **validator check 21** (Story H.j.3),

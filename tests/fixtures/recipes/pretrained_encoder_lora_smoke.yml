@@ -1,0 +1,41 @@
+# Copyright (c) 2026 Pointmatic
+# SPDX-License-Identifier: Apache-2.0
+#
+# Story H.k end-to-end smoke: the pretrained-encoder path WITH a LoRA adapter
+# (Encoder -> LoRA -> Pooling -> Head), materialized over a synthetic 224x224 DR
+# instance. peft injects trainable low-rank adapters into the ViT attention
+# q_proj/v_proj modules (transformers-5.x names, per the H.i spike) while the base
+# stays frozen; persistence saves the adapter deltas + head separately (Q3), with
+# the base re-fetched from the offline warm cache on load. Bound in-test.
+schema_version: 1
+plugin: pytorch
+seed: 20260621
+
+Data:
+  recipe: dr_recipe.yml
+
+Architecture:
+  num_classes: 3
+  layers:
+    - {op: Encoder, source: huggingface, id: WinKawaks/vit-tiny-patch16-224, frozen: true}
+    - {op: LoRA, rank: 8, alpha: 16, target_modules: ["q_proj", "v_proj"]}
+    - {op: Pooling, type: mean}
+    - {op: Head, type: mlp, hidden_dims: [16], num_classes: 3}
+
+Loss:
+  op: cross_entropy
+
+Optimizer:
+  op: adamw
+  learning_rate: 0.001
+
+Training:
+  max_epochs: 1
+  batch_size: 4
+  num_workers: 0
+  device: cpu
+
+Evaluation:
+  splits: [val]
+  primary_metric: accuracy
+  metrics: [accuracy, macro_f1]

@@ -2,4 +2,4 @@
 # SPDX-License-Identifier: Apache-2.0
 """Single source of truth for the package version."""
 
-__version__ = "0.11.1"
+__version__ = "0.12.0"

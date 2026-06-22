@@ -586,11 +586,10 @@ def _build_pooling(kit: _HFKit, params: PoolingParams, hidden: int) -> Any:
 
 
 def _compose_pretrained(layers: Any, num_classes: int) -> Any:
-    """Compose `Encoder` -> `Pooling` -> `Head` into a classifier module (R1.1/R1.3).
+    """Compose `Encoder` -> (`LoRA`) -> `Pooling` -> `Head` into a classifier (R1.1/R1.2/R1.3).
 
     Raises `ImportError` (with an install pointer) when `[huggingface]` is absent
-    — the extras gate (R1.4); `PluginError` for a malformed composition or the
-    not-yet-supported `LoRA` op (its build path lands in Story H.k).
+    — the extras gate (R1.4); `PluginError` for a malformed composition.
     """
     try:
         import transformers  # type: ignore[import-not-found, unused-ignore]
@@ -603,6 +602,7 @@ def _compose_pretrained(layers: Any, num_classes: int) -> Any:
     from transformers import AutoModel
 
     encoder_p: EncoderParams | None = None
+    lora_p: LoRAParams | None = None
     pooling_p: PoolingParams | None = None
     head_p: HeadParams | None = None
     for i, layer in enumerate(layers):
@@ -611,15 +611,9 @@ def _compose_pretrained(layers: Any, num_classes: int) -> Any:
                 f"Architecture.layers[{i}] must be a mapping with an 'op' key", stage="build_model"
             )
         op = layer["op"]
-        if op == "LoRA":
+        if op not in ("Encoder", "LoRA", "Pooling", "Head"):
             raise PluginError(
-                "the LoRA op's build path lands in Story H.k; Encoder/Pooling/Head compose "
-                "without it",
-                stage="build_model",
-            )
-        if op not in ("Encoder", "Pooling", "Head"):
-            raise PluginError(
-                f"the pretrained-encoder path composes only Encoder/Pooling/Head; got {op!r}",
+                f"the pretrained-encoder path composes only Encoder/LoRA/Pooling/Head; got {op!r}",
                 stage="build_model",
             )
         params = _validate(
@@ -627,6 +621,8 @@ def _compose_pretrained(layers: Any, num_classes: int) -> Any:
         )
         if op == "Encoder":
             encoder_p = params
+        elif op == "LoRA":
+            lora_p = params
         elif op == "Pooling":
             pooling_p = params
         else:
@@ -657,6 +653,29 @@ def _compose_pretrained(layers: Any, num_classes: int) -> Any:
         for p in encoder.parameters():
             p.requires_grad_(False)
     hidden = int(encoder.config.hidden_size)
+    if lora_p is not None:
+        # peft injects trainable low-rank adapters into the named modules and
+        # freezes the base (R1.2). `hidden` is read from the base config before
+        # wrapping; the peft wrapper preserves `.config` and the forward signature.
+        encoder = _apply_lora(encoder, lora_p)
     pooling = _build_pooling(kit, pooling_p, hidden)
     head = kit.mlp_head(hidden, list(head_p.hidden_dims), head_p.num_classes)
     return kit.classifier(encoder, pooling, head)
+
+
+def _apply_lora(encoder: Any, params: LoRAParams) -> Any:
+    try:
+        from peft import LoraConfig, get_peft_model  # type: ignore[import-not-found, unused-ignore]
+    except ImportError as exc:
+        raise ImportError(
+            "the LoRA architecture op requires the [huggingface] extra "
+            "(pip install 'ml-modelfoundry[huggingface]')"
+        ) from exc
+    config = LoraConfig(
+        r=params.rank,
+        lora_alpha=params.alpha,
+        lora_dropout=params.dropout,
+        target_modules=list(params.target_modules),
+        bias="none",
+    )
+    return get_peft_model(encoder, config)
