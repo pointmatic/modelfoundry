@@ -159,13 +159,15 @@ F5. Replace the single global `schema_version` gate ([loader.py:26](../../src/mo
 
 ---
 
-### Story I.h: Enforcement, release & docs — owns the bump [Planned]
+### Story I.h: Enforcement, release & docs — owns the bump [Done]
 
 F6 (enforcement portion). Lock isolation, ship the single release, record the contract.
 
-- [ ] Per-segment isolation tests + extend the Hypothesis cosmetic/semantic props ([test_cache_identity_properties.py](../../tests/unit/test_cache_identity_properties.py)): cross-plugin isolation; empty-extensions-no-change; semantic edit → hash change; cosmetic → no change.
-- [ ] Release-note the single cache-invalidation event (OR-9: re-materialize; no migration written).
-- [ ] Update `project-essentials.md`: the segmented-identity contract + the no-implicit-defaults rule (`required` vs. mode-selecting-optional = bump vs. free) + the **cross-family governance status** (the horizontal model is the DR-coordinated shared standard — stronger than the existing "discipline travels" framing; divergence is a cross-repo event).
+- [x] Per-segment isolation + extensions Hypothesis props added to [test_cache_identity_properties.py](../../tests/unit/test_cache_identity_properties.py): empty-extensions-no-change, non-empty-extensions-perturbs, core-change-isolates-to-core-segment (plugin segment byte-identical), recipe-hash-is-pure-function-of-segments. (Cosmetic/semantic props already existed; deterministic cross-plugin pytorch-vs-sklearn isolation lives in [test_segmented_identity.py](../../tests/unit/test_segmented_identity.py).)
+- [x] Release-noted the single cache-invalidation event in [CHANGELOG.md](../../CHANGELOG.md) (v0.16.0): blast radius + re-materialize + no migration (OR-9) + recipe-author migration guide + the conscious re-pin.
+- [x] Updated [project-essentials.md](project-essentials.md): rewrote the cache-identity entry for segmented `join_stable` + per-segment versioning/migration registry; added the **no-implicit-defaults rule** (required vs. mode-selecting-optional vs. invariant) and the **cross-family governance status** (governed shared contract — divergence is a cross-repo event).
+
+**Version:** **minor → v0.16.0** — the single phase-bundled Phase I release (assumes Phase H ships through v0.15.0). **Cache-invalidating** for every recipe (segmented combiner + discriminated representation + no-implicit-defaults all perturb canonical bytes): pre-prod OR-9 — release-note + re-materialize, **no `schema_version`-style migration** (per-segment version scheme lands; migrations are zero-support-window pre-1.0).
 
 **Version:** **minor → v0.16.0** — the single phase-bundled Phase I release (assumes Phase H ships through v0.15.0). **Cache-invalidating** for every recipe (segmented combiner + discriminated representation + no-implicit-defaults all perturb canonical bytes): pre-prod OR-9 — release-note + re-materialize, **no `schema_version`-style migration** (per-segment version scheme lands; migrations are zero-support-window pre-1.0).
 

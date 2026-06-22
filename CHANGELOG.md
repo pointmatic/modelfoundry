@@ -5,6 +5,44 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.0] - 2026-06-22
+
+Minor — **Phase I: segmented recipe identity + no-implicit-defaults** (a single phase-bundled
+release, Stories I.a–I.h). Recipe cache identity is now composed from independently-hashed
+**segments** (`core` / `plugin` / `overlays` / `extensions`) combined by a labeled, length-framed,
+prefix-capable `join_stable`, replacing the flat total `model_dump`. Shipped together: a sanctioned
+`extensions:` namespace, **no implicit defaults** (the scaffolder emits every behavior-affecting
+value; the interpreting code supplies none), `num_workers` reclassified as execution context, and a
+per-segment versioning scheme + migration seam. The horizontal mechanism + no-implicit-defaults are
+the DataRefinery-coordinated cross-tool-family standard.
+
+> ⚠ **Cache-invalidating for every recipe — re-materialize.** The combiner change, the discriminated
+> representation, and no-implicit-defaults all perturb the canonical bytes, so **every cached
+> ModelInstance is now stale**; re-run `materialize` to recompute. Per OR-9 (pre-1.0 zero support
+> window) this is a release-note event — **no migration is written** (the per-segment version *scheme*
+> lands; actual migrations do not). The blast radius is real: re-materializing re-runs training, the
+> most expensive stage. The golden canonical-hash pin in `test_canonical.py` was consciously re-pinned
+> (`60cc77…` → `eca50b…`) as the deliberate reviewer sign-off.
+
+> **Recipe-author migration:** recipes must now author every behavior-affecting value explicitly —
+> `Training.precision` / `checkpoint_cadence` / `device`, `Evaluation.calibration_bins`, and (when
+> present) `Optimization.sampler` / `pruner` / `baseline_trial` and per-`Visualizations` `mode`. The
+> `init` scaffolder emits all of these. **`num_workers` is no longer a recipe field** — set it via
+> `--num-workers` or `MODELFOUNDRY_NUM_WORKERS` (default `0`, was an implicit `2`).
+
+### Added
+
+- **Segmented canonical bytes** (`recipe/canonical.py`): `recipe_segments` + `join_stable` (length-framed, label-keyed, sparse-omit empty segments, prefix-capable for the deferred vertical axis).
+- **`extensions:` namespace** — the one sanctioned relaxed island on `ModelRecipe`; enters identity only when non-empty; plugins declare consumed keys via `Plugin.extension_keys` (validator **check 22** warns non-fatally on unclaimed keys).
+- **Discriminated-union plugin surface** realized at validate time (`recipe/sections.py`): validator check 3 now also rejects an op registered for the wrong section (`applies_to` mismatch).
+- **Per-segment version scheme + migration-registry seam** (`recipe/versioning.py`): umbrella combiner version + code-tracked per-segment versions + a `(segment, from, to)` migration registry (empty pre-1.0).
+- **`RuntimeConfig.num_workers`** + `--num-workers` CLI flag + `MODELFOUNDRY_NUM_WORKERS`.
+
+### Changed
+
+- **No implicit defaults**: value-`default=`s dropped from the param models (`precision`, `checkpoint_cadence`, `device`, `calibration_bins`, `sampler`, `pruner`, `baseline_trial`, viz/inference `mode`) — now author-required; mode-selecting optionals kept. The scaffolder emits all values; the recipe corpus was rewritten to the explicit-values form.
+- **`num_workers` removed from `TrainingSpec`** and threaded to the DataLoader via the `Plugin` Protocol (`run_training` / `run_optimization`) from `RuntimeConfig` (output-neutral; the determinism guard stays green).
+
 ## [0.15.0] - 2026-06-21
 
 Minor — **predictive-uncertainty metric + MC-aggregated calibration** (Story H.o, R2.5 / R3.2): a

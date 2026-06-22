@@ -30,7 +30,12 @@ from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
 from modelfoundry.cache.identity import DataInstanceTriple, cache_key
-from modelfoundry.recipe.canonical import canonical_bytes, recipe_hash
+from modelfoundry.recipe.canonical import (
+    canonical_bytes,
+    join_stable,
+    recipe_hash,
+    recipe_segments,
+)
 from modelfoundry.recipe.models import ModelRecipe
 from modelfoundry.recipe.variants import apply_variant
 
@@ -224,6 +229,44 @@ def test_inference_mc_samples_change_perturbs_hash(d: dict[str, Any], t1: int, t
     b = deepcopy(d)
     b["Inference"] = {"mode": "mc_dropout", "mc_samples": t2}
     assert recipe_hash(_recipe(a)) != recipe_hash(_recipe(b))
+
+
+# --- Phase I segmented-identity isolation (Story I.h) ---
+
+
+@given(recipe_dicts())
+def test_empty_extensions_does_not_perturb_hash(d: dict[str, Any]) -> None:
+    # F3 / I.d: an empty `extensions` bag is sparse-omitted, so adding it is a
+    # no-op — the mechanism, empty for everyone, invalidates nothing.
+    with_empty = {**deepcopy(d), "extensions": {}}
+    assert recipe_hash(_recipe(d)) == recipe_hash(_recipe(with_empty))
+
+
+@given(recipe_dicts(), st.integers())
+def test_nonempty_extensions_perturbs_hash(d: dict[str, Any], value: int) -> None:
+    # ... but a non-empty bag enters identity.
+    with_ext = {**deepcopy(d), "extensions": {"my_lab": {"alpha": value}}}
+    assert recipe_hash(_recipe(d)) != recipe_hash(_recipe(with_ext))
+
+
+@given(recipe_dicts(), st.integers(0, _MASK64))
+def test_core_change_isolates_to_core_segment(d: dict[str, Any], new_seed: int) -> None:
+    # Per-segment isolation (F1/F2): a core-only change (seed) moves the overall
+    # hash but leaves the `plugin` segment's bytes byte-identical — the foundation
+    # of cross-plugin isolation (a sklearn-surface change can't move a pytorch
+    # recipe; the deterministic pytorch-vs-sklearn case lives in test_segmented_identity).
+    base = _recipe(d)
+    assume(new_seed != base.seed)
+    changed = _recipe({**deepcopy(d), "seed": new_seed})
+    assert recipe_segments(base)["plugin"] == recipe_segments(changed)["plugin"]
+    assert recipe_hash(base) != recipe_hash(changed)
+
+
+@given(recipe_dicts())
+def test_recipe_hash_is_pure_function_of_segments(d: dict[str, Any]) -> None:
+    # Identity is exactly `join_stable` over the recipe's segments — nothing else.
+    r = _recipe(d)
+    assert recipe_hash(r) == join_stable(recipe_segments(r)).hex()
 
 
 # --- ModelFoundry seed perturbs the CacheKey ---

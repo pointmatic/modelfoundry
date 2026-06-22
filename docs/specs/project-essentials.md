@@ -47,14 +47,16 @@ root is authoritative.
 
 ModelFoundry's cache key is `SHA-256(canonical_recipe_bytes) ⊕ SHA-256(data_instance_hash) ⊕ seed`. Cache directory paths use the **first 16 hex characters** of each hash; the **full hash** is recorded in `manifest.json`. Truncation is intentional — it keeps paths short and human-quotable while the full hash stays available for audit. Do not "fix" the truncation; doing so would change every cache path and orphan every existing ModelInstance on every developer's disk.
 
-The canonical form is produced by `pydantic_model.model_dump(mode="json")` followed by `json.dumps(sort_keys=True, separators=(",", ":"), ensure_ascii=False)`. **This means every pydantic field default in `src/modelfoundry/recipe/models.py` is part of the canonical bytes.** A field default change — even one that "looks like a no-op refactor" — silently shifts the canonical hash for every recipe that omits the field, invalidating every cached ModelInstance for every user. The same applies to renaming a field, reordering fields, or changing the canonical-form algorithm itself.
+**Segmented identity (Phase I, v0.16.0).** The canonical form is no longer a flat total `model_dump`. The recipe's fields are partitioned into independently-hashed **segments** — `core` / `plugin` / `overlays` / `extensions` (`recipe/canonical.py::recipe_segments`, per the I.a spike Decision 2) — and combined by **`join_stable`**: a labeled, length-framed concatenation of per-segment SHA-256 digests. Each segment's sub-document is canonicalized with `json.dumps(sort_keys=True, separators=(",", ":"), ensure_ascii=False)`; an **empty segment is sparse-omitted** (contributes nothing); the combiner is **prefix-capable** (`H(H_upstream ‖ segment)`) so the deferred vertical stage-waterfall can layer on later. `canonical_bytes(recipe)` is the combiner pre-image and `recipe_hash = SHA-256(canonical_bytes)`. The recipe stays **flat on disk** — segmentation lives only in the hashing. The exact `join_stable` byte format is the **DataRefinery-coordinated family standard** (a governed shared contract — see below); confirm any change to it cross-repo.
+
+**Every authored field still participates**, so a field rename/reorder, a change to the `join_stable` combiner, or a value change shifts the hash. **No-implicit-defaults (Phase I) means the recipe — not the model — supplies behavior-affecting values**, so there are no field-default changes to silently invalidate omitting recipes (the old hazard); the remaining identity levers are the combiner, the segment partition, and authored values. Changing the canonical-form algorithm or the partition is itself cache-invalidating.
 
 **Pre-production rules** (current state per `features.md` OR-9): cache invalidation across ModelFoundry versions is acceptable. Note the change in the release notes; users re-materialize.
 
 **Post-production rules** (after the production-release event — i.e. the `1.0.0` transition): any change that invalidates the cache is a **ceremonious event**, not a silent or subtle one. The blast radius is real — every existing user must re-run every recipe over every DataRefinery instance, recomputing every materialized ModelInstance. For a training job, that is potentially hours-to-days of compute per user, multiplied across every user. Therefore, every cache-invalidating change MUST:
 
-1. **Bump `schema_version`** in `src/modelfoundry/recipe/loader.py` (`SUPPORTED_SCHEMA_VERSIONS`).
-2. **Ship a documented migration** in `recipe.loader.migrations` keyed by `(from_version, to_version)`, or — if no migration is possible — explicit refusal-with-pointer guidance in the loader.
+1. **Bump the version** — the umbrella combiner version (`SUPPORTED_COMBINER_VERSIONS` in `src/modelfoundry/recipe/versioning.py`, carried as the recipe's `schema_version`) for a combiner change, or the relevant **per-segment** version (`SEGMENT_VERSIONS`) for a segment-scoped change. (`recipe/loader.py` re-exports `SUPPORTED_SCHEMA_VERSIONS` as the umbrella for back-compat.)
+2. **Ship a documented migration** in `recipe.versioning.MIGRATIONS` keyed by `(segment, from_version, to_version)`, or — if no migration is possible — rely on `migrate_segment`'s refusal-with-pointer ("re-materialize"). The registry is **empty pre-1.0** (zero support window); post-1.0 segment bumps register their migration here.
 3. **Announce the blast radius prominently** in release notes and in the upgrade-time CLI output: name the operation that changed, state that all existing ModelInstances are now stale, and document the recompute cost (rough order of magnitude — training is more expensive than data prep).
 4. **Be reviewed deliberately.** A unit test pins the canonical hash of a representative fixture recipe; bumping that pinned value requires a reviewer to consciously sign off on the invalidation.
 
@@ -63,6 +65,22 @@ This applies equally whether the trigger is a pydantic default change, a canonic
 **How to apply:** before merging any change in `recipe/`, `cache/`, `pipeline/`, or any plugin's `evaluation.py` / `persistence.py` (post-prod), ask "could this affect the canonical bytes or the materialized output bytes?" If yes, run the canonical-hash pinning test and check whether it would need to change. If it would, the change is cache-invalidating and must follow the ceremony above.
 
 Modeled on DataRefinery's identical entry — the discipline travels across the project family.
+
+### No implicit defaults — the recipe carries every behavior-affecting value (Phase I)
+
+The interpreting code supplies **no** behavior-affecting value; the `init` scaffolder emits every value explicitly into the recipe text, so values are audit-visible, versioned, and in the canonical bytes. The param models in `src/modelfoundry/recipe/models.py` therefore carry **no value-`default=`** for behavior-affecting fields — they are author-**required** (`Training.precision` / `checkpoint_cadence` / `device`, `Evaluation.calibration_bins`, `Optimization.sampler` / `pruner` / `baseline_trial`, `Visualization.mode`, `Inference.mode` when the block is present).
+
+The bright line is **required vs. mode-selecting-optional**:
+
+- **Required field** = the recipe must author it; adding/removing one is a cache-invalidating schema change (bump + ceremony).
+- **Mode-selecting optional** = absence is *meaningful* and maps to a behavior, so it stays `| None = None` and its "absent ⇒ behavior" mapping is part of the **versioned segment contract** (changing the mapping is a per-segment bump). Kept examples: `Inference=None ⇒ point`, `Training.early_stopping=None ⇒ none`, `Optimization=None ⇒ no HPO`, `Optimizer.schedule=None ⇒ constant LR`, `Evaluation.comparison=None`, `Data.variant=None`.
+- **Invariant-not-default** = a single legal value (e.g. `Optimization.n_jobs=1`, the pre-prod determinism lock) keeps its constant; it is not an author choice.
+
+**How to apply:** do **not** reintroduce a value-`default=` on a behavior-affecting field to "make recipes shorter" — that re-creates the silent default-shift invalidation hazard Phase I removed. New behavior-affecting fields are author-required and emitted by the scaffolder; new optional *modes* follow the mode-selecting pattern.
+
+### Segmented identity + no-implicit-defaults is a governed cross-tool-family standard
+
+The **horizontal segmented-identity mechanism + no-implicit-defaults** is the **DataRefinery-coordinated cross-tool-family standard** (spike §3 Governance; the four-tool family DataRefinery → ModelFoundry → nbfoundry → learningfoundry shares one identity model). This is a **stronger** commitment than the usual "the discipline travels across the family" framing used elsewhere in this doc (which means parallel independent copies): the segment boundaries, the `extensions` namespace, the no-implicit-defaults rules, and the `join_stable` byte format are a **governed shared contract**. **Diverging from it is a cross-repo coordination event, not an in-tree decision** — raise it with the family, don't fork it locally. The **vertical stage-waterfall axis is ModelFoundry's own** (deferred to a future phase); `join_stable` is kept prefix-capable so it can layer in without re-specifying the combiner. *(Open cross-repo item: DataRefinery has not yet implemented its `join_stable`; when it does, confirm the two byte formats match — see `docs/spikes/I.a-segmented-recipe-identity.md`.)*
 
 ### Loose-coupled DataRefinery binding is intentional in both directions
 
