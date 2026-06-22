@@ -14,10 +14,9 @@ without requiring callers to also surface pydantic errors separately.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict
 
 from modelfoundry.pipeline.data_binding import (
     DR_SUPPORTED_SCHEMA_VERSIONS,
@@ -26,6 +25,7 @@ from modelfoundry.pipeline.data_binding import (
 from modelfoundry.plugins.base import Plugin
 from modelfoundry.recipe.loader import SUPPORTED_SCHEMA_VERSIONS
 from modelfoundry.recipe.models import ModelRecipe
+from modelfoundry.recipe.sections import ResolvedSection, resolve_sections
 
 EVALUATION_METRIC_VOCABULARY: frozenset[str] = frozenset(
     {
@@ -77,10 +77,15 @@ def validate(
     *,
     variants_block: dict[str, Any] | None = None,
 ) -> ValidationReport:
+    # F2 discriminated-union resolution (Story I.c): resolve every op-bearing
+    # section once against the plugin registry; checks 3 + 17 each read one
+    # failure mode off the shared result (op = discriminator, param_model =
+    # variant — see `recipe/sections.py`).
+    sections = resolve_sections(recipe, plugin)
     checks = [
         _check_1_schema_version(recipe),
         _check_2_plugin_match(recipe, plugin),
-        _check_3_section_ops_registered(recipe, plugin),
+        _check_3_section_ops_registered(sections, plugin),
         _check_4_splits_exist(recipe, data_instance),
         _check_5_fit_on_train(recipe),
         _check_6_early_stopping_monitor(recipe),
@@ -94,7 +99,7 @@ def validate(
         _check_14_expectations_reference_evaluated(recipe),
         _check_15_visualization_mode_declared(recipe),
         _check_16_variants_keys_declared(recipe, variants_block),
-        _check_17_op_params_match_spec(recipe, plugin),
+        _check_17_op_params_match_spec(sections),
         _check_18_data_binding_compat(recipe, data_instance),
         _check_19_dr_schema_version(data_instance),
         _check_20_device_available(recipe, plugin),
@@ -134,18 +139,22 @@ def _check_2_plugin_match(recipe: ModelRecipe, plugin: Plugin) -> ValidationChec
 # --- Check 3 ---
 
 
-def _check_3_section_ops_registered(recipe: ModelRecipe, plugin: Plugin) -> ValidationCheck:
-    bad: list[tuple[str, str]] = []
-    for section, op_name, _params in _iter_ops(recipe):
-        if op_name not in plugin.operations:
-            bad.append((section, op_name))
-    if not bad:
+def _check_3_section_ops_registered(
+    sections: list[ResolvedSection], plugin: Plugin
+) -> ValidationCheck:
+    # F2 (Story I.c): an op must resolve to a registered variant *for its slot* —
+    # an unknown op OR an op registered for a different section (`applies_to`
+    # mismatch, e.g. an optimizer op in `Loss`) both fail here.
+    failed = [s for s in sections if not s.registered]
+    if not failed:
         return _ok(3, "section_ops_registered")
+    bad = [(s.label, s.op) for s in failed]
+    reasons = [s.registration_error for s in failed]
     return _fail(
         3,
         "section_ops_registered",
-        f"ops not registered by plugin {plugin.name!r}: {bad}",
-        detail={"unregistered": bad},
+        f"ops not registered by plugin {plugin.name!r} for their section: {bad}",
+        detail={"unregistered": bad, "reasons": reasons},
     )
 
 
@@ -438,16 +447,15 @@ def _check_16_variants_keys_declared(
 # --- Check 17 ---
 
 
-def _check_17_op_params_match_spec(recipe: ModelRecipe, plugin: Plugin) -> ValidationCheck:
-    bad: list[tuple[str, str, str]] = []
-    for section, op_name, params in _iter_ops(recipe):
-        op_spec = plugin.operations.get(op_name)
-        if op_spec is None:
-            continue  # check 3 owns "unregistered op" reporting
-        try:
-            op_spec.param_model.model_validate(params)
-        except ValidationError as exc:
-            bad.append((section, op_name, str(exc)))
+def _check_17_op_params_match_spec(sections: list[ResolvedSection]) -> ValidationCheck:
+    # F2 (Story I.c): for sections whose op resolved to its slot, the authored
+    # params must validate against the variant's `param_model` (check 3 owns the
+    # unregistered/wrong-slot reporting, so those are skipped here).
+    bad = [
+        (s.label, s.op, s.param_error)
+        for s in sections
+        if s.registered and s.param_error is not None
+    ]
     if not bad:
         return _ok(17, "op_params_match_spec")
     return _fail(
@@ -707,14 +715,3 @@ def _fail(
     detail: dict[str, Any] | None = None,
 ) -> ValidationCheck:
     return ValidationCheck(id=check_id, name=name, passed=False, message=message, detail=detail)
-
-
-def _iter_ops(recipe: ModelRecipe) -> Iterator[tuple[str, str, dict[str, Any]]]:
-    """Yield `(section_label, op_name, params)` for every plugin-validated op."""
-    yield "Loss", recipe.Loss.op, dict(recipe.Loss.model_extra or {})
-    yield "Optimizer", recipe.Optimizer.op, dict(recipe.Optimizer.model_extra or {})
-    if recipe.Optimizer.schedule is not None:
-        sched_extra = dict(recipe.Optimizer.schedule.model_extra or {})
-        yield "Optimizer.schedule", recipe.Optimizer.schedule.op, sched_extra
-    for i, viz in enumerate(recipe.Visualizations):
-        yield f"Visualizations[{i}]", viz.op, dict(viz.model_extra or {})

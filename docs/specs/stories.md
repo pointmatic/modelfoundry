@@ -64,12 +64,14 @@ F1. Replace the flat total dump ([canonical.py:25](../../src/modelfoundry/recipe
 
 **Version:** **no bump** (bundled — Phase I cadence).
 
-### Story I.c: Discriminated-union plugin surfaces + validator adaptation [Planned]
+### Story I.c: Discriminated-union plugin surfaces + validator adaptation [Done]
 
 F2. Convert the flat shared specs (`Loss`/`Optimizer`/`Schedule`/`Training`/`Evaluation`/`Visualization`) from `extra="allow"` op-bags ([models.py:34-54](../../src/modelfoundry/recipe/models.py#L34)) to discriminated unions per I.a; recipe stays flat on disk.
 
-- [ ] Define per-plugin variant types behind a discriminator; keep YAML flat.
-- [ ] Adapt validator checks 3 (`section_ops_registered`) + 17 (`op_params_match_spec`) to unions; preserve the never-short-circuit behavior.
+- [x] Define per-plugin variant types behind a discriminator; keep YAML flat. → spike-faithful realization (I.a Decision 3): the **op→`param_model` registry IS the discriminated union** (op = discriminator, variant = plugin's `OperationSpec`). New [recipe/sections.py](../../src/modelfoundry/recipe/sections.py) (`resolve_sections`/`iter_op_sections`) realizes it at validate time; `recipe/models.py` stays plugin-agnostic and `canonical.py` stays plugin-free (no `models.py` plugin import).
+- [x] Adapt validator checks 3 (`section_ops_registered`) + 17 (`op_params_match_spec`) to unions; preserve the never-short-circuit behavior. → both checks read one shared `resolve_sections` pass; check 3 now also rejects an op registered for the **wrong section** (`applies_to` mismatch — closes the `Loss: {op: adamw}` gap); never-short-circuit preserved (tested).
+
+> **Scope note:** kept as a single story (developer offered I.c.# subdivision if large) — checks 3 & 17 share the section enumeration and are tightly coupled, so splitting them would leave intermediate inconsistent states. Realized as a validator-side concretization rather than `models.py` unions, per the I.a constraint that core stays plugin-agnostic. F2 byte-level isolation was already delivered by I.b's plugin-free hashing + the registry; this story formalizes the union and hardens validation.
 
 **Version:** **no bump** (bundled).
 

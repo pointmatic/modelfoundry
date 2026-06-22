@@ -348,6 +348,28 @@ def test_check_3_unregistered_op() -> None:
     assert "phantom_loss" in _detail_text(failing)
 
 
+def test_check_3_op_registered_for_wrong_section() -> None:
+    # Story I.c (F2): `adamw` is registered, but for the `optimizer` slot — using
+    # it in `Loss` is a discriminated-union mismatch and must fail check 3.
+    failing = _check(validate(_recipe({"Loss": {"op": "adamw"}}), _instance(), _Plugin()), 3)
+    assert not failing.passed
+    assert "optimizer" in _detail_text(failing)
+
+
+def test_checks_3_and_17_both_report_in_one_pass() -> None:
+    # Never-short-circuit (FR-2): an unregistered Loss op AND an invalid Optimizer
+    # param surface as separate check failures in the same report.
+    report = validate(
+        _recipe({"Loss": {"op": "phantom"}, "Optimizer": {"learning_rate": "fast"}}),
+        _instance(),
+        _Plugin(),
+    )
+    assert not _check(report, 3).passed  # registration failure
+    assert not _check(report, 17).passed  # param failure
+    assert "phantom" in _detail_text(_check(report, 3))
+    assert "adamw" in _detail_text(_check(report, 17))
+
+
 def test_check_4_missing_split() -> None:
     inst = _instance(splits=("train", "test"))  # no "val"
     failing = _check(validate(_recipe(), inst, _Plugin()), 4)
