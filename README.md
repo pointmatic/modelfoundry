@@ -6,7 +6,7 @@ Compile a YAML recipe into a reproducible, framework-agnostic trained-model inst
 
 ModelFoundry consumes a materialized [DataRefinery](https://github.com/pointmatic/datarefinery) instance and compiles a single YAML **model recipe** into a content-addressed, atomically-promoted **ModelInstance**: the trained model, per-epoch metrics, hyperparameter-search trials, held-out evaluation, predictions, visualizations, and a manifest. The result object returns notebook-shaped primitives (`pandas.DataFrame` / `numpy.ndarray` / PNG `bytes`) and works identically inside Jupyter, Marimo, IPython, or a plain `.py` script — no framework imports in user code.
 
-Reproducibility is a first-class concern: every stochastic source is seeded, the cache identity is computed from the recipe's normalized semantic form, and the same `(recipe, data, seed, variant)` tuple materializes to a byte-identical `ModelInstance`.
+Reproducibility is a first-class concern: every stochastic source is seeded, the cache identity is computed from the recipe's **segmented** canonical form (independently-hashed `core` / `plugin` / `overlays` / `extensions` segments, so a plugin-surface change never invalidates another plugin's caches), and the same `(recipe, data, seed, variant)` tuple materializes to a byte-identical `ModelInstance`.
 
 > **Status:** pre-production (`0.x.y` series). APIs, CLI surface, and cache layout may change between minor versions until the `1.0.0` production release. See [`docs/specs/`](docs/specs/) for the concept, feature, technical, and story specifications.
 
@@ -189,7 +189,7 @@ modelfoundry clean       --older-than 7d        # cache management
 modelfoundry init        <recipe-out> --data <datarefinery-recipe>   # scaffold a recipe
 ```
 
-Shared options apply to every verb: `--cache-root` / `--data-cache-root` (defaults `./models` and `./data`), `--log-level`, `--log-target` (JSON-lines operational logs), `--plugin-path`, and `-v` / `-q`.
+Shared options apply to every verb: `--cache-root` / `--data-cache-root` (defaults `./models` and `./data`), `--log-level`, `--log-target` (JSON-lines operational logs), `--plugin-path`, `--num-workers` (DataLoader workers; execution context, env `MODELFOUNDRY_NUM_WORKERS`), and `-v` / `-q`.
 
 ## Notebook-substrate-neutral
 
@@ -211,8 +211,12 @@ Hardware acceleration is **auto-detected** by default — the PyTorch plugin pic
 Training:
   max_epochs: 10
   batch_size: 32
-  device: cpu              # one of: auto (default) | cpu | cuda | mps
+  precision: fp32          # author-required (no implicit defaults) — fp32 | amp
+  checkpoint_cadence: 1    # author-required — epochs between checkpoint writes
+  device: cpu              # author-required — auto | cpu | cuda | mps ("auto" picks the best)
 ```
+
+> Phase I introduced **no implicit defaults**: behavior-affecting fields like `precision` / `checkpoint_cadence` / `device` are authored in the recipe, not supplied by code — `modelfoundry init` emits them for you. DataLoader `num_workers` moved the *other* way: it is now **execution context**, set via `--num-workers` or `MODELFOUNDRY_NUM_WORKERS` (not a recipe field), since it never affects the trained bytes.
 
 `device` participates in the recipe's canonical hash, so the same recipe run with `device: cpu` and `device: mps` materializes into two distinct `ModelInstance` cache entries — no silent cross-device collision. Use the `variants:` block to keep both side-by-side without maintaining two recipe files:
 

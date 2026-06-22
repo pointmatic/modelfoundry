@@ -94,9 +94,9 @@ def _segment_canonical(value: Any) -> bytes | None:
         return None
     if isinstance(value, (dict, list)) and len(value) == 0:
         return None
-    return json.dumps(
-        value, sort_keys=True, separators=(",", ":"), ensure_ascii=False
-    ).encode("utf-8")
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode(
+        "utf-8"
+    )
 
 
 def _frame(label: bytes, payload: bytes) -> bytes:

@@ -89,10 +89,10 @@ Mapped to the value criteria above:
 ### Scope
 **In scope (pre-production release):**
 
-- Recipe-driven pipeline with sections analogous to DataRefinery's intent-naming convention: `schema_version`, `plugin`, `seed`, `Data`, `Architecture`, `Loss`, `Optimizer`, `Training`, `Optimization`, `Evaluation`, `Visualizations`, `OutputExpectations`, `variants`. Per-operation `splits` declarations make train-only behavior explicit.
+- Recipe-driven pipeline with sections analogous to DataRefinery's intent-naming convention: `schema_version`, `plugin`, `seed`, `Data`, `Architecture`, `Loss`, `Optimizer`, `Training`, `Optimization`, `Evaluation`, `Visualizations`, `OutputExpectations`, `variants`, `extensions` (a sanctioned declarative bag for bounded experimentation). Per-operation `splits` declarations make train-only behavior explicit. **No implicit defaults:** behavior-affecting values are authored in the recipe (the scaffolder emits them), not supplied by code; `num_workers` is execution context (`--num-workers`), not a recipe field.
 - Schema-versioned YAML recipes; load-time refusal of unknown versions; documented migration path between versions (mirrors DataRefinery's `recipe.loader`).
 - Materialized `ModelInstance` = recipe + trained model (weights + `architecture.json`) + training history + optimization trials + evaluation metrics + report + manifest.
-- Cache identity from normalized semantic recipe form (canonical JSON via `model_dump(mode="json")` + sorted-key `json.dumps`) + bound DataRefinery instance hash + seed. Cosmetic edits do not trigger rebuilds.
+- Cache identity from the **segmented** canonical recipe form (per-segment digests — `core` / `plugin` / `overlays` / `extensions` — combined by the labeled, length-framed `join_stable`, replacing the flat total `model_dump`) ⊕ bound DataRefinery instance hash ⊕ seed. Cosmetic edits do not trigger rebuilds; a plugin-surface change scopes to that plugin's recipes.
 - Atomic temp-then-promote materialization with `FAILED` sentinel on partial runs; no partial instances in cache.
 - Named **variants** within a recipe (overlays on any section); selected at materialize time; participate in cache identity.
 - Plugin model with **PyTorch shipping end-to-end in the pre-production release**, mirroring the sentiment-poc precedent; at least one additional backend (sklearn likely first, Keras / HuggingFace optional) stubbed against the same `OperationSpec` set to keep abstractions honest.

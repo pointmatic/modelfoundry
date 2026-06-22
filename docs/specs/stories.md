@@ -169,7 +169,18 @@ F6 (enforcement portion). Lock isolation, ship the single release, record the co
 
 **Version:** **minor → v0.16.0** — the single phase-bundled Phase I release (assumes Phase H ships through v0.15.0). **Cache-invalidating** for every recipe (segmented combiner + discriminated representation + no-implicit-defaults all perturb canonical bytes): pre-prod OR-9 — release-note + re-materialize, **no `schema_version`-style migration** (per-segment version scheme lands; migrations are zero-support-window pre-1.0).
 
-**Version:** **minor → v0.16.0** — the single phase-bundled Phase I release (assumes Phase H ships through v0.15.0). **Cache-invalidating** for every recipe (segmented combiner + discriminated representation + no-implicit-defaults all perturb canonical bytes): pre-prod OR-9 — release-note + re-materialize, **no `schema_version`-style migration** (per-segment version scheme lands; migrations are zero-support-window pre-1.0).
+---
+
+### Story I.i: Documentation refresh — align concept / features / tech-spec / README with shipped Phase I [Done]
+
+Reconcile the spec docs to what Phase I actually shipped (the code is the source of truth; this is alignment, not new requirements — any *net-new* requirement is `plan_features`/`plan_tech_spec` territory, flag don't author). `project-essentials.md` was already updated in I.h. **Doc-only — rides the v0.16.0 release, no separate bump.**
+
+- [x] **`tech-spec.md`** — updated `TrainingSpec`/`OptimizationSpec`/`EvaluationSpec`/`ModelRecipe` snippets (removed `num_workers`; dropped value-defaults → author-required; added `extensions` + the no-implicit-defaults note); rewrote `recipe.canonical` (FR-4) for `recipe_segments` + `join_stable`; added a `recipe.versioning` (FR-5) section; replaced the `Training.num_workers` perf note with the `RuntimeConfig.num_workers` reclassification; validator → checks 1–22; module tree gains `sections.py` + `versioning.py`; dependency-table canonical-form line; the per-plugin-specs paragraph now describes the discriminated-union resolver + check 22.
+- [x] **`features.md`** — rewrote FR-4 for segmented identity; replaced the field-default-perturbs-bytes hazard with the no-implicit-defaults rule; CR-4 + loader gate now describe the umbrella + per-segment versioning scheme; recipe-shape list gains `extensions`, the `Training` field corrections + `num_workers`-is-execution-context note; FR-2 checks: check 3 strengthened (`applies_to`), added checks 21 (architecture-input) + 22 (extensions-claim warn); TR-3 → checks 1..22.
+- [x] **`concept.md`** — Scope cache-identity line now segmented (not flat `model_dump`); recipe-section list gains `extensions` + a no-implicit-defaults / `num_workers`-as-execution-context note.
+- [x] **`README.md`** — segmented-identity phrasing in the intro; the `Training` device snippet authors `precision`/`checkpoint_cadence`/`device` with a no-implicit-defaults + `num_workers`-moved note; `--num-workers` added to the shared-options line.
+
+**Version:** **no bump** (doc-only; rides the v0.16.0 Phase I release).
 
 ---
 

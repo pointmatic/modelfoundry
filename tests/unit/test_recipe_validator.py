@@ -389,9 +389,7 @@ def test_check_22_warns_on_unclaimed_extension_key() -> None:
 def test_check_22_clean_when_plugin_claims_the_key() -> None:
     plugin = _Plugin()
     plugin.extension_keys = ("my_lab",)
-    check = _check(
-        validate(_recipe({"extensions": {"my_lab": {"x": 1}}}), _instance(), plugin), 22
-    )
+    check = _check(validate(_recipe({"extensions": {"my_lab": {"x": 1}}}), _instance(), plugin), 22)
     assert check.passed
     assert check.message is None
 

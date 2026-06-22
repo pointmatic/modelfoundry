@@ -115,15 +115,25 @@ def resolve_sections(recipe: ModelRecipe, plugin: Plugin) -> list[ResolvedSectio
         except ValidationError as exc:
             resolved.append(
                 ResolvedSection(
-                    label, op, slot, registered=True, registration_error=None,
-                    variant=None, param_error=str(exc),
+                    label,
+                    op,
+                    slot,
+                    registered=True,
+                    registration_error=None,
+                    variant=None,
+                    param_error=str(exc),
                 )
             )
             continue
         resolved.append(
             ResolvedSection(
-                label, op, slot, registered=True, registration_error=None,
-                variant=variant, param_error=None,
+                label,
+                op,
+                slot,
+                registered=True,
+                registration_error=None,
+                variant=variant,
+                param_error=None,
             )
         )
     return resolved
