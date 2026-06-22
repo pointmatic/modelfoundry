@@ -80,10 +80,13 @@ def build_dr_instance(
     (inst / "recipe.json").write_text(dr_recipe.model_dump_json(), encoding="utf-8")
 
     # Per-channel normalize stats (length == channel count) so the C.f adapter binds.
+    # Realistic 0-255-scale stats: DataRefinery fits normalize on raw pixel values,
+    # and the PyTorch adapter applies them in 0-255 units (Story H.a). [0,1]-scale
+    # stats here would trip the validator's input-contract check (FR-2 check 21).
     stats_dir = inst / "fitted_statistics" / "norm"
     stats_dir.mkdir(parents=True, exist_ok=True)
-    pq.write_table(pa.table({"value": [0.5, 0.45, 0.4]}), stats_dir / "mean.parquet")  # type: ignore[no-untyped-call]
-    pq.write_table(pa.table({"value": [0.25, 0.25, 0.25]}), stats_dir / "std.parquet")  # type: ignore[no-untyped-call]
+    pq.write_table(pa.table({"value": [120.0, 110.0, 100.0]}), stats_dir / "mean.parquet")  # type: ignore[no-untyped-call]
+    pq.write_table(pa.table({"value": [60.0, 60.0, 60.0]}), stats_dir / "std.parquet")  # type: ignore[no-untyped-call]
 
     dataset_dir = inst / "dataset"
     dataset_dir.mkdir(exist_ok=True)

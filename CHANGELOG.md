@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.1] - 2026-06-21
+
+Patch — add the DR↔MF input-shape/preprocessing contract as FR-2 **validator check 21** (Story H.j.3),
+so a data↔model input mismatch fails at `validate()` with an actionable message instead of a deep
+materialize-time crash (or silent degradation). Not cache-invalidating (a validate-time check changes
+no materialized bytes); no `schema_version` bump.
+
+### Added
+
+- **FR-2 check 21 (`architecture_input_compat`)** with two guards of the same data↔model interface family the Story H.a normalization-units bug belonged to:
+  - **Input shape** — a pretrained `Encoder`'s fixed input resolution + channel count (introspected offline from the encoder config via `AutoConfig`, config-only, no weights) must match the bound DataRefinery instance's produced image shape (`record_schema`). Per R1.4 this guard **no-ops when `transformers` is absent** so `validate()` still succeeds without the `[huggingface]` extra.
+  - **Normalization scale** — the PyTorch adapter applies fitted `normalize` stats in **0-255 pixel units** (Story H.a); fitted means that look `[0,1]`-scale are flagged as a units mismatch. Encoder-independent and torch/transformers-free, so it runs for **every** recipe — closing the Story H.c-filed "validate-time normalization sanity check" follow-up.
+
+### Changed
+
+- The synthetic DataRefinery test fixtures (`build_dr_instance`, the cifar10-smoke builder, and the two CLI-test local builders) now emit **realistic 0-255-scale** normalize statistics, matching how DataRefinery fits on raw pixels and how the adapter applies them — `[0,1]`-scale fixtures would (correctly) trip check 21.
+
 ## [0.11.0] - 2026-06-21
 
 Minor — activate the pretrained-encoder architecture path (Story H.j.1, R1.1/R1.3/R1.4/R1.5): the

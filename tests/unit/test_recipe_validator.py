@@ -245,17 +245,71 @@ def _detail_text(check: Any) -> str:
 # --- Per-check PASS path (one parametrized test covering 1..20) ---
 
 
-@pytest.mark.parametrize("check_id", list(range(1, 21)))
+@pytest.mark.parametrize("check_id", list(range(1, 22)))
 def test_check_passes_on_good_recipe(check_id: int) -> None:
     report = validate(_recipe(), _instance(), _Plugin())
     check = _check(report, check_id)
     assert check.passed, check.message
 
 
-def test_happy_path_all_20_pass() -> None:
+def test_happy_path_all_21_pass() -> None:
     report = validate(_recipe(), _instance(), _Plugin())
     assert report.passed, [c.message for c in report.failures]
-    assert [c.id for c in report.checks] == list(range(1, 21))
+    assert [c.id for c in report.checks] == list(range(1, 22))
+
+
+# --- Check 21: architecture input-shape / normalization-scale contract ---
+
+
+def _instance_with_normalize(means: list[float]) -> DataRefineryInstance:
+    """A synthetic instance carrying a DR `normalize` op + fitted mean stats.
+
+    Mirrors the DataRefineryInstance the binder produces (a `recipe` with a
+    `Transformations` list and a `fitted_statistics` view exposing
+    `get_vector(op, name)` -> a pyarrow-like table with a `value` column).
+    """
+    from types import SimpleNamespace
+
+    class _Table:
+        def __init__(self, values: list[float]) -> None:
+            self._values = values
+
+        def column(self, _name: str) -> Any:
+            return SimpleNamespace(to_pylist=lambda: self._values)
+
+    class _Fitted:
+        def get_vector(self, _op: str, _name: str) -> Any:
+            return _Table(means)
+
+    recipe_stub = SimpleNamespace(
+        schema_version=1,
+        Transformations=[SimpleNamespace(op="normalize", name="norm")],
+    )
+    instance = DataRefineryInstance(
+        path=Path("/fixture"),
+        manifest=object(),
+        recipe=recipe_stub,
+        splits=("train", "val", "test"),
+        label_schema={"field": "label"},
+        record_schema={},
+        fitted_statistics=_Fitted(),
+    )
+    object.__setattr__(instance, "instance_num_classes", lambda: 3)
+    return instance
+
+
+def test_check_21_flags_normalization_units_mismatch() -> None:
+    # [0,1]-scale fitted means against the adapter's 0-255 decode contract — the
+    # H.a normalization-units class, caught at validate time (transformers-free).
+    report = validate(_recipe(), _instance_with_normalize([0.5, 0.45, 0.4]), _Plugin())
+    failing = _check(report, 21)
+    assert not failing.passed
+    assert "0-255" in _detail_text(failing)
+
+
+def test_check_21_passes_on_realistic_0_255_stats() -> None:
+    report = validate(_recipe(), _instance_with_normalize([120.0, 115.0, 110.0]), _Plugin())
+    assert _check(report, 21).passed
 
 
 # --- Per-check FAIL path (inline overrides + detail/message assertions) ---

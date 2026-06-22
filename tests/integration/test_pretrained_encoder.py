@@ -87,3 +87,31 @@ def test_pretrained_encoder_offline_run_reproduces(tmp_path: Path) -> None:
 
     assert inst_a.evaluation["val"]["accuracy"] == inst_b.evaluation["val"]["accuracy"]
     assert inst_a.evaluation["val"]["macro_f1"] == inst_b.evaluation["val"]["macro_f1"]
+
+
+def _check(report: object, check_id: int) -> object:
+    [check] = [c for c in report.checks if c.id == check_id]  # type: ignore[attr-defined]
+    return check
+
+
+def test_input_contract_flags_resolution_mismatch(tmp_path: Path) -> None:
+    # Story H.j.3: a CIFAR-32 instance against the ViT-224 encoder fails validate's
+    # input-shape contract (check 21) with an actionable message — caught before
+    # the expensive materialize, not as a deep forward-pass crash.
+    from modelfoundry import ModelFoundry
+
+    data = build_dr_instance(
+        tmp_path / "dr32", classes=_CLASSES, split_counts={"train": 6, "val": 3}, image_size=32
+    )
+    report = ModelFoundry.from_recipe(_RECIPE, data=data).validate()
+    check = _check(report, 21)
+    assert not check.passed  # type: ignore[attr-defined]
+    assert "224" in (check.message or "")  # type: ignore[attr-defined]
+
+
+def test_input_contract_passes_at_native_resolution(tmp_path: Path) -> None:
+    from modelfoundry import ModelFoundry
+
+    data = _instance(tmp_path / "dr224")  # 224x224, the encoder's native size
+    report = ModelFoundry.from_recipe(_RECIPE, data=data).validate()
+    assert _check(report, 21).passed  # type: ignore[attr-defined]

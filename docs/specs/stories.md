@@ -98,7 +98,7 @@ The example smoke files were broken and contract-violating. [test_models_resnet2
 **Out of scope (recommended follow-ups — `plan_features` territory):**
 
 - ~~Public pre-materialize architecture surface~~ — **done** by Story H.a.2 (`ModelFoundry.summary()`); the repaired example uses it.
-- **`validate`-time normalization sanity check** — flag when a bound instance's `normalize` stats are out of range for the adapter's decode scale (would have caught H.a's class at `validate` time, before training). `plan_features`.
+- ~~**`validate`-time normalization sanity check**~~ — **done** by Story H.j.3 (FR-2 check 21, `architecture_input_compat`): the normalization-scale guard flags fitted `normalize` stats that look `[0,1]`-scale against the adapter's 0-255 decode contract, catching the H.a class at `validate` time, transformers-free, for every recipe.
 - **Public per-record data access (optional)** — the rewritten baselines reach into `mf.data.path` + the DataRefinery on-disk layout for raw images/labels because ModelFoundry exposes no public per-record data iterator. This is arguably intentional (DataRefinery owns data), so it is a *deliberate non-goal* to revisit only if external-baseline examples become common. `plan_features` if ever.
 
 ### Story H.d: v0.9.2 Apply lazy augmentations before normalization — fix train/eval skew [Done]
@@ -411,16 +411,20 @@ R1.1 / R1.3 / R1.4 / R1.5, acceptance criteria 1–2. The "make it work" half: r
 
 **Version:** **no bump** (throwaway spike; no shipped `src/` change).
 
-### Story H.j.3: `validate()`-time input-shape/preprocessing contract — fail mismatch before materialize [Planned]
+### Story H.j.3: `validate()`-time input-shape/preprocessing contract — fail mismatch before materialize [Done]
 
-R1.4 / FR-2 / QR-1, acceptance criterion 1. The "make it safe" half: implement the contract H.j.2 designs so a data↔model input mismatch fails **at the cheapest gate** (validate where possible, else earliest-safe) with an actionable message, *before* an hours-long materialize. Generalizes the H.a-motivated, H.c-filed validate-time normalization sanity check.
+R1.4 / FR-2 / QR-1, acceptance criterion 1. The "make it safe" half: implement the contract H.j.2 designs so a data↔model input mismatch fails **at the cheapest gate** (validate) with an actionable message, *before* an hours-long materialize. Generalizes the H.a-motivated, H.c-filed validate-time normalization sanity check.
 
-- [ ] Implement the input-contract check per H.j.2: cross-check the bound instance's produced shape/preprocessing against the architecture's input requirement; clear, actionable failure naming both sides of the mismatch and the fix (re-materialize the DR instance at the required shape/normalization — DR owns data prep, FR-6).
-- [ ] **Regression guards:** a CIFAR-32-into-ViT-224 recipe fails the contract with a helpful message; **and** the H.a normalization-units mismatch is caught by the same check (the generalization H.j.2 confirmed) — reproducing the H.c-filed "validate-time normalization sanity check."
-- [ ] Resolve the H.c open follow-up (Story H.c out-of-scope, "`validate`-time normalization sanity check") now that the check exists; cross-reference it.
-- [ ] Honor R1.4: the check must not make `validate()` require the `[huggingface]` extra (per the H.j.2 no-extra degradation decision).
+- [x] **Failing tests first** — `tests/unit/test_recipe_validator.py::test_check_21_flags_normalization_units_mismatch` + the count-test bump (1..21 → 1..22) confirmed **red** (check 21 absent) → **green**; the shape-mismatch guard in [tests/integration/test_pretrained_encoder.py](../../tests/integration/test_pretrained_encoder.py) (`test_input_contract_flags_resolution_mismatch`) red→green in `smoke-huggingface`.
+- [x] Implemented **FR-2 check 21 (`architecture_input_compat`)** ([validator.py](../../src/modelfoundry/recipe/validator.py), `_check_21_architecture_input_compat` + `_encoder_shape_issues` / `_normalization_scale_issues`): (a) cross-checks the bound instance's `record_schema` HWC against the `Encoder.id`'s `AutoConfig` `image_size`/`num_channels` (offline, config-only); (b) flags fitted `normalize` means that look `[0,1]`-scale vs the adapter's 0-255 decode contract. Actionable messages name both sides + the fix (re-materialize the DR instance at the required shape/0-255 stats — DR owns data prep, FR-6).
+- [x] **Regression guards:** CIFAR-32-into-ViT-224 fails check 21 with a `224`-naming message (`test_input_contract_flags_resolution_mismatch`); the H.a normalization-units mismatch is caught by the **same** check, transformers-free (`test_check_21_flags_normalization_units_mismatch`), with a realistic-stats pass guard (`test_check_21_passes_on_realistic_0_255_stats`).
+- [x] **Resolved the H.c open follow-up** — crossed out the "`validate`-time normalization sanity check" item in Story H.c's out-of-scope, pointing at check 21.
+- [x] **R1.4 honored** — the encoder-shape guard is `importlib.util.find_spec("transformers")`-gated and no-ops without the extra (verified: `validate()` passes the full default-`testenv` suite with no transformers); the normalization guard is always-on and transformers-free. AutoConfig-introspection errors (encoder not warm) no-op rather than fail validate (materialize is the hard gate, R1.5).
+- [x] **Calibrated the synthetic fixtures** — `build_dr_instance`, the cifar10-smoke builder, and the `test_init_cmd` local builder now emit realistic **0-255-scale** normalize stats (the prior `[0,1]`-scale fixtures correctly tripped check 21). No test asserts those values as golden; metric-floor + determinism (byte-equality) suites unaffected.
+- [x] Bumped version to v0.11.1 in [_version.py](../../src/modelfoundry/_version.py) (`0.11.0 → 0.11.1`); CHANGELOG `## [0.11.1]`. Release-metadata guard green.
+- [x] Verify: red→green; `ruff` clean; `mypy src tests` (152 files) clean; **`pyve test --env testenv` → 498 passed, 44 skipped, 1 xfailed**; **`pyve test --env smoke-pytorch` → 686 passed, 2 skipped, 1 xfailed** (fixture correction caused no floor/determinism regressions); **`smoke-huggingface`** validator + encoder + HF-arch → 76 passed, 1 xfailed (shape guard fires live).
 
-**Version:** **patch → v0.11.1** (proposed) — a `src/` validation/guard addition that prevents a misconfiguration class, not a new user-facing capability; keeps H.k at v0.12.0. **Flag:** if the developer judges the new validator surface a feature, it becomes **minor v0.12.0** and shifts H.k → v0.13.0 and the rest of Subphase H-1 down one minor. Not cache-invalidating (a validate-time check changes no materialized bytes).
+**Version:** **patch → v0.11.1** — a `src/` validation/guard addition that prevents a misconfiguration class, not a new user-facing capability; keeps H.k at v0.12.0. Not cache-invalidating (a validate-time check changes no materialized bytes).
 
 ### Story H.k: Activate `LoRA` adapters + serialization (round-trip from disk) [Planned]
 

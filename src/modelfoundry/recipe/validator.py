@@ -1,6 +1,6 @@
 # Copyright (c) 2026 Pointmatic
 # SPDX-License-Identifier: Apache-2.0
-"""FR-2 recipe validator — the enumerated 19 static logical checks.
+"""FR-2 recipe validator — the enumerated static logical checks (1..21).
 
 `validate(recipe, data_instance, plugin, *, variants_block=None)` runs every
 check; it never short-circuits, so a failing recipe surfaces *every* problem in
@@ -97,6 +97,7 @@ def validate(
         _check_18_data_binding_compat(recipe, data_instance),
         _check_19_dr_schema_version(data_instance),
         _check_20_device_available(recipe, plugin),
+        _check_21_architecture_input_compat(recipe, data_instance),
     ]
     return ValidationReport(checks=checks)
 
@@ -559,6 +560,135 @@ def _extract_accelerators(report: Any) -> set[str] | None:
     if accelerators is None:
         return None
     return {str(a) for a in accelerators}
+
+
+# --- Check 21 ---
+
+
+def _check_21_architecture_input_compat(
+    recipe: ModelRecipe, data_instance: DataRefineryInstance
+) -> ValidationCheck:
+    """The bound instance's produced input must satisfy the architecture's contract.
+
+    Two independent guards (Story H.j.3), each a member of the same data↔model
+    interface family the H.a normalization-units bug belonged to:
+
+    * **Input shape** — a pretrained `Encoder` has a *fixed* input resolution +
+      channel count; the bound DataRefinery instance must produce matching images.
+      The requirement is introspected from the encoder config, so this guard needs
+      `[huggingface]`; per R1.4 `validate()` must succeed without the extra, so it
+      **no-ops when `transformers` is absent** (a materialize attempt fails with the
+      extras pointer regardless).
+    * **Normalization scale** — the PyTorch adapter applies fitted `normalize` stats
+      in **0-255 pixel units** (Story H.a). Fitted means that look `[0,1]`-scale are
+      a units mismatch. This guard is encoder-independent and torch/transformers-free,
+      so it runs for **every** recipe — closing the H.c-filed sanity-check follow-up.
+    """
+    issues: list[str] = []
+    issues += _encoder_shape_issues(recipe, data_instance)
+    issues += _normalization_scale_issues(data_instance)
+    if not issues:
+        return _ok(21, "architecture_input_compat")
+    return _fail(21, "architecture_input_compat", "; ".join(issues), detail={"issues": issues})
+
+
+def _encoder_op(recipe: ModelRecipe) -> dict[str, Any] | None:
+    """The `Encoder` layer dict in an explicit-layers Architecture, or `None`."""
+    arch = recipe.Architecture
+    if not isinstance(arch, dict):
+        return None
+    layers = arch.get("layers")
+    if not isinstance(layers, list):
+        return None
+    for layer in layers:
+        if isinstance(layer, dict) and layer.get("op") == "Encoder":
+            return layer
+    return None
+
+
+def _instance_image_hwc(data_instance: DataRefineryInstance) -> tuple[int, int, int] | None:
+    schema = getattr(data_instance, "record_schema", None) or {}
+    image = schema.get("image") if isinstance(schema, dict) else None
+    shape = image.get("shape") if isinstance(image, dict) else None
+    if not isinstance(shape, (list, tuple)) or len(shape) != 3:
+        return None
+    try:
+        return int(shape[0]), int(shape[1]), int(shape[2])
+    except (TypeError, ValueError):
+        return None
+
+
+def _encoder_shape_issues(recipe: ModelRecipe, data_instance: DataRefineryInstance) -> list[str]:
+    encoder = _encoder_op(recipe)
+    if encoder is None:
+        return []
+    # R1.4: validate() must work without [huggingface]; the requirement is
+    # encoder-introspected, so skip the comparison when transformers is absent.
+    import importlib.util
+
+    if importlib.util.find_spec("transformers") is None:
+        return []
+    hwc = _instance_image_hwc(data_instance)
+    if hwc is None:
+        return []
+    model_id = encoder.get("id")
+    if not isinstance(model_id, str):
+        return []
+    try:
+        from transformers import AutoConfig  # type: ignore[import-not-found, unused-ignore]
+
+        cfg = AutoConfig.from_pretrained(model_id, local_files_only=True)
+    except Exception:
+        # Encoder not in the offline warm cache / not introspectable — don't fail
+        # validate on an introspection error; materialize is the hard gate (R1.5).
+        return []
+    size = getattr(cfg, "image_size", None)
+    channels = getattr(cfg, "num_channels", None)
+    if not isinstance(size, int) or not isinstance(channels, int):
+        return []
+    h, w, c = hwc
+    if (h, w, c) != (size, size, channels):
+        return [
+            f"bound instance produces {h}x{w}x{c} images but Encoder.id={model_id!r} requires "
+            f"{size}x{size}x{channels} — re-materialize the DataRefinery instance at the encoder's "
+            f"resolution (DataRefinery owns data prep, FR-6)"
+        ]
+    return []
+
+
+def _normalization_scale_issues(data_instance: DataRefineryInstance) -> list[str]:
+    fitted = getattr(data_instance, "fitted_statistics", None)
+    dr_recipe = getattr(data_instance, "recipe", None)
+    transformations = getattr(dr_recipe, "Transformations", None)
+    if fitted is None or not transformations:
+        return []
+    issues: list[str] = []
+    for op in transformations:
+        if getattr(op, "op", None) != "normalize":
+            continue
+        name = getattr(op, "name", None)
+        if not isinstance(name, str):
+            continue
+        means = _read_fitted_means(fitted, name)
+        # The adapter applies stats in 0-255 pixel units (H.a). All-channel means
+        # at or below 1.0 are the [0,1]-scale signature of a units mismatch (a
+        # natural image's per-channel mean is far above 1 in 0-255 space).
+        if means and all(m <= 1.0 for m in means):
+            issues.append(
+                f"DataRefinery normalize op {name!r} has fitted means {means} that look "
+                f"[0,1]-scale, but the PyTorch adapter applies normalization in 0-255 pixel units "
+                f"(Story H.a) — likely a units mismatch; re-fit the DataRefinery instance with "
+                f"0-255-scale statistics"
+            )
+    return issues
+
+
+def _read_fitted_means(fitted: Any, op_name: str) -> list[float]:
+    try:
+        table = fitted.get_vector(op_name, "mean")
+        return [float(v) for v in table.column("value").to_pylist()]
+    except Exception:
+        return []
 
 
 # --- helpers ---
