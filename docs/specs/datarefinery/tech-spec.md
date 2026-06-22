@@ -11,7 +11,7 @@ For requirements and behavior, see [`features.md`](features.md). For motivation 
 | Concern | Choice | Notes |
 |---|---|---|
 | Language | Python 3.12.x | Pinned via `asdf`/`pyve`. Use `python`, never `python3`, to honor the `asdf` shim. |
-| Environment manager | `pyve` (micromamba backend) | Two environments: runtime in `.venv/`, dev tools in `.pyve/testenv/venv/`. |
+| Environment manager | `pyve` (venv backend) | Two environments: runtime in `.venv/`, dev tools (testenv) in `.pyve/envs/testenv/`. |
 | Build backend | `hatchling` | Configured via `pyproject.toml`; no `setup.py`. |
 | Package layout | `src/` layout (`src/datarefinery/...`) | Forces tests against the *installed* package, surfaces packaging bugs that flat layout hides. |
 | Linter / formatter | `ruff` | Single tool for lint and format; replaces flake8/isort/black. |
@@ -24,9 +24,9 @@ For requirements and behavior, see [`features.md`](features.md). For motivation 
 ```bash
 project-guide mode plan_stories      # change mode after this spec is approved
 pyve test                            # run the test suite
-pyve testenv run ruff check src tests
-pyve testenv run ruff format --check src tests
-pyve testenv run mypy src tests
+pyve env run ruff check src tests
+pyve env run ruff format --check src tests
+pyve env run mypy src tests
 ```
 
 ---
@@ -190,7 +190,8 @@ docs/
   publish.yml                # PyPI Trusted Publishing on tagged releases
 pyproject.toml               # package metadata, deps, entry points, tool configs
 requirements-dev.txt         # dev tool pinset for testenv
-environment.yml              # micromamba env (pyve)
+pyve.toml                    # pyve project config (venv backend, root + testenv envs)
+.tool-versions               # asdf Python pin (3.12.x)
 LICENSE                      # Apache-2.0
 README.md
 ```
@@ -1043,5 +1044,5 @@ The wheel ships only Python source plus `py.typed`. Scaffolder templates (if int
 | End user with LLM enhancement | `pip install 'ml-datarefinery[llm]'` |
 | End user with corruption-robustness extras | `pip install 'ml-datarefinery[corruptions]'` |
 | Developer (runtime venv via pyve) | `pyve run pip install -e .` |
-| Developer (testenv editable, required for CLI tests) | `pyve testenv run pip install -e .` |
-| Developer (dev tools) | `pyve testenv install -r requirements-dev.txt` |
+| Developer (testenv editable, required for CLI tests) | `pyve env run pip install -e .` |
+| Developer (dev tools) | `pyve env install -r requirements-dev.txt` |

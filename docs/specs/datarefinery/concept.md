@@ -103,8 +103,8 @@ Mapped to the value criteria above:
 ### Constraints
 **Technical (inherited project conventions):**
 
-- Python 3.12.x pinned; environments managed by `pyve` with micromamba backend.
-- `pyproject.toml` + `environment.yml`; `hatchling` build backend; editable install in dev; CLI via `pyproject.toml` entry points.
+- Python 3.12.x pinned (via `.tool-versions`/asdf); environments managed by `pyve` with a venv backend.
+- `pyproject.toml` + `requirements-dev.txt`; `hatchling` build backend; editable install in dev; CLI via `pyproject.toml` entry points.
 - Tooling: `ruff` (lint + format), `mypy --strict`, `pytest` with `pytest-cov`.
 - YAML configuration, single file per recipe, schema-versioned.
 - Parquet for tabular caches; content-addressed cache paths under a `data/` tree (`data/raw/`, `data/preprocessed/`, etc.).
@@ -134,7 +134,7 @@ Mapped to the value criteria above:
 ## Value Mapping
 **Tooling friction**:
   - `check` command verifies the environment (installation, dependencies, accelerator availability) so setup problems surface as a clear diagnosis instead of opaque pipeline failures.
-  - Inherited project conventions (`pyve` + micromamba, pinned Python 3.12.x, `pyproject.toml` + `environment.yml`) give a single reproducible install path; editable dev install plus entry-point-registered CLI removes ad-hoc PATH wiring.
+  - Inherited project conventions (`pyve` + venv backend, Python 3.12.x pinned via `.tool-versions`/asdf, `pyproject.toml` + `requirements-dev.txt`) give a single reproducible install path; editable dev install plus entry-point-registered CLI removes ad-hoc PATH wiring.
   - The deterministic `init` scaffolder produces a working starter recipe from raw inputs without requiring network access or LLM credentials, so a new project becomes runnable in minutes.
 
 **Exploration sprawl**:

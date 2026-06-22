@@ -8,20 +8,20 @@ For a high-level concept (why), see [`concept.md`](concept.md). For implementati
 
 ## Project Goal
 
-nbfoundry is a Marimo-based ML/DS notebook framework that lets practitioners author a single source notebook (or tree of notebooks) and compile it into two interchangeable artifacts: (1) a **standalone Python application** the author runs locally with first-class Apple Silicon / Metal acceleration, and (2) an **`ExerciseBlock`-compatible compiled exercise** that drops into a learningfoundry curriculum per `learningfoundry-dependency-spec.md`. The framework ships opinionated five-stage lifecycle templates (data exploration → data preparation → model experimentation → model optimization → model evaluation) and is a thin orchestration layer over modelfoundry's data and modeling primitives.
+nbfoundry is a Marimo-based ML/DS notebook framework that lets practitioners author a single source definition and compile it into two interchangeable artifacts: (1) a **standalone Python application** the author runs locally with first-class Apple Silicon / Metal acceleration, and (2) an **Option-C exercise dict** whose `notebook_source` field is itself a self-contained marimo notebook — emitted into a learningfoundry curriculum per `learningfoundry/consumer-dependency-spec.md`. LearningFoundry's SvelteKit `<ExerciseBlock>` component renders the banner (title / description / hints / environment); the learner runs the notebook locally via `learningfoundry launch <id>`. The framework ships opinionated five-stage lifecycle templates (data exploration → data preparation → model experimentation → model optimization → model evaluation) and is a thin orchestration layer over modelfoundry's data and modeling primitives.
 
 ### Core Requirements
 
-- **CR-1: Two-surface compiler.** Compile a single Marimo notebook source -- or a tree of related notebooks -- into both a standalone runnable Python app and an `ExerciseBlock`-compatible exercise dict from the same source, without rewrites.
+- **CR-1: Two-surface compiler.** Compile a single Marimo notebook source -- or a definition that splits its sections across sibling `code_file` references -- into both a standalone runnable Python app and an Option-C exercise dict (whose `notebook_source` is itself a marimo notebook) from the same source, without rewrites.
 - **CR-2: Five-stage lifecycle templates.** Provide opinionated, runnable Marimo notebook templates covering data exploration, data preparation, model experimentation, model optimization, and model evaluation. Templates are framework-agnostic at the workflow level; PyTorch / TensorFlow / Keras /Scikit-learn can each fill the modeling slots.
-- **CR-3: Exercise compilation API (BR-1).** Expose `compile_exercise(yaml_path, base_dir) -> dict` returning the JSON-serializable exercise artifact defined in `learningfoundry-dependency-spec.md` §BR-1, including `sections`, `expected_outputs`, `hints`, optional `submission`, and `environment`.
-- **CR-4: Exercise validation API (BR-2).** Expose `validate_exercise(yaml_path, base_dir) -> list[str]` returning an empty list on success or human-readable error strings on failure, including all BR-4 validator requirements.
+- **CR-3: Exercise compilation API (BR-1).** Expose `compile_exercise(yaml_path, base_dir) -> dict` returning the JSON-serializable Option-C wire shape defined in `learningfoundry/consumer-dependency-spec.md` §BR-1: `{type, source, ref, title, description, hints, environment, notebook_source}`. `notebook_source` is a self-contained `marimo.App()` module **as a string**; the learner runs it locally via `marimo edit` / `marimo run`.
+- **CR-4: Exercise validation API (BR-2).** Expose `validate_exercise(yaml_path, base_dir) -> list[str]` returning an empty list on success or human-readable error strings on failure (collect-all-errors semantics).
 - **CR-5: Error contract (BR-3).** Surface a typed `ExerciseError` carrying `file_path`, `message`, and optional structured `detail` (section index, field name).
-- **CR-6: Submission schema support (BR-4).** Accept, validate, and emit the optional `submission` block (`pass_threshold`, `fields[]` with `name`/`type`/`label`/`placeholder`/`expected`) so `ExerciseBlock` can produce a `score / maxScore / passed` payload.
+- **CR-6: Generated marimo notebook (Option C).** Generate the `notebook_source` field as a byte-stable, self-contained `marimo.App()` module from an `ExerciseDefinition` input. Cell layout: one header cell (banner markdown), then per-section one `mo.md(...)` cell and one code cell. All auto-generated markdown cells (the banner and the per-section header cells) are emitted with hidden code (`@app.cell(hide_code=True)`) since they are pure presentation; code cells are visible by default and hideable per-section via `hide_code`. Framework imports (e.g. `import torch`) appear only as **source text** inside emitted cells; the compiler imports no ML framework at build time (FR-7 / AC-10).
 - **CR-7: Standalone artifact.** The standalone app produced by the compiler must run locally with no server infrastructure -- a single command starts the Marimo notebook with the pinned environment.
-- **CR-8: Aggregate completion event.** A compiled exercise representing a tree of notebooks emits a single aggregate completion event back to learningfoundry, not one event per leaf notebook.
+- **CR-8: Multi-section exercises from one definition.** An exercise definition with multiple `sections` (each either inline `code` or a `code_file` reference) compiles to a single `notebook_source` module. The marimo notebook is the unit the learner runs; the `code_file` mechanism lets authors split section bodies across sibling files without producing multiple notebooks.
 - **CR-9: Modelfoundry orchestration boundary.** Internally delegate data prep, training, optimization, and evaluation primitives to modelfoundry through a clearly bounded interface so the two-surface compiler is insulated from modelfoundry's internal evolution.
-- **CR-10: Pinned Apple Silicon stack.** Ship a Pyve + micromamba environment specification pinned to Python 3.12.13 with Metal-compatible PyTorch / TensorFlow / Keras / Scikit-learn versions verified to accelerate on Apple Silicon out of the box.
+- **CR-10: Pinned Apple Silicon stack.** Ship Pyve + venv per-stage pip requirements (`requirements-base.txt` / `requirements-torch.txt` / `requirements-tf.txt`) targeting Python 3.12.13 with Metal-compatible PyTorch / TensorFlow / Keras / Scikit-learn verified to accelerate on Apple Silicon out of the box. (The Metal stack is fully pip-installable — `tensorflow-macos` / `tensorflow-metal` and torch's MPS build are PyPI wheels — so no conda/micromamba is required.)
 
 ### Operational Requirements
 
@@ -35,11 +35,11 @@ nbfoundry is a Marimo-based ML/DS notebook framework that lets practitioners aut
 
 ### Quality Requirements
 
-- **QR-1: Reproducibility.** A notebook authored on one Apple Silicon machine runs deterministically on another after a single `pyve` + micromamba environment install step.
+- **QR-1: Reproducibility.** A notebook authored on one Apple Silicon machine runs deterministically on another after a single `pyve init` + `pip install -r requirements-<stage>.txt` step.
 - **QR-2: Minimal runtime dependencies.** The runtime package depends only on what is needed to compile and run notebooks (Marimo, the pinned ML stack via the environment spec, and a small set of utility libraries). Dev / test dependencies are isolated to the testenv.
 - **QR-3: Cross-platform compile, Apple-Silicon-first runtime.** The compiler itself runs on macOS (Apple Silicon), Linux, and Windows. The runtime acceleration story is verified specifically on Apple Silicon for v1; CUDA-on-Linux is best-effort and not the primary target.
 - **QR-4: Type safety.** The public Python API (`compile_exercise`, `validate_exercise`, `ExerciseError`) is fully type-annotated and passes `mypy --strict` (or project-equivalent) on the public surface.
-- **QR-5: Schema fidelity to dependency spec.** The compiled exercise dict matches the schema in `learningfoundry-dependency-spec.md` §BR-1 / §BR-4 byte-for-byte at the contract level (key names, value types, optional vs. required).
+- **QR-5: Schema fidelity to dependency spec.** The compiled exercise dict matches the Option-C wire shape in `learningfoundry/consumer-dependency-spec.md` §BR-1 exactly at the contract level (key names, value types, optional vs. required). `notebook_source` content varies with the installed marimo version (the `__generated_with` string), so the contract is structural — not byte-for-byte — at the dict level; byte-stability within one toolchain installation is covered by TR-2.
 - **QR-6: Loose coupling to modelfoundry.** The internal modelfoundry interface is encapsulated behind a single integration module so the modelfoundry contract can be revised without touching the compiler core.
 
 ### Usability Requirements
@@ -47,12 +47,12 @@ nbfoundry is a Marimo-based ML/DS notebook framework that lets practitioners aut
 - **UR-1: CLI-first developer experience.** A practitioner can run `nbfoundry init <name>` to scaffold a five-stage notebook template and `nbfoundry compile` to produce a runnable standalone app, without prior knowledge of Marimo internals.
 - **UR-2: Library-first integration experience.** A learningfoundry curriculum author (or build script) can `from nbfoundry import compile_exercise` and use the function exactly as specified by §BR-1 with no additional setup beyond installing the package.
 - **UR-3: Newcomer ramp.** A topic enthusiast following the README can install nbfoundry, scaffold a template, and run a working data-and-model experiment within minutes on a fresh Apple Silicon machine.
-- **UR-4: Author/curriculum dual-purpose path.** A practitioner who has authored a personal experimentation notebook can wrap it with an exercise YAML and produce an `ExerciseBlock`-compatible artifact without modifying the underlying notebook source.
+- **UR-4: Author/curriculum dual-purpose path.** A practitioner who has authored a personal experimentation notebook can wrap it with an exercise YAML and produce an Option-C exercise dict (whose `notebook_source` LearningFoundry's launch CLI materializes for learners) without modifying the underlying notebook source.
 
 ### Non-goals
 
 - **NG-1: No Jupyter or iPython compatibility layer.** Marimo is the only supported substrate.
-- **NG-2: No Marimo WASM (Option A) for v1.** The v1 embed surface is Option B (static display) per the dependency spec; WASM is deferred.
+- **NG-2: No Marimo WASM (Option A) for v1.** The v1 LearningFoundry embed surface is Option C (banner + `learningfoundry launch` + notebook-emit) per the consumer dependency spec; WASM is deferred. The earlier Option-B (static display) and graded-submission paths were retired in v0.46.0 — see "Retired in v0.46.0" below.
 - **NG-3: No WYSIWYG notebook editor or authoring GUI.** Notebooks are authored directly in Marimo.
 - **NG-4: No managed cloud platform, hosted runtime, or vendor-specific deployment** (Colab / SageMaker / Vertex). nbfoundry is local-first.
 - **NG-5: No real-time multi-user collaboration on a notebook.**
@@ -69,11 +69,12 @@ nbfoundry is a Marimo-based ML/DS notebook framework that lets practitioners aut
 - One or more Marimo notebooks (pure-Python `.py` files), typically scaffolded from a five-stage lifecycle template. A compilation unit is either a single notebook or a tree of related notebooks rooted at an author-declared entry point.
 
 **Exercise definition (curriculum mode only):**
-- A YAML file conforming to the format in `learningfoundry-dependency-spec.md` §"Exercise Definition Format". Required top-level keys: `title`, `description`, `sections` (≥ 1). Optional: `expected_outputs`, `hints`, `submission`, `environment`.
-- `sections[].code_file` paths are resolved relative to `base_dir`.
+- A YAML file conforming to the Option-C `ExerciseDefinition` shape. Required top-level keys: `title`, `description`, `sections` (≥ 1). Optional: `hints` (markdown strings), `environment` (`{python_version, dependencies, setup_instructions}`).
+- Each `sections[i]` has `title`, `description`, and **exactly one** of `code` (inline Python snippet) or `code_file` (relative path). Optional `hide_code: true` emits that section's code cell as `@app.cell(hide_code=True)` so the learner sees the cell's output but not its source (default `false`).
+- `sections[].code_file` paths are resolved relative to `base_dir` (path-escape guarded; SC-3).
 
 **Environment manifest:**
-- A pinned Pyve + micromamba environment spec (Python 3.12.13, Metal-compatible PyTorch / TensorFlow / Keras / Scikit-learn). Authors do not edit this directly; they install via the documented one-step command.
+- Pinned Pyve + venv per-stage pip requirements (`requirements-base.txt` / `requirements-torch.txt` / `requirements-tf.txt`; Python 3.12.13, Metal-compatible PyTorch / TensorFlow / Keras / Scikit-learn). Authors do not edit these directly; they install via the documented one-step command.
 
 **CLI flags / arguments:**
 - `nbfoundry compile <notebook-or-dir> [--out <path>]`
@@ -89,20 +90,20 @@ nbfoundry is a Marimo-based ML/DS notebook framework that lets practitioners aut
 ## Outputs
 
 **Standalone artifact:**
-- A self-contained directory containing the compiled Marimo notebook(s), an `environment.yml` (or equivalent micromamba spec), and a launch entry point. Running the entry point starts the notebook locally; no server, no cloud dependency.
+- A self-contained directory containing the compiled Marimo notebook(s), the stage-appropriate pip requirements (`requirements-*.txt`), and a launch entry point. Running the entry point starts the notebook locally; no server, no cloud dependency.
 
-**Compiled exercise dict (BR-1):**
-- A JSON-serializable Python dict matching the §BR-1 schema:
+**Compiled exercise dict (BR-1, Option C):**
+- A JSON-serializable Python dict matching the §BR-1 Option-C wire shape:
   - `type`: `"exercise"`
   - `source`: `"nbfoundry"`
   - `ref`: original ref path (string)
-  - `status`: `"ready"` (real content) or `"stub"` (reserved; stubs are produced by learningfoundry's stub, not nbfoundry)
-  - `title`, `instructions` (HTML), `sections[]`, `expected_outputs[]`, `hints[]`
-  - `assets`: `list[str]` enumerating every relative asset path the dict references (BR-5); empty list when there are no binary assets
-  - `submission`: optional, conforming to §BR-4 (or `None`)
-  - `environment`: `{python_version, dependencies, setup_instructions}`
+  - `title`: string
+  - `description`: HTML (rendered from the YAML's `description` markdown)
+  - `hints`: `list[str]` (each item HTML, rendered from the corresponding YAML markdown hint; empty list when no hints)
+  - `environment`: `{python_version, dependencies, setup_instructions}` or `None`. When present, `dependencies` is guaranteed to include `marimo` (a `marimo>=<installed-version>` pin is appended if the author omitted it).
+  - `notebook_source`: a complete, self-contained `marimo.App()` module **as a string** — the `.py` notebook the learner runs locally via `marimo edit` / `marimo run`.
 
-For `expected_outputs[i]` of `type: image`, the compiled dict carries the **relative `path`** (verbatim from the YAML's `reference`) plus a required **`alt`** string for accessibility (WCAG 1.1.1). Asset bytes are **never** inlined — staging is learningfoundry's responsibility per BR-5.
+The compiled dict is **the entire LearningFoundry handoff**: the SvelteKit banner consumes `title` / `description` / `hints` / `environment`, and `learningfoundry launch <id>` reads `notebook_source` to materialize the runnable notebook on the learner's machine. There are no static-display fields and no separate asset list — the notebook renders its own outputs at run time.
 
 **Validation report:**
 - A list of human-readable error strings (`list[str]`); empty list signals "valid".
@@ -150,39 +151,34 @@ For `expected_outputs[i]` of `type: image`, the compiled dict carries the **rela
 - Output path exists and is non-empty -> abort unless `--force` is passed (deferred; v1 may simply error).
 - Missing referenced files inside a notebook tree -> error listing every missing reference.
 
-### FR-3: Exercise compilation (BR-1)
+### FR-3: Exercise compilation (BR-1, Option C)
 
-`compile_exercise(yaml_path, base_dir)` (and `nbfoundry compile-exercise` CLI) compiles an exercise YAML into the §BR-1 dict.
+`compile_exercise(yaml_path, base_dir)` (and `nbfoundry compile-exercise` CLI) compiles an exercise definition YAML into the §BR-1 Option-C wire shape.
 
 **Behavior:**
-1. Read the YAML file at `base_dir / yaml_path`.
-2. Validate required fields: `title`, `description`, ≥ 1 `sections` entry.
-3. Resolve every `sections[i].code_file` path relative to `base_dir`; inline its contents into `sections[i].code`. If both `code` and `code_file` are present, error.
-4. Render the top-level `description` and every `sections[i].description` from Markdown to HTML; place the top-level rendered HTML into `instructions`.
-5. For each `expected_outputs[i]` of `type: image`: validate that `reference` resolves to an existing file under `base_dir` (do **not** read its bytes), validate that `alt` is non-empty, and emit the relative path verbatim as `path` in the compiled dict (BR-5). For `type: text` / `type: table`, pass `content` through. Asset bytes never enter the compiled dict — staging is learningfoundry's responsibility.
-6. Enumerate every relative asset path referenced by the compiled dict into a top-level `assets: list[str]` field, sorted and de-duplicated (BR-5). Empty list when there are no binary assets.
-7. If `submission` is present, validate it per §BR-4 (see FR-5) and pass it through unchanged.
-8. Pass through `hints` and `environment` unchanged.
-9. Set `type: "exercise"`, `source: "nbfoundry"`, `ref` to the original ref path string, `status: "ready"`.
-10. Return the dict (CLI: serialize to JSON on stdout or `--out` path).
+1. Read the YAML file at `base_dir / yaml_path`; reject if the top-level value is not a mapping.
+2. Validate the input against the `ExerciseDefinition` schema (Pydantic, `extra="forbid"`): required fields `title`, `description`, ≥ 1 `sections` entry, each section is `code` XOR `code_file`. Optional `hints`, `environment`. Schema-shape failures raise the **first** `ExerciseError` (`validate_exercise` collects all — see FR-4).
+3. For every `sections[i].code_file`, resolve the path relative to `base_dir` via `paths.resolve_under` (raises on escape or missing file). The actual file contents are read at codegen time (FR-5), not here.
+4. Render the top-level `description` and each entry in `hints` from Markdown to HTML (the schema's `commonmark` / `gfm` flavor toggle applies).
+5. Call `codegen.generate(defn, base_dir=base_dir)` to produce `notebook_source` (FR-5).
+6. Call `codegen.ensure_marimo_pinned(defn.environment)` to surface `marimo` into `environment.dependencies` (FR-5); `None` when the author omitted `environment`.
+7. Assemble and return the 8-key dict: `{type: "exercise", source: "nbfoundry", ref: str(yaml_path), title, description, hints, environment, notebook_source}`. CLI serializes to JSON on stdout or `--out` path.
 
 **Edge Cases:**
 - Missing required field -> raise `ExerciseError` naming the field.
-- `code_file` path escapes `base_dir` -> raise `ExerciseError` for security.
+- `code_file` path escapes `base_dir` -> raise `ExerciseError` (SC-3).
 - Both `code` and `code_file` set on one section -> raise `ExerciseError`.
 - Markdown rendering failure -> raise `ExerciseError` with the section index.
-- Referenced image / data file missing -> raise `ExerciseError` naming the path.
-- `expected_outputs[i]` of `type: image` missing `alt` -> raise `ExerciseError` (BR-1 accessibility constraint).
-- Asset path that escapes `base_dir` (`..`, absolute) -> raise `ExerciseError` (path-escape rule, see SC-3).
-- Asset file exceeds the configured single-asset size limit -> raise `ExerciseError` unless overridden by `--allow-large-assets`.
+- Referenced `code_file` missing -> raise `ExerciseError` naming the path.
 - Network references in YAML -> rejected (no network reads).
+- Top-level value is a list, scalar, or non-mapping -> raise `ExerciseError`.
 
 ### FR-4: Exercise validation (BR-2)
 
 `validate_exercise(yaml_path, base_dir)` (and `nbfoundry validate` CLI) returns all errors found, as opposed to raising on the first.
 
 **Behavior:**
-1. Run all the FR-3 validation checks without inlining or rendering.
+1. Run the FR-3 schema-validation and path-escape checks without rendering markdown or generating notebook source.
 2. Collect every error as a human-readable string with file path and offending location.
 3. Return the list (empty if valid).
 4. CLI prints each error on its own line; exit `0` if empty, `1` otherwise.
@@ -190,40 +186,43 @@ For `expected_outputs[i]` of `type: image`, the compiled dict carries the **rela
 **Edge Cases:**
 - YAML parse error -> single error string with file path and parser message; return immediately.
 - File missing entirely -> single error string; return immediately.
+- Top-level value is not a mapping -> single error string; return immediately.
 
-### FR-5: Submission schema validation (BR-4)
+### FR-5: Notebook source generation (Option C)
 
-When the YAML carries a `submission` block, both FR-3 and FR-4 enforce §BR-4's validator requirements:
-
-**Behavior:**
-1. `pass_threshold` (if present) is a float in `[0.0, 1.0]`; reject otherwise.
-2. `fields` is non-empty when `submission` is present.
-3. Each field's `expected.type` is compatible with the field's `type`:
-   - `range` -> `number` only.
-   - `equals` -> `number` or `text`.
-   - `contains_all` -> `text` only.
-4. `weight` (if present) is a positive integer.
-5. Field `name` values are unique within one exercise.
-6. Required keys per rule are present (e.g., `range` has at least one of `min` / `max`; `equals` has `value`; `contains_all` has `values`).
-
-**Edge Cases:**
-- `pass_threshold` outside `[0.0, 1.0]` -> reject with the exact value.
-- `weight: 0` or negative -> reject.
-- Duplicate field names -> reject naming the duplicates.
-- `range` rule on `text` field (or vice versa) -> reject naming the field.
-
-### FR-6: Aggregate completion semantics for notebook trees
-
-A single exercise compilation unit may correspond to a tree of notebooks. The compiled artifact remains a single exercise dict, and the eventual completion event from `ExerciseBlock` is a single aggregate event.
+`codegen.generate(defn, base_dir)` turns an `ExerciseDefinition` into the `notebook_source` string. The sibling helper `codegen.ensure_marimo_pinned(env)` surfaces the marimo pin into the compiled `environment.dependencies`. Both are pure functions called by FR-3's pipeline.
 
 **Behavior:**
-1. Treat the tree's entry-point YAML as the canonical source for `title`, `instructions`, `sections`, `expected_outputs`, `hints`, and `submission`.
-2. When the YAML's `sections[i].code_file` references a notebook within the tree, inline a representative excerpt (or the full content, per template policy) into `sections[i].code`.
-3. The output dict shape is identical to a single-notebook exercise -- the tree structure is invisible to learningfoundry.
+1. Emit a module-level prelude: `import marimo`, `__generated_with = "<installed marimo version>"`, `app = marimo.App()`.
+2. Emit one header cell that does `import marimo as mo` and renders `# {title}\n\n{description}` via `mo.md(...)`. The cell exports `mo` so subsequent markdown cells reuse it via marimo's reactive arg-injection. The header cell is emitted with hidden code (`@app.cell(hide_code=True)`) — it is pure presentation, so the learner sees the rendered banner, not the boilerplate (Story I.h).
+3. For each section, emit two cells in order: a markdown cell (`mo.md('## {section.title}\n\n{section.description}')`) and a code cell whose body is the section's code (read from `code` inline or from `code_file` via `paths.resolve_under`). The markdown cell is emitted with hidden code (`@app.cell(hide_code=True)`) — like the banner, it is pure presentation (Story I.i). The code cell is hidden only when the section sets `hide_code: true`.
+4. Emit a footer: `if __name__ == "__main__": app.run()`.
+5. The marimo version (for `__generated_with` and the `marimo>=...` pin) is sourced at gen time via `importlib.metadata.version("marimo")`; never hard-coded.
+6. `ensure_marimo_pinned(env)`: if `env` is `None`, return `None`; otherwise append `marimo>=<installed>` to `env.dependencies` only when no existing marimo specifier (with or without extras or a version) is already present.
+
+**Invariants:**
+- **Byte-stable output.** Same input → byte-identical module string across runs and processes (no timestamps, no environment-derived values).
+- **Build-time purity (FR-7 / AC-10).** Framework imports (`torch`, `tensorflow`, `keras`, the HuggingFace stack, `optuna`, `modelfoundry`, `datarefinery`) appear only as **source text** inside emitted cells; `codegen.py` and the rest of the compile path import none of them.
+- **Valid Python.** The generated module parses with `ast.parse` and marimo loads it as a `marimo.App`.
 
 **Edge Cases:**
-- Tree references a file outside `base_dir` -> reject (FR-3 path-escape rule).
-- Tree references a notebook that fails to parse -> reject with the failing file and parse error.
+- Empty / whitespace-only code body in a section -> emit `pass` so the cell function stays syntactically valid.
+- `code_file` exists but is unreadable (OSError) -> raise `ExerciseError` naming the path.
+- `code_file` resolves outside `base_dir` -> raise `ExerciseError` (SC-3).
+
+### FR-6: Multi-section exercises from `code_file` references
+
+A single exercise definition may split its section bodies across sibling `.py` files via `sections[i].code_file`. The compiled artifact remains a single notebook (`notebook_source`); LearningFoundry never sees the on-disk file layout.
+
+**Behavior:**
+1. Treat the YAML as the canonical source for `title`, `description`, `hints`, `sections`, and `environment`.
+2. For every section that uses `code_file`, the codegen step (FR-5) reads the referenced file relative to `base_dir` and inlines its contents verbatim into one marimo code cell.
+3. The output dict shape is identical to a single-file exercise — the file split is invisible to LearningFoundry.
+
+**Edge Cases:**
+- `code_file` references a path outside `base_dir` -> reject (SC-3 path-escape).
+- `code_file` references a missing file -> reject naming the path (`paths.resolve_under` raises during validation; FR-3 step 3).
+- Multiple sections may share `code_file` references freely; no de-duplication is performed (the same file inlined twice yields two cells).
 
 ### FR-7: Modelfoundry orchestration boundary
 
@@ -252,6 +251,19 @@ Every source file produced by nbfoundry (templates, scaffolds, generated standal
 
 ---
 
+## Retired in v0.46.0
+
+Phase I migrated the LearningFoundry consumer contract from Option B (static display) to Option C (banner + `learningfoundry launch` + notebook-emit). The following requirements are retired in this release; they are listed here so cross-references from older commits, fixtures, or external docs resolve to a documented status rather than vanishing silently:
+
+- **BR-4 (graded submission schema).** Authors no longer declare a `submission` block with `pass_threshold` / `fields[]` / `expected` rules. Grading is parked in `stories.md` § "Future" as a future marimo-cell-output concern; if it returns, it will be via a new BR-* slot, not by reinstating BR-4.
+- **BR-5 (image asset enumeration).** Authors no longer declare `expected_outputs` with image references; the compiled dict no longer carries an `assets: list[str]` field; `--allow-large-assets` (CLI flag and `compile_exercise(..., allow_large_assets=...)` kwarg) is gone. The notebook renders its own outputs at run time; LearningFoundry no longer stages binary assets.
+- **`status: "ready"` / `instructions` / `sections[]` / `expected_outputs[]` / `submission` / `assets` wire fields.** All retired from the BR-1 dict in favor of the 8-key Option-C shape (see Outputs above and CR-3).
+- **`editable` per-section flag.** Cell editability is LearningFoundry's `ExerciseBlock` concern under Option C; `nbfoundry`'s `SectionModel` no longer accepts it.
+
+BR-1, BR-2, BR-3 are preserved (they describe the public API surface, not the wire shape) and their numbering is intentionally not renumbered to keep cross-references stable.
+
+---
+
 ## Configuration
 
 **Configuration precedence (high to low):**
@@ -269,10 +281,10 @@ default_out = "dist/"
 markdown_flavor = "commonmark"   # commonmark | gfm
 
 [environment]
-spec_path = "environment.yml"     # path to the pinned micromamba env, relative to base_dir
+spec_path = "requirements-base.txt"   # path to the pinned venv/pip requirements, relative to base_dir
 ```
 
-**Defaults if no config file:** `default_out = "dist/"`, `markdown_flavor = "commonmark"`, `spec_path = "environment.yml"`.
+**Defaults if no config file:** `default_out = "dist/"`, `markdown_flavor = "commonmark"`, `spec_path = "requirements-base.txt"`.
 
 **Environment variables:** none required for v1. (No telemetry, no network, no auth.)
 
@@ -280,14 +292,14 @@ spec_path = "environment.yml"     # path to the pinned micromamba env, relative 
 
 ## Testing Requirements
 
-- **TR-1: Unit-test coverage on the public API.** `compile_exercise`, `validate_exercise`, and `ExerciseError` have unit tests covering valid input, every validator rejection (including all §BR-4 cases), markdown rendering, code_file inlining, and path-escape protection.
-- **TR-2: Schema conformance fixture.** A representative "ready" exercise fixture round-trips through `compile_exercise` and matches a golden JSON file byte-for-byte (modulo path normalization).
-- **TR-3: CLI integration tests.** `init`, `compile`, `compile-exercise`, and `validate` are exercised end-to-end against a sample notebook tree and exercise YAML; tests assert exit codes and stdout/stderr contents.
+- **TR-1: Unit-test coverage on the public API.** `compile_exercise`, `validate_exercise`, and `ExerciseError` have unit tests covering valid input, every schema rejection (extra-field, code-XOR-code_file, empty sections, etc.), markdown rendering of `description` + `hints`, `code_file` inlining, and path-escape protection.
+- **TR-2: Compile is byte-stable.** A representative exercise fixture compiles twice within one process and across separate process invocations to byte-identical dicts (`notebook_source` included). Replaces the pre-Option-C "golden JSON byte-for-byte" check, which is incompatible with the marimo-version-derived `__generated_with` string in `notebook_source`.
+- **TR-3: CLI integration tests.** `init`, `compile`, `compile-exercise`, and `validate` are exercised end-to-end against the Option-C fixture corpus (`valid_minimal.yaml` plus a `tree/` fixture exercising `code_file`); tests assert exit codes, JSON output shape, and stdout/stderr contents. A `marimo`-loads-the-generated-module smoke imports `notebook_source` via `importlib.util` and asserts a top-level `marimo.App` instance (no ML deps, no subprocess).
 - **TR-4: Two-environment isolation.** Tests run via `pyve test` against the dev testenv; the runtime venv is not polluted with pytest / mypy / ruff.
-- **TR-5: Type checking.** `mypy` (project-equivalent strictness) passes on the public API surface.
+- **TR-5: Type checking.** `mypy --strict` passes on `src/nbfoundry/` (the typed public + internal surface).
 - **TR-6: Coverage target.** ≥ 85% line coverage on the `nbfoundry` package's public modules. Templates and generated artifacts are excluded from the coverage target.
 - **TR-7: Cross-platform compile smoke test.** CI runs `compile` and `compile-exercise` against the sample fixture on macOS (Apple Silicon) at minimum; Linux is a stretch target.
-- **TR-8: Validator contract tests.** Each §BR-4 validator requirement (threshold range, empty fields, mismatched rule/type, duplicate names, weight ≤ 0) has a dedicated test that asserts both the rejection and the human-readable error message.
+- **TR-8: Build-time purity (AC-10).** An authoritative AST scan asserts that every module on the build-time compile path (`schema.py`, `compiler.py`, `codegen.py`, `cli.py`, plus the `__init__.py` re-export surface and supporting modules) imports **none** of the forbidden ML packages (`torch`, `tensorflow`, `keras`, `transformers`, `datasets`, `peft`, `sentencepiece`, `tiktoken`, `optuna`, `modelfoundry`, `datarefinery`). Framework imports may only appear as **source text** inside the generated `notebook_source` cells.
 
 ---
 
@@ -306,7 +318,7 @@ spec_path = "environment.yml"     # path to the pinned micromamba env, relative 
 
 - **PE-1: `compile_exercise` latency.** ≤ 1 second for a typical single-notebook exercise on Apple Silicon (M-series), ≤ 5 seconds for a small notebook tree (≤ 10 notebooks). These are user-facing budgets, not micro-benchmark targets.
 - **PE-2: `validate_exercise` latency.** ≤ 500 ms for a typical single-notebook exercise.
-- **PE-3: Standalone artifact cold start.** Launching the compiled standalone app takes ≤ 10 seconds on a warm environment (dependencies already installed); first-time install of the pinned micromamba environment is bounded by the upstream stack and is not constrained here.
+- **PE-3: Standalone artifact cold start.** Launching the compiled standalone app takes ≤ 10 seconds on a warm environment (dependencies already installed); first-time install of the pinned venv/pip requirements is bounded by the upstream stack and is not constrained here.
 - **PE-4: GPU/Metal acceleration.** PyTorch / TensorFlow / Keras / Scikit-learn workloads in the standalone artifact use Metal acceleration on Apple Silicon out of the box; a smoke benchmark must show non-trivial GPU utilization on a small training step.
 - **PE-5: Compiler is offline.** Compile operations make zero network calls; latency is entirely local I/O bound.
 
@@ -317,10 +329,10 @@ spec_path = "environment.yml"     # path to the pinned micromamba env, relative 
 The project is "done" for v1 when **all** of the following hold:
 
 1. **AC-1: Public API matches the dependency spec.** `from nbfoundry import compile_exercise, validate_exercise, ExerciseError` works, and the symbols match the §BR-1 / §BR-2 / §BR-3 signatures exactly.
-2. **AC-2: BR-4 submission schema fully supported.** Every validator requirement in §BR-4 is enforced; a representative graded exercise fixture compiles to a dict that drives `ExerciseBlock`'s graded path correctly (verified against learningfoundry's component test suite).
-3. **AC-3: Two-surface compile.** A single notebook source compiles to both a runnable standalone app and an `ExerciseBlock`-compatible dict from the same source, demonstrated by an end-to-end fixture.
+2. **AC-2: Generated notebook is marimo-loadable.** The `notebook_source` field of a successfully compiled exercise parses as valid Python and loads under `marimo.App` (verified by an integration smoke that imports the generated module and asserts a top-level `marimo.App` instance).
+3. **AC-3: Two-surface compile.** A single source can produce both (a) a runnable standalone marimo notebook (via `nbfoundry compile`) and (b) an Option-C exercise dict whose `notebook_source` is itself a runnable marimo notebook (via `nbfoundry compile-exercise`), demonstrated by an end-to-end fixture.
 4. **AC-4: Five-stage templates ship and run.** All five lifecycle templates (data exploration, data preparation, model experimentation, model optimization, model evaluation) are scaffoldable via `nbfoundry init` and run end-to-end on Apple Silicon with Metal acceleration.
-5. **AC-5: Pinned environment reproduces.** A fresh `pyve` + micromamba install on a clean Apple Silicon machine produces a working PyTorch / TensorFlow / Keras / Scikit-learn stack on Python 3.12.13 with verifiable Metal acceleration.
+5. **AC-5: Pinned environment reproduces.** A fresh `pyve init` + `pip install -r requirements-<stage>.txt` on a clean Apple Silicon machine produces a working PyTorch / TensorFlow / Keras / Scikit-learn stack on Python 3.12.13 with verifiable Metal acceleration.
 6. **AC-6: CLI is usable.** `nbfoundry init`, `compile`, `compile-exercise`, and `validate` all run successfully against the documented sample, with concise stdout output and structured errors on stderr.
 7. **AC-7: Tests and types pass.** Unit + integration tests pass under `pyve test`; mypy passes on the public surface; coverage on public modules is ≥ 85%.
 8. **AC-8: License hygiene.** Every new source file in the package and templates carries the Apache-2.0 / Pointmatic SPDX header.

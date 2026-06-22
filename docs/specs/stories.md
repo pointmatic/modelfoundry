@@ -348,6 +348,120 @@ Root causes (both in the H.f.8/H.f.10 best-weights regression guards):
 
 ---
 
+## Subphase H-1: Advanced & Probabilistic Modeling Paths
+
+A consumer is building two classifiers on the same modeling grammar: an **image** classifier via transfer learning (pretrained encoder, optionally LoRA-adapted) and an **audio** classifier (spectrogram CNN) that produces calibrated predictive uncertainty via MC-dropout. This subphase implements [`advanced-and-probabilistic-requirements.md`](advanced-and-probabilistic-requirements.md) — **R1** (activate the deferred pretrained-encoder/LoRA path), **R2** (MC-dropout stochastic inference + predictive-uncertainty metric), **R3** (imbalance-aware evaluation) — all on the existing PyTorch plugin, under the existing `Plugin` protocol, stage model, and `ModelInstance` contract. The design rationale, open-question defaults (Q1 recipe-declared inference block + additive accessor; Q2 per-record columns in `predictions.parquet` + scalar in `metrics.json`; Q3 LoRA base+adapter-deltas; Q4 mean predictive entropy; Q5 huggingface source only) and out-of-scope are in [`subphase-h-1-advanced-probabilistic-plan.md`](subphase-h-1-advanced-probabilistic-plan.md).
+
+> **Release cadence (Subphase H-1).** Per-story bumps, continuing Phase H's convention. Feature stories (R1/R2 capability) take a **minor**; spike / test / example / doc stories carry **no bump**. Provisional sequence: H.i (spike, no bump) → H.j v0.11.0 → H.k v0.12.0 → H.l (tests, no bump) → H.m v0.13.0 → H.n v0.14.0 → H.o v0.15.0 → H.p (confirm + Hypothesis, no bump) → H.q (examples, no bump).
+>
+> **Relationship to the Phase I candidate (recipe architecture).** The recipe-architecture spike ([`phase-i-recipe-architecture-spike.md`](phase-i-recipe-architecture-spike.md)) is teed up but not yet a phase. Per the developer decision (2026-06-21), H-1 is built **now, on the current flat recipe model** — accepting that the new stochastic-inference recipe field (H.m) is **cache-invalidating** under the flat model (pre-prod OR-9: release-note only, no `schema_version` bump). That field becomes a non-issue once Phase I's segmented + no-implicit-defaults identity lands; H-1's recipe surface is transitional in that respect.
+
+---
+
+### Story H.i: Integration spike — `[huggingface]` boundary (offline encoder + peft LoRA forward pass) [Done]
+
+R1 introduces a new integration boundary (`transformers` + `peft` + an offline weights cache); per `plan_phase` Step 6 + the best-practices spike taxonomy, scope the uncertainty before committing the build. **Throwaway integration spike** — deliverable is documented decisions + a viable-path verdict, not production code. **Verdict: VIABLE — build H.j/H.k as planned.** Reproducer [scripts/experiments/hf_boundary_spike.py](../../scripts/experiments/hf_boundary_spike.py) + verdict writeup [scripts/experiments/hf_boundary_spike.md](../../scripts/experiments/hf_boundary_spike.md).
+
+- [x] **Stood up the `[huggingface]` extra alongside torch.** Authored [tests/integration/env/huggingface.txt](../../tests/integration/env/huggingface.txt) (`-e .[huggingface,pytorch]` + pytest tooling — the durable closure the pre-declared `[env.smoke-huggingface]` in `pyve.toml` referenced but lacked) and provisioned the `smoke-huggingface` venv. Confirmed coexistence: **`transformers 5.12.1`, `peft 0.19.1`, `evaluate 0.4.6`, `torch 2.12.1`** import in one venv. **Finding:** `transformers>=4.40` resolves to **5.x** (a major release with renamed internals) — feeds finding #2 below.
+- [x] **Offline warm-cache load proven (R1.5 / criterion 2).** `AutoModel.from_pretrained(id, local_files_only=True)` under `HF_HUB_OFFLINE=1` + `TRANSFORMERS_OFFLINE=1` loaded **with zero network** for both a warm text encoder (`sentence-transformers/all-MiniLM-L6-v2`, 22.7M params) and a seeded tiny ViT (`WinKawaks/vit-tiny-patch16-224`, 5.6M, the R1 image modality). Demonstrated the **seeding mechanism**: download once with network → reload offline. The env flags must be set *before* importing `transformers` (belt-and-suspenders over `local_files_only`).
+- [x] **peft LoRA forward → poolable features (R1.2/R1.3).** LoRA on named attention modules → forward yields `last_hidden_state` (text `(2, 8, 384)`; ViT `(2, 197, 192)` = CLS + 196 patches); mean-pool + MLP `Head` → `(batch, num_classes)`. Adapter is ~0.3–1.3% trainable params. **Finding (load-bearing for H.k):** `target_modules` names are **architecture- AND transformers-version-dependent** — BERT/MiniLM uses `query`/`value`; **ViT in transformers 5.x uses `q_proj`/`v_proj`** (renamed from 4.x). A wrong name = peft "target module not found" at materialize time; H.k should validate `target_modules` against the instantiated encoder's module names.
+- [x] **Q3 (LoRA serialization) — DECIDED: base + adapter-deltas separately.** peft's native `save_pretrained` writes **only** the adapter (~300 KB: `adapter_config.json` + `adapter_model.safetensors`, **no base weights**); `PeftModel.from_pretrained(AutoModel.from_pretrained(id, local_files_only=True), adapter_dir)` reproduces the forward output **byte-identically** (verified both encoders). The base is *referenced* (re-fetched from the warm cache), never re-persisted. Settles the §3-plan default with evidence; merged-weights serialization deferred as unnecessary.
+- [x] **Q5 (encoder-source breadth) — DECIDED: `huggingface` only; `source` stays a dispatch point.** `EncoderParams.source` already defaults to `"huggingface"`; a trivial `if source == "huggingface": AutoModel.from_pretrained(...) else: raise NotImplementedError` admits other sources later (timm, local) **without a recipe-contract change**. Implement HF only in H.j.
+- [x] **Verdict + write-up.** [hf_boundary_spike.md](../../scripts/experiments/hf_boundary_spike.md): VIABLE; the six task outcomes; the Q3/Q5 decisions; and the determinism caveats — **proven** forward/eval byte-identity on CPU under `use_deterministic_algorithms(True)`; **not yet exercised** (flagged for H.j/H.l): the training/backward pass (whether any HF/peft op hard-errors under deterministic mode), MPS determinism for HF ops, and seeding the HF-initialized submodules (ViT `pooler`, our `Head`) via `prepare_for_build(seed)`. Loading `AutoModel` from a `*ForImageClassification` checkpoint emits a benign LOAD REPORT (drops the pretrained classifier, fresh-inits the `pooler`) — H.j must seed those fresh tensors for reproducibility.
+
+**Version:** **no bump** (throwaway spike; no shipped `src/` change).
+
+**Spike artifacts (developer's call to keep/retire):** the reproducer + verdict under `scripts/experiments/` (outside `testpaths`), the durable `tests/integration/env/huggingface.txt` + provisioned `smoke-huggingface` env (needed by H.j–H.q), and the tiny-ViT seed in the warm HF cache (for H.j/H.l offline tests).
+
+### Story H.j: Activate the pretrained-encoder path — `Encoder` + `Pooling` + `Head` composition [Planned]
+
+R1.1 / R1.3 / R1.4 / R1.5, acceptance criteria 1–2. Replace the `_require_huggingface()` `NotImplementedError` stub ([architecture.py:475](../../src/modelfoundry/plugins/pytorch/architecture.py#L475)) with the real composition for the already-registered ops ([architecture.py:188](../../src/modelfoundry/plugins/pytorch/architecture.py#L188)). No LoRA yet (frozen/unfrozen full-encoder fine-tuning is a usable increment on its own).
+
+- [ ] Implement `Encoder` (`source: huggingface`, `id`, `frozen`) — instantiate by id from the offline warm cache; honor `frozen` to freeze/unfreeze encoder weights (R1.1).
+- [ ] Implement `Pooling` (`attention | mean | max`, `hidden_dim`) and `Head` (`mlp`, `hidden_dims`, `num_classes`, `id2label`) composed over pooled encoder features (R1.3).
+- [ ] Keep the **extras gate** intact (R1.4): plugins stay discoverable without `[huggingface]`; a recipe referencing these ops without the extra fails **at materialize time** (not load/validate) with the install pointer; recipe load/validate still succeed against the in-tree vocabulary.
+- [ ] Weight loading honors the **offline warm cache** (R1.5) — no run-time network; reproducible.
+- [ ] Seed weight-init/dropout via the existing `prepare_for_build(seed)` + `derive_seed` discipline (preserve the four determinism invariants; document any HF op that hard-errors under deterministic mode per the project-essentials contract).
+- [ ] An `Encoder`+`Pooling`+`Head` recipe materializes a `ModelInstance` end-to-end via `materialize()` with `[huggingface]` installed (criterion 1); offline-cache run reproduces (criterion 2).
+
+**Version:** **minor → v0.11.0** — new `src/` capability (activates a contracted-but-deferred architecture path). Not cache-invalidating for existing recipes (the ops were already in the registered vocabulary; no field default changes).
+
+### Story H.k: Activate `LoRA` adapters + serialization (round-trip from disk) [Planned]
+
+R1.2, acceptance criteria 1 & 9. Builds on H.j; applies low-rank adapters for parameter-efficient fine-tuning, serialized per the H.i decision.
+
+- [ ] Implement `LoRA` (`rank`, `alpha`, `dropout`, `target_modules`) over the encoder's named modules (R1.2).
+- [ ] Persist per the H.i/Q3 decision (base + adapter deltas separately) so `save_model`/`load_model` round-trip a LoRA instance; `model/architecture.json` + weights rebuild from disk alone.
+- [ ] Round-trip test: `ModelInstance.load(path).predict(X)` on a persisted LoRA instance reproduces predictions from disk with no external config (criterion 9).
+
+**Version:** **minor → v0.12.0** — new `src/` capability (LoRA fine-tuning + its serialization).
+
+### Story H.l: R1 contract, extras-gating & offline-cache tests [Planned]
+
+Acceptance criteria 1, 2, 8 (architecture-ops portion), 9. Lock the activated path against the plugin-contract conventions; test-only.
+
+- [ ] Plugin-contract assertions for the now-active `Encoder`/`LoRA`/`Pooling`/`Head` `OperationSpec`s incl. `requires_extras=("huggingface",)` (extend [test_pytorch_architecture.py](../../tests/unit/test_pytorch_architecture.py) and the `tests/plugin_contract/` suite).
+- [ ] **Extras-gating both ways:** with the extra absent, materialize raises the gated error with the install pointer while load/validate still succeed; with it present, materialize succeeds. (Requires a test path that exercises the no-extra case — e.g. a monkeypatched import or a dedicated env.)
+- [ ] Offline-warm-cache reproducibility test (no network) (criterion 2).
+- [ ] Disk round-trip integration test for a pretrained/LoRA instance (criterion 9).
+
+**Version:** **no bump** (test-only).
+
+### Story H.m: MC-dropout stochastic-inference surface — T seeded active-dropout passes [Planned]
+
+R2.1 / R2.4, acceptance criteria 4–5. The one genuine protocol/`ModelInstance` extension. Per Q1, a **recipe-declared inference block** the plugin honors internally; default single-pass `predict()`/`predict_proba()` semantics unchanged when not requested.
+
+- [ ] Add the recipe-declared stochastic-inference mode (author-declared `T`, target 20–50) — a new recipe field (see the §3 plan cache note; flat-model cache-invalidating, pre-prod release-note only).
+- [ ] Keep `Dropout` **active at inference** and run **T forward passes** (R2.1), replacing the unconditional `.eval()` single-pass only on this path ([persistence.py:123](../../src/modelfoundry/plugins/pytorch/persistence.py#L123)).
+- [ ] Seed the T passes deterministically: extend the dropout discipline with a per-pass salt, `derive_seed(master_seed, "dropout", pass_index_bytes)`, so the T-pass sequence is reproducible (R2.4); preserve the four determinism invariants.
+- [ ] Default path unchanged: a recipe not requesting stochastic inference runs single-pass with dropout inactive, point estimates (criterion 5).
+- [ ] Determinism test: re-running the same `(recipe, data, seed, variant)` yields byte-identical per-pass outputs (extends `tests/integration/test_determinism.py`), subject to documented caveats (criterion 4).
+
+**Version:** **minor → v0.13.0** — new `src/` inference capability. **Cache-invalidating** under the flat recipe model (new field perturbs canonical bytes of recipes that omit it): pre-prod OR-9 — release-note + re-materialize, **no `schema_version` bump**; dissolves under the Phase I segmented identity.
+
+### Story H.n: MC aggregation + uncertainty persistence + `ModelInstance` accessor [Planned]
+
+R2.2 / R2.3, acceptance criterion 3. Aggregate the T passes and surface the result from disk alone.
+
+- [ ] Aggregate the T passes into (a) **mean class probabilities** as the point prediction and (b) a **predictive-uncertainty estimate** (predictive entropy and/or variance across passes) (R2.2).
+- [ ] Persist per Q2: per-record uncertainty **columns added to `evaluation/predictions.parquet`** (additive), recoverable from the persisted instance (R2.3).
+- [ ] Additive `ModelInstance` accessor (e.g. `predict_proba_mc` / a `predictions` accessor surfacing uncertainty) that reconstructs mean prediction + uncertainty from disk with no external config (criterion 3).
+- [ ] Round-trip test: load a persisted MC-dropout instance and reproduce mean prediction + uncertainty from disk (criterion 9, MC portion).
+
+**Version:** **minor → v0.14.0** — new `src/` aggregation + persistence + accessor surface.
+
+### Story H.o: Predictive-uncertainty metric + MC-aggregated calibration [Planned]
+
+R2.5 / R3.2, acceptance criterion 6 (uncertainty + calibration portion). Make uncertainty quality reportable.
+
+- [ ] Add the **predictive-uncertainty metric** (mean predictive entropy per split, Q4) to `_compute_metrics` / `metrics.json` ([evaluation.py:145](../../src/modelfoundry/plugins/pytorch/evaluation.py#L145)) alongside the existing calibration outputs (R2.5).
+- [ ] For the probabilistic model, compute `ece` / `calibration_curve` **over the MC-aggregated mean probabilities** (R2.2), so calibration reflects the stochastic predictor actually deployed (R3.2).
+- [ ] Test: `metrics.json` carries the uncertainty metric; calibration is computed over MC means for a stochastic recipe (criterion 6).
+
+**Version:** **minor → v0.15.0** — new `src/` metric + calibration routing.
+
+### Story H.p: Confirm first-class imbalance-aware evaluation + cache-identity Hypothesis tests [Planned]
+
+R3.1 / R3.3, acceptance criteria 6 (imbalance portion), 7, 8 (Hypothesis portion). The R3 vocabulary already exists ([evaluation.py:145](../../src/modelfoundry/plugins/pytorch/evaluation.py#L145)); `cross_entropy_class_weighted` already fits-on-train and persists `training/class_weights.json` ([trainer.py:309](../../src/modelfoundry/plugins/pytorch/trainer.py#L309)). This story elevates them to first-class and confirms coverage; primarily confirmation + tests.
+
+- [ ] Confirm `macro_f1`, `per_class_f1`, `per_class_precision`, `per_class_recall`, `confusion_matrix` are produced per split as first-class recipe-selectable metrics, not accuracy alone (R3.1, criterion 6); surface them in the `init` scaffolder's example recipe defaults if not already.
+- [ ] Confirm `cross_entropy_class_weighted` (`train | train_inverse_frequency | effective_number`) fits weights on the **train split only**, persists them, and validation rejects fitting on non-train splits (R3.3, criterion 7).
+- [ ] **Hypothesis cache-identity tests** with the new ops/field present (criterion 8): cosmetic recipe edits → no `recipe_hash` change; semantic edits → change. Pin a representative recipe's canonical hash.
+
+**Version:** **no bump** (confirmation + tests; scaffolder example tweak is doc/config-shaped — if it ships an `src/` default change it folds into the nearest preceding minor).
+
+### Story H.q: Consumer-facing example recipes + docs for both paths [Planned]
+
+Round out the deliverable with runnable examples referencing fixtures: an advanced (pretrained-encoder/LoRA image) recipe and a probabilistic (MC-dropout audio) recipe, plus README/docs pointers. Doc/example only.
+
+- [ ] Example recipe for the advanced path (Encoder + LoRA + Pooling + Head), with the offline-warm-cache note.
+- [ ] Example recipe for the probabilistic path (MC-dropout inference + imbalance-aware eval + class-weighted loss).
+- [ ] Docs: where uncertainty is persisted, how to read it from `ModelInstance`, and the `[huggingface]` extras-install pointer.
+
+**Version:** **no bump** (examples + docs; no `src/` change).
+
+---
+
 ## Future
 
 <!--
@@ -368,7 +482,7 @@ Story H.f.9 had some leftover tasks that were out of scope, but are relevant to 
 
 ### Close follow-on cycles (deferred from the pre-production release)
 
-- **`[huggingface]` plugin end-to-end** — transformers + peft + evaluate-based plugin honouring the same `Plugin` Protocol. Architecture vocabulary extends with `Encoder` (HF model id), `LoRA` (peft), `Pooling`, `Head` per the optional pretrained-encoder path. Pretrained-weight cache management (`~/.cache/huggingface/` or `HF_HOME` override) lives in the plugin's docs, not in `project-essentials.md`.
+- ~~**`[huggingface]` plugin end-to-end**~~ — **pulled into active scope: Subphase H-1 (R1, stories H.i–H.l).** Activates the deferred `Encoder`/`LoRA`/`Pooling`/`Head` path on the existing PyTorch plugin (not a separate plugin) per [`advanced-and-probabilistic-requirements.md`](advanced-and-probabilistic-requirements.md). Pretrained-weight cache management (`~/.cache/huggingface/` or `HF_HOME` override) lives in the plugin's docs, not in `project-essentials.md`.
 - **`[keras]` plugin end-to-end** — TensorFlow + Keras 3 backend. Likely shares the metric implementations from `plugins/sklearn/metrics.py` for ECE / calibration_curve.
 - **`[llm]` extra implementation** — `init --llm-assist` flag routed through `lmentry` for interpretive baseline-model recommendations. Namespace claimed in `pyproject.toml`; no implementation in the pre-production series. Lands as its own FR with its own acceptance criteria.
 - **Additional sklearn baselines** — C.m ships a working `MLPClassifier` baseline (Subphase C-1); extend with RandomForest / GBM baselines for CIFAR-10 (reusing the C.f feature-flattening + normalization path).

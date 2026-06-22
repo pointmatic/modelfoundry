@@ -64,7 +64,7 @@ This project **delivers ML/DS notebooks as modular Marimo-based building blocks 
 
 ### Solution Statement
 
-nbfoundry is a Marimo-based notebook framework built specifically for ML/DS work, sitting as a thin orchestration layer over modelfoundry's data and modeling primitives. Authors begin with opinionated notebook templates following a five-stage lifecycle (data exploration → data preparation → model experimentation → model optimization → model evaluation), and nbfoundry compiles each notebook (or tree of notebooks) into two interchangeable artifacts: a **standalone Python application** the author runs locally with full GPU/Metal acceleration, and an **`ExerciseBlock`-compatible compiled artifact** that drops into a learningfoundry curriculum per `learningfoundry-dependency-spec.md`. Because Marimo provides pure-Python notebooks with reactive cells and clean embedding semantics — no iPython kernel, no hidden state, no Jupyter cruft — the same source can serve a practitioner experimenting on a real model or a learner inside a structured course, extending the value of every notebook the author writes.
+nbfoundry is a Marimo-based notebook framework built specifically for ML/DS work, sitting as a thin orchestration layer over modelfoundry's data and modeling primitives. Authors begin with opinionated notebook templates following a five-stage lifecycle (data exploration → data preparation → model experimentation → model optimization → model evaluation), and nbfoundry compiles each definition (single inline source or sections split across `code_file` references) into two interchangeable artifacts: a **standalone Python application** the author runs locally with full GPU/Metal acceleration, and an **Option-C exercise dict** whose `notebook_source` field is itself a self-contained marimo notebook — delivered into a learningfoundry curriculum per `learningfoundry/consumer-dependency-spec.md`. LearningFoundry's SvelteKit `<ExerciseBlock>` component renders a banner (title / description / hints / environment) and the learner runs the notebook locally via `learningfoundry launch <id>`. Because Marimo provides pure-Python notebooks with reactive cells and clean embedding semantics — no iPython kernel, no hidden state, no Jupyter cruft — the same source can serve a practitioner experimenting on a real model or a learner inside a structured course, extending the value of every notebook the author writes.
 
 ### Goals
 
@@ -72,7 +72,7 @@ nbfoundry is a Marimo-based notebook framework built specifically for ML/DS work
 - **Lower the ramp for newcomers** by shipping opinionated five-stage lifecycle templates that work end-to-end out of the box on Apple Silicon.
 - **One source, two surfaces**: every nbfoundry notebook is simultaneously a standalone tool and an embeddable curriculum exercise — no rewrite required when purpose shifts.
 - **Replace Jupyter's brittle execution model** with Marimo's reactive, embeddable, pure-Python substrate.
-- **First-class GPU/Metal acceleration** through a verified Pyve + micromamba + Python 3.12.13 stack with Metal-compatible PyTorch / TensorFlow / Keras.
+- **First-class GPU/Metal acceleration** through a verified Pyve + venv + Python 3.12.13 stack with Metal-compatible PyTorch / TensorFlow / Keras.
 - **Honor the learningfoundry contract** so nbfoundry slots cleanly into the broader ecosystem as the canonical ML/DS exercise provider, with `<ExerciseBlock>` as one (of several) flavors of experiential learning object.
 - **Stay loosely coupled to modelfoundry** so the heavy ML lifting stays where it belongs while nbfoundry remains a thin, opinionated orchestration layer.
 
@@ -80,13 +80,12 @@ nbfoundry is a Marimo-based notebook framework built specifically for ML/DS work
 
 **In scope:**
 
-- Python library and CLI that compile authored Marimo notebooks (single notebook or tree) into two artifacts: a standalone runnable app and an `ExerciseBlock`-compatible compiled exercise dict per the dependency spec.
+- Python library and CLI that compile an authored exercise definition (single inline source or sections split across `code_file` references) into two artifacts: a standalone runnable Marimo app and an Option-C exercise dict (`{type, source, ref, title, description, hints, environment, notebook_source}`) per the consumer dependency spec.
 - Opinionated five-stage notebook templates covering the model lifecycle: **data exploration, data preparation, model experimentation, model optimization, model evaluation**.
 - Thin orchestration interface to modelfoundry for data prep, training, optimization, and evaluation primitives.
-- v1 static-display embed path (Option B from `learningfoundry-dependency-spec.md`): rendered sections, expected outputs, hints, optional `submission` schema with paste-in fields and client-side grading per BR-4.
-- Aggregate completion event back to learningfoundry — one response regardless of whether the embedded artifact is a single notebook or a tree.
-- Pyve + micromamba + Python 3.12.13 environment with Metal-compatible PyTorch / TensorFlow / Keras pinned for first-class Apple Silicon support.
-- Validation API (`compile_exercise`, `validate_exercise`, `ExerciseError`) per dependency-spec BR-1 / BR-2 / BR-3.
+- v1 LearningFoundry embed path (Option C from `learningfoundry/consumer-dependency-spec.md`): the SvelteKit `<ExerciseBlock>` renders a banner (title / description / hints / environment); the learner runs the notebook locally via `learningfoundry launch <id>`, which materializes `notebook_source` and spawns `marimo edit` against it. Graded submission and image-asset staging (Option-B BR-4 / BR-5) are retired in v0.46.0 — see [`features.md`](features.md) § "Retired in v0.46.0".
+- Pyve + venv + Python 3.12.13 environment with Metal-compatible PyTorch / TensorFlow / Keras pinned for first-class Apple Silicon support.
+- Validation API (`compile_exercise`, `validate_exercise`, `ExerciseError`) per consumer-dependency-spec BR-1 / BR-2 / BR-3.
 
 **Out of scope (deferred or owned elsewhere):**
 
@@ -103,9 +102,9 @@ nbfoundry is a Marimo-based notebook framework built specifically for ML/DS work
 
 - **License and copyright**: Apache-2.0; copyright Pointmatic. SPDX identifier `Apache-2.0` on all new source files.
 - **Python version**: 3.12.13 specifically, for verified Metal-acceleration compatibility with PyTorch / TensorFlow / Keras.
-- **Environment manager**: Pyve + micromamba is the required runtime stack — no pip-only or conda-only alternatives.
+- **Environment manager**: Pyve + venv is the required runtime stack. The Metal ML stack is fully pip-installable on Apple Silicon (`tensorflow-macos` / `tensorflow-metal` and torch's MPS build are PyPI wheels), so no conda/micromamba is needed anywhere — neither the dev envs nor the learner-facing scaffolded stack.
 - **Notebook substrate**: Marimo only. No Jupyter or iPython compatibility layer.
-- **v1 embed contract**: locked to `docs/specs/learningfoundry-dependency-spec.md` — `compile_exercise` / `validate_exercise` / `ExerciseError`, `<ExerciseBlock>` props and events, BR-4 submission schema and scoring formula.
+- **v1 embed contract**: locked to `docs/specs/learningfoundry/consumer-dependency-spec.md` (Option C) — `compile_exercise` / `validate_exercise` / `ExerciseError` (BR-1/BR-2/BR-3), the 8-key wire shape with `notebook_source`, and LearningFoundry's `<ExerciseBlock>` banner + `learningfoundry launch <id>` flow. BR-4 (graded submission) and BR-5 (image-asset enumeration) were retired in v0.46.0 with the Option-B → Option-C migration.
 - **Static deployability**: the standalone artifact must run locally without any server infrastructure.
 - **Apple Silicon Metal**: first-class acceleration target, not a footnote.
 - **Modelfoundry interface — TBD**: the precise contract between nbfoundry and modelfoundry is unresolved at concept stage. nbfoundry's internal design must stay loosely coupled enough to absorb that interface when defined, without rewrites to the two-surface compiler.
@@ -115,16 +114,16 @@ nbfoundry is a Marimo-based notebook framework built specifically for ML/DS work
 ## Pain Point → Solution Mapping
 
 **tool_friction_over_modeling**:
-  - The Pyve + micromamba + Python 3.12.13 stack is pinned and reproducible, so practitioners stop fighting environments and kernels.
+  - The Pyve + venv + Python 3.12.13 stack is pinned and reproducible, so practitioners stop fighting environments and kernels.
   - Opinionated five-stage lifecycle templates absorb the boilerplate (data loaders, training loops, evaluation harnesses), letting practitioners focus on the modeling decisions that matter.
 
 **steep_newcomer_ramp**:
   - The five-stage templates give newcomers a working end-to-end scaffold from the first run — they change parameters and experiment, not assemble infrastructure.
-  - When the same notebook is consumed inside a learningfoundry course, the curriculum author layers instructions, hints, and expected outputs on top of it, providing guided context without modifying the underlying ML scaffolding.
+  - When the same notebook is consumed inside a learningfoundry course, the curriculum author layers banner metadata (title, description, hints) on top of it, providing guided context without modifying the underlying ML scaffolding.
 
 **infrastructure_bias**:
   - nbfoundry runs locally on the practitioner's machine with no Colab / SageMaker / Vertex assumption built in.
-  - Compiled artifacts are self-contained: a standalone app, or an `ExerciseBlock` dict the host SvelteKit app renders without server infrastructure.
+  - Compiled artifacts are self-contained: a standalone marimo app, or an Option-C exercise dict whose `notebook_source` is itself a runnable marimo notebook materialized on the learner's machine by `learningfoundry launch`. No server infrastructure either way.
 
 **framework_lock_in**:
   - The five-stage lifecycle is a *workflow contract*, not a framework binding — PyTorch, TensorFlow, and Keras can each fill the same slots without rewriting the surrounding scaffolding.
@@ -132,18 +131,18 @@ nbfoundry is a Marimo-based notebook framework built specifically for ML/DS work
 
 **jupyter_brittleness**:
   - Marimo replaces Jupyter as the substrate: pure Python files, reactive cells, no iPython kernel, no hidden state, no out-of-order execution mysteries.
-  - Notebooks are reproducible from a clean environment via the pinned micromamba stack — what runs on the author's machine runs on the learner's machine.
+  - Notebooks are reproducible from a clean environment via the pinned venv/pip stack — what runs on the author's machine runs on the learner's machine.
 
 **no_embeddable_modularity**:
-  - Marimo's clean embedding semantics let nbfoundry compile a single source into both a standalone app and an `<ExerciseBlock>`-compatible artifact, with the same source reusable across both surfaces.
+  - Marimo's clean module shape lets nbfoundry compile a single source into both a standalone app and an Option-C exercise dict whose `notebook_source` is itself a marimo module — the same source reusable across both surfaces.
   - The two-surface architecture is built into the compiler from day one, not bolted on later — mirrors the proven Quizazz pattern.
 
 **metal_hostility**:
-  - The pinned Pyve + micromamba + Python 3.12.13 stack provides verified Metal-accelerated PyTorch / TensorFlow / Keras out of the box.
+  - The pinned Pyve + venv + Python 3.12.13 stack provides verified Metal-accelerated PyTorch / TensorFlow / Keras out of the box.
   - Apple Silicon developers are a primary target audience, not an edge case.
 
 **modeling_content_conflation**:
-  - The dependency spec's `ExerciseBlock` schema cleanly separates instructional metadata (instructions, hints, sections, optional `submission` block) from the underlying notebook content, enforced by `compile_exercise`.
+  - The Option-C contract cleanly separates instructional metadata (banner: `title` / `description` / `hints` / `environment`) from the runnable notebook content (`notebook_source`), enforced by `compile_exercise`.
   - A practitioner can author the ML notebook first and have a curriculum author add the instructional layer later, without either side bleeding into the other.
 
 **no_dual_purpose_authoring**:
