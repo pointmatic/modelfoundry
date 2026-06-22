@@ -75,8 +75,19 @@ def _good_dict() -> dict[str, Any]:
             "learning_rate": 0.001,
             "schedule": {"op": "reduce_on_plateau", "monitor": "val_loss"},
         },
-        "Training": {"max_epochs": 1, "batch_size": 1},
-        "Evaluation": {"splits": ["test"], "primary_metric": "accuracy", "metrics": ["accuracy"]},
+        "Training": {
+            "max_epochs": 1,
+            "batch_size": 1,
+            "device": "cpu",
+            "precision": "fp32",
+            "checkpoint_cadence": 1,
+        },
+        "Evaluation": {
+            "splits": ["test"],
+            "primary_metric": "accuracy",
+            "metrics": ["accuracy"],
+            "calibration_bins": 10,
+        },
         "Visualizations": [{"op": "training_curves", "mode": "reporting"}],
     }
 

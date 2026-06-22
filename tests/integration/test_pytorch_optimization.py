@@ -156,6 +156,7 @@ def _recipe() -> ModelRecipe:
             max_epochs=4,
             batch_size=2,
             device="cpu",
+            precision="fp32",
             checkpoint_cadence=1,
             early_stopping=EarlyStoppingSpec(monitor="val_loss", mode="min", patience=2),
         ),
@@ -171,7 +172,9 @@ def _recipe() -> ModelRecipe:
                 "Training.early_stopping.patience": SearchSpaceSpec(int=[2, 4]),
             },
         ),
-        Evaluation=EvaluationSpec(splits=["val"], primary_metric="accuracy", metrics=["accuracy"]),
+        Evaluation=EvaluationSpec(
+            splits=["val"], primary_metric="accuracy", metrics=["accuracy"], calibration_bins=10
+        ),
     )
 
 

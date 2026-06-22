@@ -257,6 +257,7 @@ def _recipe(
             max_epochs=max_epochs,
             batch_size=2,
             device="cpu",
+            precision="fp32",
             checkpoint_cadence=1,
             early_stopping=(
                 EarlyStoppingSpec(monitor=monitor, mode=mode, patience=patience)
@@ -264,7 +265,9 @@ def _recipe(
                 else None
             ),
         ),
-        Evaluation=EvaluationSpec(splits=["val"], primary_metric="accuracy", metrics=["accuracy"]),
+        Evaluation=EvaluationSpec(
+            splits=["val"], primary_metric="accuracy", metrics=["accuracy"], calibration_bins=10
+        ),
     )
 
 

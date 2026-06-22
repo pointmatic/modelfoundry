@@ -190,6 +190,9 @@ def _good_recipe_dict() -> dict[str, Any]:
         "Training": {
             "max_epochs": 3,
             "batch_size": 32,
+            "device": "auto",
+            "precision": "fp32",
+            "checkpoint_cadence": 1,
             "early_stopping": {"monitor": "val_loss", "mode": "min", "patience": 2},
         },
         "Optimization": {
@@ -208,6 +211,7 @@ def _good_recipe_dict() -> dict[str, Any]:
             "primary_metric": "macro_f1",
             "metrics": ["macro_f1", "accuracy", "ece"],
             "comparison": {"baseline_model_id": "hf://example/baseline"},
+            "calibration_bins": 10,
         },
         "Visualizations": [{"op": "training_curves", "mode": "reporting"}],
         "OutputExpectations": [{"metric": "accuracy", "split": "val", "op": "gte", "value": 0.5}],

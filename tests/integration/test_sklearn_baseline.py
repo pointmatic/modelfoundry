@@ -120,7 +120,9 @@ def _build_instance(tmp_path: Path) -> DataRefineryInstance:
 
 
 def _training() -> TrainingSpec:
-    return TrainingSpec(max_epochs=1, batch_size=4, device="cpu")
+    return TrainingSpec(
+        max_epochs=1, batch_size=4, device="cpu", precision="fp32", checkpoint_cadence=1
+    )
 
 
 def _evaluation() -> EvaluationSpec:
@@ -128,6 +130,7 @@ def _evaluation() -> EvaluationSpec:
         splits=["val", "test"],
         primary_metric="accuracy",
         metrics=["accuracy", "macro_f1", "confusion_matrix", "ece", "calibration_curve"],
+        calibration_bins=10,
     )
 
 

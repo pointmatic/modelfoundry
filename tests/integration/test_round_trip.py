@@ -54,11 +54,18 @@ def _write_recipe(path: Path) -> Path:
         },
         "Loss": {"op": "cross_entropy"},
         "Optimizer": {"op": "adamw", "learning_rate": 0.01},
-        "Training": {"max_epochs": 1, "batch_size": 4, "device": "cpu"},
+        "Training": {
+            "max_epochs": 1,
+            "batch_size": 4,
+            "device": "cpu",
+            "precision": "fp32",
+            "checkpoint_cadence": 1,
+        },
         "Evaluation": {
             "splits": ["val"],
             "primary_metric": "accuracy",
             "metrics": ["accuracy", "macro_f1"],
+            "calibration_bins": 10,
         },
     }
     path.write_text(yaml.safe_dump(recipe), encoding="utf-8")

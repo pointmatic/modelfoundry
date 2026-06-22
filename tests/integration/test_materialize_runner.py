@@ -152,12 +152,15 @@ def _recipe(
         },
         Loss=LossSpec(op="cross_entropy"),
         Optimizer=OptimizerSpec(op="adamw", learning_rate=0.01),
-        Training=TrainingSpec(max_epochs=1, batch_size=4, device="cpu"),
+        Training=TrainingSpec(
+            max_epochs=1, batch_size=4, device="cpu", precision="fp32", checkpoint_cadence=1
+        ),
         Optimization=optimization,
         Evaluation=EvaluationSpec(
             splits=["val"] if eval_splits is None else eval_splits,
             primary_metric="accuracy",
             metrics=["accuracy", "macro_f1", "confusion_matrix"],
+            calibration_bins=10,
         ),
         Visualizations=visualizations or [],
         OutputExpectations=expectations or [],
@@ -223,6 +226,7 @@ def test_materialize_with_optimization(tmp_path: Path) -> None:
             sampler="tpe",
             pruner="none",
             n_trials=2,
+            baseline_trial="enqueue_recipe_defaults",
             max_epochs_per_trial=1,
             search_space={"Optimizer.learning_rate": SearchSpaceSpec(log_uniform=[1e-4, 1e-2])},
         ),

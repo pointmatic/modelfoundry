@@ -195,7 +195,9 @@ def test_iteration_is_invariant_to_num_workers(tmp_path: Path) -> None:
 
     def collect(num_workers: int) -> tuple[Any, list[int]]:
         ds = DataRefineryDataset(wrapped, "train")
-        spec = TrainingSpec(max_epochs=1, batch_size=2)
+        spec = TrainingSpec(
+            max_epochs=1, batch_size=2, device="cpu", precision="fp32", checkpoint_cadence=1
+        )
         images: list[Any] = []
         labels: list[int] = []
         for batch_images, batch_labels in build_dataloader(
@@ -256,10 +258,11 @@ def test_iteration_invariant_to_num_workers_with_augmentations(tmp_path: Path) -
     def collect(num_workers: int) -> Any:
         aug = compose_augmentations(ops, master_seed=7)
         ds = DataRefineryDataset(wrapped, "train", augmentations=aug)
-        spec = TrainingSpec(max_epochs=1, batch_size=2)
+        spec = TrainingSpec(
+            max_epochs=1, batch_size=2, device="cpu", precision="fp32", checkpoint_cadence=1
+        )
         images = [
-            batch
-            for batch, _ in build_dataloader(ds, spec, master_seed=7, num_workers=num_workers)
+            batch for batch, _ in build_dataloader(ds, spec, master_seed=7, num_workers=num_workers)
         ]
         return torch.cat(images)
 

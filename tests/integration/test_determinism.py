@@ -62,11 +62,14 @@ def _recipe_dict() -> dict[str, Any]:
             "max_epochs": 1,
             "batch_size": 4,
             "device": "cpu",
+            "precision": "fp32",
+            "checkpoint_cadence": 1,
         },
         "Evaluation": {
             "splits": ["val"],
             "primary_metric": "accuracy",
             "metrics": ["accuracy", "macro_f1"],
+            "calibration_bins": 10,
         },
     }
 

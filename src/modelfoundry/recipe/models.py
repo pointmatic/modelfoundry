@@ -71,14 +71,18 @@ class TrainingSpec(BaseModel):
     # output-neutral execution context (the E.e `worker_init_fn` makes trained
     # bytes independent of worker count), so it lives in `RuntimeConfig`
     # (`--num-workers` / `MODELFOUNDRY_NUM_WORKERS`), not in cache identity.
-    precision: Literal["fp32", "amp"] = "fp32"
-    checkpoint_cadence: int = Field(gt=0, default=1)
+    # No-implicit-defaults (Story I.e.3): value-defaults dropped — the recipe must
+    # author these (the scaffolder emits them); the interpreting code supplies no
+    # behavior-affecting value. Mode-selecting optionals (`early_stopping=None`)
+    # stay defaulted: absence is meaningful and part of the versioned segment contract.
+    precision: Literal["fp32", "amp"]
+    checkpoint_cadence: int = Field(gt=0)
     early_stopping: EarlyStoppingSpec | None = None
     # Applies to Training + Evaluation + inference (eval and predict inherit);
     # resolved by the plugin's health_check-reported availability at materialize
     # time. "auto" picks the best available accelerator. Validator check 20
     # rejects an explicit device the plugin reports unavailable.
-    device: Literal["auto", "cpu", "cuda", "mps"] = "auto"
+    device: Literal["auto", "cpu", "cuda", "mps"]
 
 
 class InferenceSpec(BaseModel):
@@ -103,7 +107,10 @@ class InferenceSpec(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    mode: Literal["point", "mc_dropout"] = "point"
+    # No-implicit-defaults (Story I.e.3): when the `Inference` block is present its
+    # `mode` is author-required. Block *absence* still means point (mode-selecting
+    # optionality on the block itself — `Inference=None ⇒ point` — is preserved).
+    mode: Literal["point", "mc_dropout"]
     mc_samples: int | None = Field(default=None, gt=0)
 
     @model_validator(mode="after")
@@ -129,11 +136,16 @@ class SearchSpaceSpec(BaseModel):
 class OptimizationSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    sampler: Literal["tpe", "random", "grid"] = "tpe"
-    pruner: Literal["median", "none"] = "median"
+    # No-implicit-defaults (Story I.e.3): sampler/pruner/baseline_trial are
+    # author-required (the recipe carries them when an `Optimization` block exists;
+    # the block itself stays optional — `Optimization=None ⇒ no HPO`). `n_jobs` is a
+    # constrained *invariant* (single legal value, pre-prod determinism lock — I.a
+    # Decision 4), not a free default, so it keeps its constant.
+    sampler: Literal["tpe", "random", "grid"]
+    pruner: Literal["median", "none"]
     n_trials: int = Field(gt=0)
     n_jobs: Literal[1] = 1
-    baseline_trial: Literal["enqueue_recipe_defaults"] | None = "enqueue_recipe_defaults"
+    baseline_trial: Literal["enqueue_recipe_defaults"] | None
     objective_metric: str | None = None
     max_epochs_per_trial: int | None = None
     search_space: dict[str, SearchSpaceSpec]
@@ -152,7 +164,7 @@ class EvaluationSpec(BaseModel):
     primary_metric: str
     metrics: list[str]
     comparison: ComparisonSpec | None = None
-    calibration_bins: int = Field(gt=0, default=10)
+    calibration_bins: int = Field(gt=0)  # no-implicit-defaults (I.e.3): author-required
 
 
 class VisualizationSpec(BaseModel):
@@ -160,7 +172,7 @@ class VisualizationSpec(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     op: str
-    mode: Literal["reporting", "interactive"] = "reporting"
+    mode: Literal["reporting", "interactive"]  # no-implicit-defaults (I.e.3): author-required
 
 
 class ExpectationSpec(BaseModel):

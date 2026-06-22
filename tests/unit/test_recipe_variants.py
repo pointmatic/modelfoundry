@@ -83,10 +83,14 @@ RECIPE = textwrap.dedent(
     Training:
       max_epochs: 3
       batch_size: 32
+      device: cpu
+      precision: fp32
+      checkpoint_cadence: 1
     Evaluation:
       splits: [val]
       primary_metric: accuracy
       metrics: [accuracy]
+      calibration_bins: 10
     variants:
       big_batch:
         Training: {batch_size: 256}

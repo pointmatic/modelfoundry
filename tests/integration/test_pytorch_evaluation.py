@@ -156,6 +156,7 @@ def _eval_spec(metrics: list[str] | None = None, **kw: object) -> EvaluationSpec
         splits=["val", "test"],
         primary_metric="accuracy",
         metrics=metrics if metrics is not None else _ALL_METRICS,
+        calibration_bins=10,
         **kw,
     )
 

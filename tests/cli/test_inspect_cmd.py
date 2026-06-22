@@ -45,8 +45,19 @@ def _build_fixture_instance(tmp_path: Path, *, plugin: str = "pytorch") -> Path:
         "Architecture": {"num_classes": 3, "layers": [{"op": "Flatten"}]},
         "Loss": {"op": "cross_entropy"},
         "Optimizer": {"op": "adamw", "learning_rate": 0.01},
-        "Training": {"max_epochs": 1, "batch_size": 4},
-        "Evaluation": {"splits": ["val"], "primary_metric": "accuracy", "metrics": ["accuracy"]},
+        "Training": {
+            "max_epochs": 1,
+            "batch_size": 4,
+            "device": "cpu",
+            "precision": "fp32",
+            "checkpoint_cadence": 1,
+        },
+        "Evaluation": {
+            "splits": ["val"],
+            "primary_metric": "accuracy",
+            "metrics": ["accuracy"],
+            "calibration_bins": 10,
+        },
         "Visualizations": [],
         "OutputExpectations": [],
     }

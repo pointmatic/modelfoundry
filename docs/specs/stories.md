@@ -123,13 +123,13 @@ F4 (part). Make every behavior-affecting value **explicit in the recipe text** w
 
 ---
 
-### Story I.e.3: No implicit defaults — Part b: drop the code defaults (enforcement) [Planned]
+### Story I.e.3: No implicit defaults — Part b: drop the code defaults (enforcement) [Done]
 
 F4 (part). The interpreting code supplies no behavior-affecting value. With the corpus already authoring every value (I.e.2), dropping the model defaults is green — only the test fixtures that relied on the defaults need fixing.
 
-- [ ] Drop value-`default=`s from the param models / specs per the I.a catalog (`precision`, `checkpoint_cadence`, `device`, `calibration_bins`, `sampler`, `pruner`, `baseline_trial`, viz `mode`) — make them required. **Keep mode-selecting optionals** (`Inference=None`, `early_stopping=None`, `Optimization=None`, `Optimizer.schedule=None`, `Evaluation.comparison=None`, `Data.variant=None`; the "absent ⇒ behavior" mapping moves into the versioned segment contract). **Keep `Optimization.n_jobs=1`** as a constrained invariant (single legal value, not a free default — I.a Decision 4).
-- [ ] Fix the inline test recipe dicts + direct `TrainingSpec`/`EvaluationSpec`/`OptimizationSpec`/`VisualizationSpec` constructions that omitted the now-required fields (~17–45 test files).
-- [ ] Confirm green: the corpus authors every value (from I.e.2), so making fields required breaks no recipe — only test fixtures churn.
+- [x] Dropped value-`default=`s from the param models per the I.a catalog ([models.py](../../src/modelfoundry/recipe/models.py)): `precision`, `checkpoint_cadence`, `device` (Training), `calibration_bins` (Evaluation), `sampler`/`pruner`/`baseline_trial` (Optimization), `mode` (Visualization + Inference) — all author-required. **Kept mode-selecting optionals** (`Inference=None`, `early_stopping=None`, `Optimization=None`, `Optimizer.schedule=None`, `Evaluation.comparison=None`, `Data.variant=None`). **Kept `Optimization.n_jobs=1`** as a constrained invariant (I.a Decision 4).
+- [x] Fixed the inline test recipe dicts + direct `TrainingSpec`/`EvaluationSpec`/`OptimizationSpec`/`VisualizationSpec` constructions across ~20 unit/cli/integration/plugin-contract/notebook test files (the test-fixture churn the model flip forces).
+- [x] Confirmed green: the I.e.2 corpus authors every value, so no recipe broke — only test fixtures. The `_PINNED_HASH` `xfail` stays put (final conscious re-pin is I.f).
 
 **Version:** **no bump** (bundled).
 

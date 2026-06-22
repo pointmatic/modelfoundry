@@ -36,10 +36,14 @@ _BASE = textwrap.dedent(
     Training:
       max_epochs: 3
       batch_size: 32
+      device: cpu
+      precision: fp32
+      checkpoint_cadence: 1
     Evaluation:
       splits: [val, test]
       primary_metric: macro_f1
       metrics: [macro_f1, accuracy]
+      calibration_bins: 10
     """
 ).strip()
 
@@ -57,8 +61,10 @@ def test_inference_defaults_to_absent(tmp_path: Path) -> None:
     assert recipe.Inference is None
 
 
-def test_point_mode_is_the_explicit_default() -> None:
-    spec = InferenceSpec()
+def test_explicit_point_mode_has_no_mc_samples() -> None:
+    # No-implicit-defaults (Story I.e.3): when the Inference block is present, `mode`
+    # is author-required (block *absence* still means point — tested separately).
+    spec = InferenceSpec(mode="point")
     assert spec.mode == "point"
     assert spec.mc_samples is None
 

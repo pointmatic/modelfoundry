@@ -78,11 +78,15 @@ def recipe_dicts(draw: st.DrawFn) -> dict[str, Any]:
         "Training": {
             "max_epochs": draw(st.integers(1, 200)),
             "batch_size": draw(st.integers(1, 2048)),
+            "device": "cpu",
+            "precision": "fp32",
+            "checkpoint_cadence": 1,
         },
         "Evaluation": {
             "splits": splits,
             "primary_metric": draw(st.sampled_from(metrics)),
             "metrics": metrics,
+            "calibration_bins": 10,
         },
     }
     inference = draw(inference_blocks())

@@ -76,7 +76,7 @@ _OPS = [
 
 @pytest.mark.parametrize("op", _OPS)
 def test_renderer_produces_nontrivial_png(op: str) -> None:
-    png = render_visualization(VisualizationSpec(op=op), _artifacts())
+    png = render_visualization(VisualizationSpec(mode="reporting", op=op), _artifacts())
     assert png.startswith(_PNG_MAGIC)
     assert len(png) > 1000
 
@@ -84,33 +84,39 @@ def test_renderer_produces_nontrivial_png(op: str) -> None:
 @pytest.mark.parametrize("op", _OPS)
 def test_renderer_is_byte_deterministic(op: str) -> None:
     artifacts = _artifacts()
-    a = render_visualization(VisualizationSpec(op=op), artifacts)
-    b = render_visualization(VisualizationSpec(op=op), artifacts)
+    a = render_visualization(VisualizationSpec(mode="reporting", op=op), artifacts)
+    b = render_visualization(VisualizationSpec(mode="reporting", op=op), artifacts)
     assert a == b
 
 
 def test_optimization_history_placeholder_without_trials() -> None:
     artifacts = InstanceArtifacts(trials=None)
-    png = render_visualization(VisualizationSpec(op="optimization_history"), artifacts)
+    png = render_visualization(
+        VisualizationSpec(mode="reporting", op="optimization_history"), artifacts
+    )
     assert png.startswith(_PNG_MAGIC)
 
 
 def test_predictions_grid_is_labels_only_without_images() -> None:
     # No image column on the predictions frame -> labels-only grid still renders.
-    png = render_visualization(VisualizationSpec(op="predictions_grid"), _artifacts())
+    png = render_visualization(
+        VisualizationSpec(mode="reporting", op="predictions_grid"), _artifacts()
+    )
     assert png.startswith(_PNG_MAGIC)
 
 
 def test_confusion_matrix_split_param_is_honored() -> None:
     # `split` is an extra field on VisualizationSpec (extra="allow").
-    viz = VisualizationSpec.model_validate({"op": "confusion_matrix", "split": "val"})
+    viz = VisualizationSpec.model_validate(
+        {"op": "confusion_matrix", "mode": "reporting", "split": "val"}
+    )
     png = render_visualization(viz, _artifacts())
     assert png.startswith(_PNG_MAGIC)
 
 
 def test_unknown_op_raises_plugin_error() -> None:
     with pytest.raises(PluginError, match="unknown visualization op"):
-        render_visualization(VisualizationSpec(op="roc_curve"), _artifacts())
+        render_visualization(VisualizationSpec(mode="reporting", op="roc_curve"), _artifacts())
 
 
 # --- Story C.q.2: OperationSpec registration (validator check 3 / 17 repair) ---
@@ -151,11 +157,18 @@ def _recipe_with_visualizations() -> Any:
                 "learning_rate": 0.01,
                 "schedule": {"op": "reduce_on_plateau", "monitor": "val_loss"},
             },
-            "Training": {"max_epochs": 1, "batch_size": 4},
+            "Training": {
+                "max_epochs": 1,
+                "batch_size": 4,
+                "device": "cpu",
+                "precision": "fp32",
+                "checkpoint_cadence": 1,
+            },
             "Evaluation": {
                 "splits": ["val"],
                 "primary_metric": "accuracy",
                 "metrics": ["accuracy"],
+                "calibration_bins": 10,
             },
             "Visualizations": [
                 {"op": "training_curves", "mode": "reporting"},

@@ -64,8 +64,12 @@ def _recipe(visualizations: list[VisualizationSpec] | None = None) -> ModelRecip
         Architecture={"type": "resnet20", "num_classes": 10},
         Loss=LossSpec(op="cross_entropy"),
         Optimizer=OptimizerSpec(op="adamw", learning_rate=0.01),
-        Training=TrainingSpec(max_epochs=1, batch_size=2),
-        Evaluation=EvaluationSpec(splits=["val"], primary_metric="accuracy", metrics=["accuracy"]),
+        Training=TrainingSpec(
+            max_epochs=1, batch_size=2, device="cpu", precision="fp32", checkpoint_cadence=1
+        ),
+        Evaluation=EvaluationSpec(
+            splits=["val"], primary_metric="accuracy", metrics=["accuracy"], calibration_bins=10
+        ),
         Visualizations=visualizations or [],
     )
 

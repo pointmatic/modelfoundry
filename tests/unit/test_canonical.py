@@ -27,10 +27,14 @@ BASE = textwrap.dedent(
     Training:
       max_epochs: 3
       batch_size: 32
+      device: auto
+      precision: fp32
+      checkpoint_cadence: 1
     Evaluation:
       splits: [val, test]
       primary_metric: macro_f1
       metrics: [macro_f1, accuracy]
+      calibration_bins: 10
     variants:
       big_batch:
         Training: {batch_size: 256}
@@ -121,7 +125,8 @@ def test_cosmetic_edits_produce_identical_bytes(tmp_path: Path) -> None:
         plugin: pytorch
 
         seed:    7
-        Training: {batch_size: 32, max_epochs: 3}
+        Training: {batch_size: 32, max_epochs: 3, device: auto,
+                   precision: fp32, checkpoint_cadence: 1}
         schema_version: 1
         Loss:
           op: cross_entropy
@@ -134,6 +139,7 @@ def test_cosmetic_edits_produce_identical_bytes(tmp_path: Path) -> None:
           metrics: [macro_f1, accuracy]
           primary_metric: macro_f1
           splits: [val, test]
+          calibration_bins: 10
         variants:
           big_batch: {Training: {batch_size: 256}}
         """
@@ -187,16 +193,11 @@ def test_canonical_bytes_are_deterministic(tmp_path: Path) -> None:
 
 
 def test_device_field_perturbs_canonical_bytes(tmp_path: Path) -> None:
-    # Story B.n / v0.3.1: adding Training.device with a "auto" default
-    # deliberately shifts the canonical hash for every existing v0.3.0 recipe.
-    # An explicit non-default value perturbs further — distinct ModelInstances
-    # per device, so "trained on CPU" and "trained on MPS" never collide on the
-    # same cache key.
-    explicit_cpu = BASE.replace(
-        "max_epochs: 3\n  batch_size: 32",
-        "max_epochs: 3\n  batch_size: 32\n  device: cpu",
-    )
+    # `Training.device` is part of cache identity (Story I.e.3: now author-required,
+    # no default): distinct ModelInstances per device, so "trained on auto" and
+    # "trained on cpu" never collide on the same cache key.
+    explicit_cpu = BASE.replace("device: auto", "device: cpu")
     assert explicit_cpu != BASE  # sanity: substitution actually happened
-    default_hash = recipe_hash(_load(tmp_path, BASE))
+    auto_hash = recipe_hash(_load(tmp_path, BASE))
     cpu_hash = recipe_hash(_load(tmp_path, explicit_cpu, name="cpu.yml"))
-    assert default_hash != cpu_hash
+    assert auto_hash != cpu_hash

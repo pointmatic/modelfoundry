@@ -431,11 +431,18 @@ def _write_model_recipe(tmp_path: Path, *, max_epochs: int, n_trials: int) -> Pa
         },
         "Loss": {"op": "cross_entropy"},
         "Optimizer": {"op": "adamw", "learning_rate": 0.01},
-        "Training": {"max_epochs": max_epochs, "batch_size": 4, "device": "cpu"},
+        "Training": {
+            "max_epochs": max_epochs,
+            "batch_size": 4,
+            "device": "cpu",
+            "precision": "fp32",
+            "checkpoint_cadence": 1,
+        },
         "Evaluation": {
             "splits": ["val"],
             "primary_metric": "accuracy",
             "metrics": ["accuracy", "macro_f1", "confusion_matrix"],
+            "calibration_bins": 10,
         },
     }
     if n_trials > 0:
@@ -443,6 +450,7 @@ def _write_model_recipe(tmp_path: Path, *, max_epochs: int, n_trials: int) -> Pa
             "sampler": "tpe",
             "pruner": "none",
             "n_trials": n_trials,
+            "baseline_trial": "enqueue_recipe_defaults",
             "max_epochs_per_trial": 1,
             "search_space": {"Optimizer.learning_rate": {"log_uniform": [1e-4, 1e-2]}},
         }

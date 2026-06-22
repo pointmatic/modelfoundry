@@ -41,10 +41,14 @@ _PYTORCH = textwrap.dedent(
     Training:
       max_epochs: 3
       batch_size: 32
+      device: cpu
+      precision: fp32
+      checkpoint_cadence: 1
     Evaluation:
       splits: [val, test]
       primary_metric: macro_f1
       metrics: [macro_f1, accuracy]
+      calibration_bins: 10
     """
 ).strip()
 
@@ -61,10 +65,14 @@ _SKLEARN = textwrap.dedent(
     Training:
       max_epochs: 1
       batch_size: 1
+      device: cpu
+      precision: fp32
+      checkpoint_cadence: 1
     Evaluation:
       splits: [test]
       primary_metric: accuracy
       metrics: [accuracy]
+      calibration_bins: 10
     """
 ).strip()
 
@@ -179,24 +187,6 @@ def test_extensions_accepts_arbitrary_nested_content(tmp_path: Path) -> None:
     assert r.extensions == {"a": {"b": [1, 2, 3]}, "c": "hello"}
 
 
-def test_explicit_default_values_are_byte_neutral(tmp_path: Path) -> None:
-    # Story I.e.2 invariant: authoring a value equal to the current model default
-    # (e.g. precision/checkpoint_cadence/calibration_bins) leaves `model_dump` —
-    # hence `recipe_hash` — unchanged. This is what makes "emit explicit values"
-    # a zero-byte change, so I.e.3 can drop the code defaults without invalidating.
-    explicit = _PYTORCH.replace(
-        "Training:\n  max_epochs: 3\n  batch_size: 32",
-        "Training:\n  max_epochs: 3\n  batch_size: 32\n  precision: fp32\n  checkpoint_cadence: 1",
-    ).replace(
-        "metrics: [macro_f1, accuracy]",
-        "metrics: [macro_f1, accuracy]\n  calibration_bins: 10",
-    )
-    assert explicit != _PYTORCH  # sanity: the substitutions actually happened
-    assert recipe_hash(_load(tmp_path, _PYTORCH)) == recipe_hash(
-        _load(tmp_path, explicit, name="explicit.yml")
-    )
-
-
 def test_training_spec_rejects_num_workers(tmp_path: Path) -> None:
     import pytest
 
@@ -274,7 +264,8 @@ def test_cosmetic_reorder_preserves_identity(tmp_path: Path) -> None:
         """
         plugin: pytorch
         seed:    7
-        Training: {batch_size: 32, max_epochs: 3}
+        Training: {batch_size: 32, max_epochs: 3, device: cpu,
+                   precision: fp32, checkpoint_cadence: 1}
         schema_version: 1
         Loss: {op: cross_entropy}
         Optimizer: {learning_rate: 0.001, op: adamw}
@@ -284,6 +275,7 @@ def test_cosmetic_reorder_preserves_identity(tmp_path: Path) -> None:
           metrics: [macro_f1, accuracy]
           primary_metric: macro_f1
           splits: [val, test]
+          calibration_bins: 10
         """
     ).strip()
     assert canonical_bytes(_load(tmp_path, _PYTORCH)) == canonical_bytes(

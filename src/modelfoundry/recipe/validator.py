@@ -397,7 +397,8 @@ def _check_14_expectations_reference_evaluated(recipe: ModelRecipe) -> Validatio
 
 
 def _check_15_visualization_mode_declared(recipe: ModelRecipe) -> ValidationCheck:
-    # The pydantic Literal default guarantees `mode` is always set; this is a
+    # `mode` is an author-required Literal (Story I.e.3: no implicit default), so
+    # pydantic guarantees it is set + valid at construction; this is a
     # belt-and-braces report entry so the validator surface is complete.
     bad = [
         i

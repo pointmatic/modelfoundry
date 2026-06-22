@@ -32,10 +32,14 @@ MINIMAL_RECIPE = textwrap.dedent(
     Training:
       max_epochs: 3
       batch_size: 32
+      device: cpu
+      precision: fp32
+      checkpoint_cadence: 1
     Evaluation:
       splits: [val, test]
       primary_metric: macro_f1
       metrics: [macro_f1, accuracy]
+      calibration_bins: 10
     """
 ).strip()
 
