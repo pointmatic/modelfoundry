@@ -48,6 +48,44 @@ def _load(
     return load_recipe(p, variant=variant, seed=seed)
 
 
+# A representative recipe exercising the Subphase H-1 surface (the `Inference`
+# MC-dropout block + the imbalance metric vocabulary + class-weighted loss). Its
+# canonical hash is PINNED below: per `project-essentials.md` § Cache identity,
+# changing this literal is the deliberate sign-off that a cache-invalidating
+# recipe-schema change has landed. Do not update it casually.
+_PINNED_RECIPE = textwrap.dedent(
+    """
+    schema_version: 1
+    plugin: pytorch
+    seed: 7
+    Data:
+      recipe: ../data/recipe.yml
+    Architecture: {op: simple_cnn, num_classes: 10}
+    Loss: {op: cross_entropy_class_weighted, weight_source: train}
+    Optimizer: {op: adamw, learning_rate: 0.001}
+    Training:
+      max_epochs: 3
+      batch_size: 32
+    Inference:
+      mode: mc_dropout
+      mc_samples: 30
+    Evaluation:
+      splits: [val, test]
+      primary_metric: macro_f1
+      metrics: [macro_f1, per_class_f1, per_class_precision, per_class_recall, confusion_matrix]
+    """
+).strip()
+
+_PINNED_HASH = "60cc771852d238bc0e2a1c8d44e983026e42420a46d388226b8dae45685f8b6e"
+
+
+def test_pinned_canonical_hash_is_stable(tmp_path: Path) -> None:
+    # Guards every pydantic field default in the canonical bytes (project-essentials
+    # § Cache identity). A failure here means the canonical form shifted — confirm
+    # the change is an intended cache-invalidating event before re-pinning.
+    assert recipe_hash(_load(tmp_path, _PINNED_RECIPE, name="pinned.yml")) == _PINNED_HASH
+
+
 def test_hash_is_full_64_hex(tmp_path: Path) -> None:
     h = recipe_hash(_load(tmp_path, BASE))
     assert len(h) == 64

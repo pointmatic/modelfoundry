@@ -45,13 +45,24 @@ _METRICS = ["accuracy", "macro_f1", "ece", "per_class_f1", "per_class_precision"
 
 
 @st.composite
+def inference_blocks(draw: st.DrawFn) -> dict[str, Any] | None:
+    """A valid `Inference` block, or `None` for the absent (single-pass) case."""
+    choice = draw(st.sampled_from(["absent", "point", "mc_dropout"]))
+    if choice == "absent":
+        return None
+    if choice == "point":
+        return {"mode": "point"}
+    return {"mode": "mc_dropout", "mc_samples": draw(st.integers(2, 100))}
+
+
+@st.composite
 def recipe_dicts(draw: st.DrawFn) -> dict[str, Any]:
     """A dict that always constructs a valid `ModelRecipe` (schema_version 1)."""
     metrics = draw(st.lists(st.sampled_from(_METRICS), min_size=1, max_size=5, unique=True))
     splits = draw(
         st.lists(st.sampled_from(["train", "val", "test"]), min_size=1, max_size=3, unique=True)
     )
-    return {
+    recipe: dict[str, Any] = {
         "schema_version": 1,
         "plugin": draw(st.sampled_from(["pytorch", "sklearn"])),
         "seed": draw(st.integers(min_value=0, max_value=2**31 - 1)),
@@ -74,6 +85,10 @@ def recipe_dicts(draw: st.DrawFn) -> dict[str, Any]:
             "metrics": metrics,
         },
     }
+    inference = draw(inference_blocks())
+    if inference is not None:
+        recipe["Inference"] = inference
+    return recipe
 
 
 @st.composite
@@ -181,6 +196,30 @@ def test_unused_variant_does_not_perturb_hash(d: dict[str, Any], variant_batch: 
     with_variant = deepcopy(d)
     with_variant["variants"] = {"v": {"Training": {"batch_size": variant_batch}}}
     assert recipe_hash(_recipe(d)) == recipe_hash(_recipe(with_variant))
+
+
+# --- the H.m `Inference` block participates in cache identity (Story H.p) ---
+
+
+@given(recipe_dicts(), st.integers(2, 100))
+def test_inference_block_presence_perturbs_hash(d: dict[str, Any], mc_samples: int) -> None:
+    # Declaring MC-dropout inference is a semantic change — it perturbs the hash
+    # vs an absent block (the cache-invalidating field flagged for Subphase H-1).
+    absent = deepcopy(d)
+    absent.pop("Inference", None)
+    with_mc = deepcopy(absent)
+    with_mc["Inference"] = {"mode": "mc_dropout", "mc_samples": mc_samples}
+    assert recipe_hash(_recipe(absent)) != recipe_hash(_recipe(with_mc))
+
+
+@given(recipe_dicts(), st.integers(2, 100), st.integers(2, 100))
+def test_inference_mc_samples_change_perturbs_hash(d: dict[str, Any], t1: int, t2: int) -> None:
+    assume(t1 != t2)
+    a = deepcopy(d)
+    a["Inference"] = {"mode": "mc_dropout", "mc_samples": t1}
+    b = deepcopy(d)
+    b["Inference"] = {"mode": "mc_dropout", "mc_samples": t2}
+    assert recipe_hash(_recipe(a)) != recipe_hash(_recipe(b))
 
 
 # --- ModelFoundry seed perturbs the CacheKey ---

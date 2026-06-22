@@ -116,7 +116,17 @@ def _baseline_recipe(
         "Evaluation": {
             "splits": [eval_split],
             "primary_metric": "accuracy",
-            "metrics": ["accuracy", "macro_f1", "confusion_matrix"],
+            # Imbalance-aware by default (R3.1): per-class precision/recall/F1 and
+            # the confusion matrix surface minority-class performance, not accuracy
+            # alone. Trim to taste for a balanced dataset.
+            "metrics": [
+                "accuracy",
+                "macro_f1",
+                "per_class_f1",
+                "per_class_precision",
+                "per_class_recall",
+                "confusion_matrix",
+            ],
         },
         # A modest better-than-chance baseline assertion; tighten it once you have
         # a trained model. `round(...)` keeps the recipe bytes deterministic.

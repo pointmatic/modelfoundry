@@ -177,6 +177,22 @@ def test_scaffold_eval_split_prefers_test(tmp_path: Path, monkeypatch: pytest.Mo
     assert recipe.Evaluation.primary_metric == "accuracy"
 
 
+def test_scaffold_surfaces_imbalance_metrics(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Story H.p (R3.1): imbalance-aware per-class metrics are first-class in the
+    # scaffolded baseline, not accuracy alone.
+    recipe = load_recipe(_scaffold(tmp_path, monkeypatch))
+    for metric in (
+        "macro_f1",
+        "per_class_f1",
+        "per_class_precision",
+        "per_class_recall",
+        "confusion_matrix",
+    ):
+        assert metric in recipe.Evaluation.metrics
+
+
 def test_scaffold_sklearn_emits_mlp_classifier(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

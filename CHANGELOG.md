@@ -20,6 +20,7 @@ predictor), since H.n already made the MC mean the evaluated prediction.
 ### Changed
 
 - `ece` / `calibration_curve` for a stochastic recipe are computed over the MC-aggregated mean probabilities, so calibration reflects the deployed predictor (R3.2) — a consequence of H.n's mean-as-prediction routing, now confirmed and tested.
+- **`init` scaffolder is imbalance-aware by default** (Story H.p, R3.1): the scaffolded baseline recipe's `Evaluation.metrics` now include `per_class_f1` / `per_class_precision` / `per_class_recall` alongside `macro_f1` / `confusion_matrix`, surfacing minority-class performance rather than accuracy alone. (Folded into this minor per the H.p version note; no separate bump.)
 
 ## [0.14.0] - 2026-06-21
 

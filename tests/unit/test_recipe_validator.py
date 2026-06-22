@@ -363,6 +363,17 @@ def test_check_5_non_train_fit_source() -> None:
     assert "weight_source" in _detail_text(failing)
 
 
+@pytest.mark.parametrize("source", ["train", "train_inverse_frequency", "effective_number"])
+def test_check_5_all_fit_on_train_sources_pass(source: str) -> None:
+    # Story H.p (R3.3): all three train-fitted class-weight modes validate.
+    report = validate(
+        _recipe({"Loss": {"op": "cross_entropy_class_weighted", "weight_source": source}}),
+        _instance(),
+        _Plugin(),
+    )
+    assert not _failures_for(report, 5)
+
+
 def test_check_6_unknown_early_stopping_monitor() -> None:
     failing = _check(
         validate(
