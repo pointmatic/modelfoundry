@@ -8,8 +8,8 @@ ceremonious."
 
 **Segmented identity (Phase I).** Identity is no longer a single total
 `model_dump`. The recipe's fields are partitioned into independently-hashed
-**segments** — `core` / `plugin` / `overlays` (per the I.a spike, Decision 2,
-`docs/spikes/I.a-segmented-recipe-identity.md`) — and combined by `join_stable`:
+**segments** — `core` / `plugin` / `overlays` / `extensions` (per the I.a spike,
+Decision 2, `docs/spikes/I.a-segmented-recipe-identity.md`) — and combined by `join_stable`:
 a labeled, length-framed concatenation of per-segment SHA-256 digests. An empty
 segment is **sparse-omitted** (contributes nothing), so introducing an
 optional segment (e.g. `extensions`, Story I.d) for everyone-empty is a no-op.
@@ -59,6 +59,7 @@ _PLUGIN_FIELDS: tuple[str, ...] = (
     "OutputExpectations",
 )
 _OVERLAY_FIELD = "variants"
+_EXTENSIONS_FIELD = "extensions"
 
 # Framed-label for the optional upstream prefix digest (vertical axis). The
 # leading NUL keeps it out of the namespace of any real segment label.
@@ -76,7 +77,10 @@ def recipe_segments(recipe: ModelRecipe) -> dict[str, Any]:
     core = {k: dump[k] for k in _CORE_FIELDS if k in dump}
     plugin = {k: dump[k] for k in _PLUGIN_FIELDS if k in dump}
     overlays = dump.get(_OVERLAY_FIELD, {})
-    return {"core": core, "plugin": plugin, "overlays": overlays}
+    extensions = dump.get(_EXTENSIONS_FIELD, {})
+    # extensions (Story I.d): empty ⇒ sparse-omitted by the combiner, so adding the
+    # mechanism is a no-op for every recipe that does not use it.
+    return {"core": core, "plugin": plugin, "overlays": overlays, "extensions": extensions}
 
 
 def _segment_canonical(value: Any) -> bytes | None:

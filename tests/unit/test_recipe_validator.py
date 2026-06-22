@@ -62,6 +62,7 @@ class _VizParams(BaseModel):
 class _Plugin:
     name = "pytorch"
     version = "1"
+    extension_keys: tuple[str, ...] = ()  # Story I.d: declared consumed extension keys
 
     def __init__(self) -> None:
         self.operations: dict[str, OperationSpec] = {
@@ -256,17 +257,17 @@ def test_predictive_entropy_is_a_selectable_metric() -> None:
     assert not _failures_for(report, 11)
 
 
-@pytest.mark.parametrize("check_id", list(range(1, 22)))
+@pytest.mark.parametrize("check_id", list(range(1, 23)))
 def test_check_passes_on_good_recipe(check_id: int) -> None:
     report = validate(_recipe(), _instance(), _Plugin())
     check = _check(report, check_id)
     assert check.passed, check.message
 
 
-def test_happy_path_all_21_pass() -> None:
+def test_happy_path_all_22_pass() -> None:
     report = validate(_recipe(), _instance(), _Plugin())
     assert report.passed, [c.message for c in report.failures]
-    assert [c.id for c in report.checks] == list(range(1, 22))
+    assert [c.id for c in report.checks] == list(range(1, 23))
 
 
 # --- Check 21: architecture input-shape / normalization-scale contract ---
@@ -368,6 +369,33 @@ def test_checks_3_and_17_both_report_in_one_pass() -> None:
     assert not _check(report, 17).passed  # param failure
     assert "phantom" in _detail_text(_check(report, 3))
     assert "adamw" in _detail_text(_check(report, 17))
+
+
+def test_check_22_warns_on_unclaimed_extension_key() -> None:
+    # Story I.d (F3): an extension key no plugin claims is a non-fatal heads-up —
+    # the check PASSES (extensions are for experimentation) but carries a message.
+    report = validate(_recipe({"extensions": {"my_lab": {"x": 1}}}), _instance(), _Plugin())
+    check = _check(report, 22)
+    assert check.passed  # non-fatal
+    assert check.message is not None
+    assert "my_lab" in _detail_text(check)
+    assert report.passed  # the report as a whole still passes
+
+
+def test_check_22_clean_when_plugin_claims_the_key() -> None:
+    plugin = _Plugin()
+    plugin.extension_keys = ("my_lab",)
+    check = _check(
+        validate(_recipe({"extensions": {"my_lab": {"x": 1}}}), _instance(), plugin), 22
+    )
+    assert check.passed
+    assert check.message is None
+
+
+def test_check_22_passes_clean_when_no_extensions() -> None:
+    check = _check(validate(_recipe(), _instance(), _Plugin()), 22)
+    assert check.passed
+    assert check.message is None
 
 
 def test_check_4_missing_split() -> None:

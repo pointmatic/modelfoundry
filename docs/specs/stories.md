@@ -75,13 +75,13 @@ F2. Convert the flat shared specs (`Loss`/`Optimizer`/`Schedule`/`Training`/`Eva
 
 **Version:** **no bump** (bundled).
 
-### Story I.d: `extensions:` namespace [Planned]
+### Story I.d: `extensions:` namespace [Done]
 
 F3. A sanctioned declarative bag where `extra` is relaxed only inside the namespace; enters identity only when non-empty.
 
-- [ ] Add the `extensions:` block to `ModelRecipe` (the only relaxed island; `ModelRecipe` stays `extra="forbid"` elsewhere — [models.py:173](../../src/modelfoundry/recipe/models.py#L173)).
-- [ ] Empty bag ⇒ byte-identical hash to pre-mechanism (test).
-- [ ] Plugins declare which extension keys they consume; validator warns on unclaimed keys. Params only — never recipe-activated code (spike §7).
+- [x] Add the `extensions:` block to `ModelRecipe` (the only relaxed island; `ModelRecipe` stays `extra="forbid"` elsewhere — [models.py:173](../../src/modelfoundry/recipe/models.py#L173)). → `extensions: dict[str, Any] = {}`; wired as a 4th segment in `recipe_segments` ([canonical.py](../../src/modelfoundry/recipe/canonical.py)).
+- [x] Empty bag ⇒ byte-identical hash to pre-mechanism (test). → empty/absent sparse-omitted (I.b combiner); non-empty perturbs. Tested in [test_segmented_identity.py](../../tests/unit/test_segmented_identity.py).
+- [x] Plugins declare which extension keys they consume; validator warns on unclaimed keys. Params only — never recipe-activated code (spike §7). → `Plugin.extension_keys: tuple[str, ...]` (Protocol attr; `()` on pytorch/sklearn/random); new **validator check 22** (`extensions_keys_claimed`) warns non-fatally (`passed=True` + message) on unclaimed keys, read tolerantly via `getattr`. Check count 21 → 22.
 
 **Version:** **no bump** (bundled).
 

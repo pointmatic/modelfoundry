@@ -186,3 +186,11 @@ class ModelRecipe(BaseModel):
     Visualizations: list[VisualizationSpec] = []
     OutputExpectations: list[ExpectationSpec] = []
     variants: dict[str, dict[str, Any]] = {}
+    # F3 (Story I.d): the ONE sanctioned relaxed island. `extra="forbid"` holds
+    # everywhere else on `ModelRecipe`; arbitrary keys are allowed *inside* this
+    # bag (it is typed `dict[str, Any]`, so nested content is unconstrained).
+    # Declarative params only — never recipe-activated code (spike §7). Enters the
+    # cache identity only when non-empty (sparse-omitted by `recipe.canonical`);
+    # plugins declare consumed keys via `Plugin.extension_keys` (validator check 22
+    # warns, non-fatally, on unclaimed keys).
+    extensions: dict[str, Any] = {}

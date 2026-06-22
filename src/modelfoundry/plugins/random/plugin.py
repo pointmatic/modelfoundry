@@ -84,6 +84,7 @@ class RandomPlugin(SklearnPlugin):
 
     name: str = "random"
     version: str = __version__
+    extension_keys: tuple[str, ...] = ()  # F3 (Story I.d): consumes no extension keys yet
 
     def __init__(self) -> None:
         self.operations: dict[str, OperationSpec] = {

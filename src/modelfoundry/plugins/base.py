@@ -112,6 +112,10 @@ class Plugin(Protocol):
     name: str
     version: str
     operations: dict[str, OperationSpec]
+    #: F3 (Story I.d) — the `extensions:` keys this plugin's code consumes. The
+    #: recipe validator (FR-2 check 22) warns, non-fatally, on any `extensions`
+    #: key no installed plugin claims. Plugins that consume none declare `()`.
+    extension_keys: tuple[str, ...]
 
     def health_check(self) -> CheckReport: ...
 

@@ -144,14 +144,49 @@ def test_join_stable_upstream_perturbs_result() -> None:
 # --- recipe_segments partition + recipe_hash relationship (I.a Decision 2) ---
 
 
-def test_recipe_segments_partitions_core_plugin_overlays(tmp_path: Path) -> None:
+def test_recipe_segments_partitions_core_plugin_overlays_extensions(tmp_path: Path) -> None:
     segs = recipe_segments(_load(tmp_path, _PYTORCH))
-    assert set(segs) == {"core", "plugin", "overlays"}
+    assert set(segs) == {"core", "plugin", "overlays", "extensions"}
     assert set(segs["core"]) == {"schema_version", "plugin", "seed", "Data"}
     assert "Training" in segs["plugin"]
     assert "Loss" in segs["plugin"]
     assert "schema_version" not in segs["plugin"]
     assert segs["overlays"] == {}  # variants are cleared by the loader pre-hash
+    assert segs["extensions"] == {}  # Story I.d: absent ⇒ empty ⇒ sparse-omitted
+
+
+# --- extensions namespace (Story I.d) ---
+
+
+def test_empty_extensions_does_not_change_hash(tmp_path: Path) -> None:
+    # The I.d mechanism, empty for everyone, is a no-op: an absent / empty bag is
+    # sparse-omitted, so the hash is byte-identical to the pre-extensions state.
+    base = recipe_hash(_load(tmp_path, _PYTORCH))
+    with_empty = recipe_hash(_load(tmp_path, _PYTORCH + "\nextensions: {}", name="ee.yml"))
+    assert base == with_empty
+
+
+def test_nonempty_extensions_perturbs_hash(tmp_path: Path) -> None:
+    base = recipe_hash(_load(tmp_path, _PYTORCH))
+    with_ext = recipe_hash(
+        _load(tmp_path, _PYTORCH + "\nextensions: {my_lab: {alpha: 0.5}}", name="xe.yml")
+    )
+    assert base != with_ext
+
+
+def test_extensions_accepts_arbitrary_nested_content(tmp_path: Path) -> None:
+    r = _load(tmp_path, _PYTORCH + "\nextensions: {a: {b: [1, 2, 3]}, c: hello}", name="ne.yml")
+    assert r.extensions == {"a": {"b": [1, 2, 3]}, "c": "hello"}
+
+
+def test_unknown_toplevel_key_still_forbidden(tmp_path: Path) -> None:
+    import pytest
+
+    from modelfoundry.core.errors import RecipeError
+
+    # extensions is the ONLY relaxed island; ModelRecipe stays extra="forbid".
+    with pytest.raises(RecipeError):
+        _load(tmp_path, _PYTORCH + "\nbogus_top_level: 1", name="bt.yml")
 
 
 def test_recipe_hash_equals_join_stable_over_segments(tmp_path: Path) -> None:

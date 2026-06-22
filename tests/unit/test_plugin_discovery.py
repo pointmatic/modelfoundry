@@ -24,6 +24,7 @@ class _StubPlugin:
         self.name = name
         self.version = version
         self.operations: dict[str, OperationSpec] = {}
+        self.extension_keys: tuple[str, ...] = ()
 
     def health_check(self) -> Any:
         return None
@@ -191,6 +192,7 @@ _PLUGIN_FILE = textwrap.dedent(
         name = "fromfile"
         version = "1"
         operations = {}
+        extension_keys = ()
         def health_check(self): return None
         def prepare_for_build(self, seed): return None
         def build_model(self, arch): return None

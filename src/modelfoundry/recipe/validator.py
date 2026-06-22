@@ -104,6 +104,7 @@ def validate(
         _check_19_dr_schema_version(data_instance),
         _check_20_device_available(recipe, plugin),
         _check_21_architecture_input_compat(recipe, data_instance),
+        _check_22_extensions_keys_claimed(recipe, plugin),
     ]
     return ValidationReport(checks=checks)
 
@@ -698,6 +699,36 @@ def _read_fitted_means(fitted: Any, op_name: str) -> list[float]:
         return [float(v) for v in table.column("value").to_pylist()]
     except Exception:
         return []
+
+
+# --- Check 22 ---
+
+
+def _check_22_extensions_keys_claimed(recipe: ModelRecipe, plugin: Plugin) -> ValidationCheck:
+    """Warn (non-fatally) on `extensions:` keys no installed plugin claims (F3, I.d).
+
+    Extensions are a sanctioned space for bounded experimentation, so an unclaimed
+    key is a *heads-up*, not a failure — the check passes with a message (the
+    skip-with-message pattern of checks 16/20). `Plugin.extension_keys` is read
+    tolerantly so an honest plugin that hasn't wired the attribute claims none.
+    """
+    extensions = recipe.extensions
+    if not extensions:
+        return _ok(22, "extensions_keys_claimed")
+    claimed = {str(k) for k in getattr(plugin, "extension_keys", ()) or ()}
+    unclaimed = sorted(k for k in extensions if k not in claimed)
+    if not unclaimed:
+        return _ok(22, "extensions_keys_claimed")
+    return ValidationCheck(
+        id=22,
+        name="extensions_keys_claimed",
+        passed=True,  # non-fatal: extensions are for experimentation
+        message=(
+            f"extensions keys not claimed by plugin {plugin.name!r}: {unclaimed} "
+            f"(declarative params only — they enter cache identity but no plugin reads them)"
+        ),
+        detail={"unclaimed": unclaimed, "claimed": sorted(claimed)},
+    )
 
 
 # --- helpers ---

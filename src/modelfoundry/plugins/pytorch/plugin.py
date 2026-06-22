@@ -114,6 +114,7 @@ class PyTorchPlugin:
 
     name: str = "pytorch"
     version: str = __version__
+    extension_keys: tuple[str, ...] = ()  # F3 (Story I.d): consumes no extension keys yet
 
     def __init__(self) -> None:
         # C.c architecture + C.d losses/optimizers/schedules + C.q.2 visualization
