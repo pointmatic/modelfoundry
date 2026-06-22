@@ -52,13 +52,15 @@ The combiner bytes, the flat→discriminated-union conversion, and the validator
 
 **Version:** **no bump** (throwaway spike; no shipped `src/` change).
 
-### Story I.b: Segment model + segment-aware canonical bytes [Planned]
+### Story I.b: Segment model + segment-aware canonical bytes [Done]
 
 F1. Replace the flat total dump ([canonical.py:25](../../src/modelfoundry/recipe/canonical.py#L25)) with the segmented combiner from I.a.
 
-- [ ] Implement `join_stable` + per-segment extraction in `recipe/canonical.py`; empty segment ⇒ fixed-nothing.
-- [ ] Prefix-capable combiner signature (accepts an upstream digest) — unused now, kept for the deferred vertical axis.
-- [ ] Horizontal-isolation pin-test scaffolding: a PyTorch-only fixture's `recipe_hash` MUST NOT move when the sklearn surface changes (and vice-versa).
+- [x] Implement `join_stable` + per-segment extraction in `recipe/canonical.py`; empty segment ⇒ fixed-nothing. → `recipe_segments` (core/plugin/overlays partition) + `join_stable` (length-framed, label-keyed, sparse-omit); `canonical_bytes` is now the combiner pre-image, `recipe_hash = sha256(canonical_bytes)` preserved.
+- [x] Prefix-capable combiner signature (accepts an upstream digest) — unused now, kept for the deferred vertical axis. → `join_stable(segments, *, upstream=None)`; `H(H_upstream ‖ segment)` composes (tested).
+- [x] Horizontal-isolation pin-test scaffolding: a PyTorch-only fixture's `recipe_hash` MUST NOT move when the sklearn surface changes (and vice-versa). → [test_segmented_identity.py](../../tests/unit/test_segmented_identity.py) (19 tests); full F2 strength matures with I.c unions + I.e no-implicit-defaults.
+
+> **Note:** the `_PINNED_HASH` golden in [test_canonical.py](../../tests/unit/test_canonical.py) is `xfail(strict=True)` from here through I.e — the conscious re-pin is deferred to **I.f** (the single sign-off, per phase cadence). **`join_stable` byte format remains a cross-repo confirmation precondition** to settle with DataRefinery before the phase ships (DataRefinery has not yet implemented its combiner — open question #3 in their Phase-J spike).
 
 **Version:** **no bump** (bundled — Phase I cadence).
 

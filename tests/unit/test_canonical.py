@@ -4,8 +4,11 @@
 
 from __future__ import annotations
 
+import hashlib
 import textwrap
 from pathlib import Path
+
+import pytest
 
 from modelfoundry.recipe.canonical import canonical_bytes, recipe_hash
 from modelfoundry.recipe.loader import load_recipe
@@ -79,6 +82,15 @@ _PINNED_RECIPE = textwrap.dedent(
 _PINNED_HASH = "60cc771852d238bc0e2a1c8d44e983026e42420a46d388226b8dae45685f8b6e"
 
 
+@pytest.mark.xfail(
+    reason=(
+        "Phase I changes the canonical form ONCE — Story I.b swaps the flat dump for "
+        "the segmented `join_stable` combiner, and I.c/I.e perturb it further. The "
+        "golden re-pin is deliberately deferred to Story I.f (the single conscious "
+        "sign-off the test exists to force). xfail strict: remove + re-pin at I.f."
+    ),
+    strict=True,
+)
 def test_pinned_canonical_hash_is_stable(tmp_path: Path) -> None:
     # Guards every pydantic field default in the canonical bytes (project-essentials
     # § Cache identity). A failure here means the canonical form shifted — confirm
@@ -92,14 +104,14 @@ def test_hash_is_full_64_hex(tmp_path: Path) -> None:
     assert all(c in "0123456789abcdef" for c in h)
 
 
-def test_canonical_bytes_are_sorted_and_compact(tmp_path: Path) -> None:
+def test_canonical_bytes_is_the_combiner_preimage(tmp_path: Path) -> None:
+    # Phase I: canonical_bytes is no longer JSON text — it is the length-framed
+    # concatenation of per-segment SHA-256 digests (the `join_stable` pre-image),
+    # so `recipe_hash` is its sha256. The per-segment sort+compact canonicalization
+    # is what makes cosmetic edits identity-preserving (asserted separately).
     raw = canonical_bytes(_load(tmp_path, BASE))
-    text = raw.decode("utf-8")
-    # Compact separators: no ", " or ": " spacing.
-    assert ", " not in text
-    assert ": " not in text
-    # Top-level keys are sorted.
-    assert text.startswith('{"Architecture"')
+    assert isinstance(raw, bytes)
+    assert recipe_hash(_load(tmp_path, BASE)) == hashlib.sha256(raw).hexdigest()
 
 
 def test_cosmetic_edits_produce_identical_bytes(tmp_path: Path) -> None:
