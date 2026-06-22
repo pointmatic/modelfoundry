@@ -74,6 +74,18 @@ def test_pytorch_operation_set_is_exhaustive() -> None:
     assert by_stage["architecture"] >= _FEATURES_BASELINE_ARCH
 
 
+def test_pytorch_huggingface_ops_are_extras_gated() -> None:
+    # R1.4 / Story H.l: the now-active pretrained-encoder ops are registered as
+    # architecture ops behind the `[huggingface]` extra, so plugins stay
+    # discoverable without it (the gate fires at materialize time, not here).
+    ops = _plugin().operations
+    for name in ("Encoder", "LoRA", "Pooling", "Head"):
+        assert ops[name].applies_to == "architecture"
+        assert ops[name].requires_extras == ("huggingface",)
+    # A core op requires no extras.
+    assert ops["simple_cnn"].requires_extras == ()
+
+
 def test_pytorch_health_check_returns_check_report_shape() -> None:
     report = _plugin().health_check()
     assert isinstance(report, CheckReport)  # structural @runtime_checkable Protocol

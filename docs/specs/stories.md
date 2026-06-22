@@ -439,14 +439,15 @@ R1.2, acceptance criteria 1 & 9. Builds on H.j; applies low-rank adapters for pa
 
 **Version:** **minor → v0.12.0** — new `src/` capability (LoRA fine-tuning + its serialization). Persistence-format change for the brand-new pretrained-encoder path only (re-materialize v0.11.0 `Encoder` instances; pre-prod OR-9, release-note only; baselines byte-unchanged; no `schema_version` bump).
 
-### Story H.l: R1 contract, extras-gating & offline-cache tests [Planned]
+### Story H.l: R1 contract, extras-gating & offline-cache tests [Done]
 
 Acceptance criteria 1, 2, 8 (architecture-ops portion), 9. Lock the activated path against the plugin-contract conventions; test-only.
 
-- [ ] Plugin-contract assertions for the now-active `Encoder`/`LoRA`/`Pooling`/`Head` `OperationSpec`s incl. `requires_extras=("huggingface",)` (extend [test_pytorch_architecture.py](../../tests/unit/test_pytorch_architecture.py) and the `tests/plugin_contract/` suite).
-- [ ] **Extras-gating both ways:** with the extra absent, materialize raises the gated error with the install pointer while load/validate still succeed; with it present, materialize succeeds. (Requires a test path that exercises the no-extra case — e.g. a monkeypatched import or a dedicated env.)
-- [ ] Offline-warm-cache reproducibility test (no network) (criterion 2).
-- [ ] Disk round-trip integration test for a pretrained/LoRA instance (criterion 9).
+- [x] **Plugin-contract assertions** — added `tests/plugin_contract/test_pytorch_contract.py::test_pytorch_huggingface_ops_are_extras_gated`: the **plugin's** `operations` exposes `Encoder`/`LoRA`/`Pooling`/`Head` as architecture ops with `requires_extras=("huggingface",)` (complements the module-registry assertions in [test_pytorch_architecture.py](../../tests/unit/test_pytorch_architecture.py), whose stale "deferred" comment is updated to "active"). Runs in the default `testenv` (the op registry is import-safe).
+- [x] **Extras-gating both ways** — new [tests/integration/test_pretrained_encoder_gating.py](../../tests/integration/test_pretrained_encoder_gating.py) (runs in `smoke-pytorch`, skips when `transformers` is present): with the extra **absent**, an encoder recipe **loads** and **validates** against the in-tree vocabulary, but `materialize()` raises a `MaterializeError` carrying the `[huggingface]` install pointer (the runner wraps the gate's `ImportError`), and the direct `summary()` build surfaces the `ImportError` unwrapped. The **present** side (materialize succeeds) is covered by [test_pretrained_encoder.py](../../tests/integration/test_pretrained_encoder.py) in `smoke-huggingface`.
+- [x] **Offline-warm-cache reproducibility (criterion 2)** — locked by `test_pretrained_encoder_offline_run_reproduces` (H.j.1): two fresh-cache materializes under `HF_HUB_OFFLINE`/`local_files_only` (no network) yield identical val metrics.
+- [x] **Disk round-trip (criterion 9)** — the LoRA instance round-trip (`test_lora_instance_materializes_and_round_trips_from_disk`, H.k) **and** a new non-LoRA frozen-encoder round-trip (`test_frozen_encoder_instance_round_trips_from_disk`) both reload from disk alone and reproduce `predict`/`predict_proba`.
+- [x] Verify: `ruff` + `mypy src tests` (153 files) clean; **`pyve test --env testenv` → 499 passed, 45 skipped, 1 xfailed**; **`smoke-pytorch` → 690 passed, 2 skipped, 1 xfailed** (incl. the 3 gating tests); **`smoke-huggingface`** encoder + HF-arch → 16 passed.
 
 **Version:** **no bump** (test-only).
 

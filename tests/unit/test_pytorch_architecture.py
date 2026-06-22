@@ -38,7 +38,7 @@ _EXPECTED_OPS = {
     "simple_cnn",
     "resnet8",
     "resnet20",
-    # deferred pretrained-encoder path
+    # pretrained-encoder path (active since H.j/H.k, extras-gated)
     "Encoder",
     "LoRA",
     "Pooling",

@@ -140,3 +140,21 @@ def test_lora_instance_materializes_and_round_trips_from_disk(tmp_path: Path) ->
     reloaded = ModelInstance.load(instance.path)
     assert np.array_equal(preds, reloaded.predict(x))
     assert np.allclose(proba, reloaded.predict_proba(x))
+
+
+def test_frozen_encoder_instance_round_trips_from_disk(tmp_path: Path) -> None:
+    # Story H.l / criterion 9: the non-LoRA frozen-encoder composite also persists
+    # base-from-cache + head/pooling deltas and reproduces predictions from disk.
+    import numpy as np
+
+    from modelfoundry import ModelFoundry, ModelInstance
+
+    data = _instance(tmp_path / "dr")
+    config = RuntimeConfig(cache_root=tmp_path / "cache")
+    instance = ModelFoundry.from_recipe(_RECIPE, data=data, config=config).materialize()
+
+    x = np.random.default_rng(1).random((3, _IMG, _IMG, 3), dtype=np.float32)
+    preds = instance.predict(x)
+    reloaded = ModelInstance.load(instance.path)
+    assert np.array_equal(preds, reloaded.predict(x))
+    assert np.allclose(instance.predict_proba(x), reloaded.predict_proba(x))
