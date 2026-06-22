@@ -43,7 +43,7 @@ dependencies = [
     "scikit-learn",
     "optuna",
     "pillow",
-    "ml-datarefinery>=0.21.0",
+    "ml-datarefinery>=0.23",
 ]
 
 [project.optional-dependencies]

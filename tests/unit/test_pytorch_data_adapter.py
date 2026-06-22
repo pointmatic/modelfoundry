@@ -10,7 +10,6 @@ vendor on-disk contract.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import textwrap
 from collections.abc import Callable
@@ -27,8 +26,8 @@ torch = pytest.importorskip("torch")
 
 import datarefinery as dr  # noqa: E402
 from datarefinery.pipeline.manifest import Manifest as DRManifest  # noqa: E402
-from datarefinery.recipe.canonical import to_canonical_bytes  # noqa: E402
 from datarefinery.recipe.loader import load as dr_load_recipe  # noqa: E402
+from datarefinery.recipe.segments import recipe_identity_hash  # noqa: E402
 from PIL import Image  # noqa: E402
 
 from modelfoundry.core.errors import DataBindingError  # noqa: E402
@@ -46,7 +45,7 @@ _COLORS = {"c0": (200, 100, 50), "c1": (10, 150, 250), "c2": (60, 60, 60)}
 def _recipe_yaml(extra_transform: str = "") -> str:
     return textwrap.dedent(
         f"""
-        schema_version: 2
+        schema_version: 3
         plugin: image_classification
         seed: 1
         Input: {{sources: [{{name: t, type: image_folder, path: /x}}]}}
@@ -75,7 +74,7 @@ def _build_instance(
     recipe_path = tmp_path / "dr_recipe.yml"
     recipe_path.write_text(_recipe_yaml(extra_transform), encoding="utf-8")
     dr_recipe = dr_load_recipe(recipe_path)
-    recipe_hash = hashlib.sha256(to_canonical_bytes(dr_recipe)).hexdigest()
+    recipe_hash = recipe_identity_hash(dr_recipe)
 
     inst = tmp_path / "inst"
     inst.mkdir()
@@ -111,7 +110,7 @@ def _build_instance(
         counts[split] = len(records)
 
     manifest = DRManifest(
-        datarefinery_version="0.19.0",
+        datarefinery_version="0.23.0",
         plugin="image_classification",
         plugin_version="1",
         recipe_hash=recipe_hash,

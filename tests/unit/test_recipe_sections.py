@@ -10,11 +10,12 @@ union at validate time against the discovered plugin and never short-circuits.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
-from modelfoundry.plugins.base import OperationSpec
+from modelfoundry.plugins.base import OperationSpec, Plugin
 from modelfoundry.recipe.models import ModelRecipe
 from modelfoundry.recipe.sections import (
     ResolvedSection,
@@ -42,8 +43,15 @@ class _VizParams(BaseModel):
 
 
 class _Plugin:
+    """A synthetic plugin satisfying the `Plugin` Protocol.
+
+    Only `operations` is exercised by `resolve_sections`; the rest are
+    Protocol-conformance stubs.
+    """
+
     name = "pytorch"
     version = "1"
+    extension_keys: tuple[str, ...] = ()
 
     def __init__(self) -> None:
         self.operations: dict[str, OperationSpec] = {
@@ -60,6 +68,43 @@ class _Plugin:
                 op_name="training_curves", param_model=_VizParams, applies_to="visualization"
             ),
         }
+
+    def health_check(self) -> Any:
+        return {"accelerators": ["cpu"]}
+
+    def prepare_for_build(self, seed: int) -> None:
+        return None
+
+    def build_model(self, arch: dict[str, Any]) -> Any:
+        return None
+
+    def run_optimization(self, *a: Any, **k: Any) -> Any:
+        return None
+
+    def run_training(self, *a: Any, **k: Any) -> Any:
+        return None
+
+    def run_evaluation(self, *a: Any, **k: Any) -> Any:
+        return None
+
+    def render_visualization(self, *a: Any, **k: Any) -> bytes | None:
+        return None
+
+    def save_model(self, model: Any, path: Path) -> None:
+        return None
+
+    def load_model(self, path: Path) -> Any:
+        return None
+
+    def predict(self, model: Any, X: Any) -> Any:
+        return None
+
+    def predict_proba(self, model: Any, X: Any) -> Any:
+        return None
+
+
+# Sanity: the synthetic satisfies the runtime Protocol (mirrors test_recipe_validator).
+assert isinstance(_Plugin(), Plugin)
 
 
 def _good_dict() -> dict[str, Any]:

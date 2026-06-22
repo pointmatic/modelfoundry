@@ -48,7 +48,7 @@ The problem persists because data prep sits at the intersection of three forces 
 - **Reduction in ad-hoc code**: prep work that previously lived in notebooks is captured declaratively in the recipe.
 - **Clear failure modes**: failures during materialization leave inspectable temp state and never produce partial cached instances.
 - **Offline operability**: the deterministic path works without network access; LLM assistance is strictly an enhancement layer.
-- **Plugin-interface honesty**: a second category (tabular, ideally text) can be sketched against the same abstractions without those abstractions being "image with extra steps."
+- **Plugin-interface honesty**: a second category (tabular, ideally text) can be sketched against the same abstractions without those abstractions being "image with extra steps." (Realized most strongly by the **`audio_classification` plugin** added in Phase J Subphase J-1 — a second *fully real* plugin, not a stub: its windowing-as-`Generation`, log-mel `Featurization`, fit-on-train per-mel-bin normalization, and `source_record_id` clip↔window grouping key all land on the existing category-agnostic abstractions. The cross-repo contract for its window records is pinned in [`modelfoundry/vendor-dependency-spec.md`](modelfoundry/vendor-dependency-spec.md) and [`nbfoundry/vendor-dependency-spec.md`](nbfoundry/vendor-dependency-spec.md).)
 
 ## Solution Space
 `datarefinery` is a Python project to refine raw data into reproducible, training-ready datasets from a single recipe.

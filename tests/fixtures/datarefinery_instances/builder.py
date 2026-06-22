@@ -36,7 +36,6 @@ def build_dr_instance(
     seed: int = 1,
 ) -> Any:
     """Synthesize a DataRefinery instance under `root`; return its `DataRefineryInstance` view."""
-    import hashlib
     import json
     import textwrap
     from datetime import UTC, datetime
@@ -45,8 +44,8 @@ def build_dr_instance(
     import pyarrow as pa
     import pyarrow.parquet as pq
     from datarefinery.pipeline.manifest import Manifest as DRManifest
-    from datarefinery.recipe.canonical import to_canonical_bytes
     from datarefinery.recipe.loader import load as dr_load_recipe
+    from datarefinery.recipe.segments import recipe_identity_hash
     from PIL import Image
 
     from modelfoundry.pipeline.data_binding import DataRefineryInstance
@@ -57,7 +56,7 @@ def build_dr_instance(
 
     dr_yaml = textwrap.dedent(
         f"""
-        schema_version: 2
+        schema_version: 3
         plugin: image_classification
         seed: {seed}
         Input: {{sources: [{{name: t, type: image_folder, path: /x}}]}}
@@ -73,7 +72,7 @@ def build_dr_instance(
     recipe_path = root / "dr_recipe.yml"
     recipe_path.write_text(dr_yaml, encoding="utf-8")
     dr_recipe = dr_load_recipe(recipe_path)
-    recipe_hash = hashlib.sha256(to_canonical_bytes(dr_recipe)).hexdigest()
+    recipe_hash = recipe_identity_hash(dr_recipe)
 
     inst = root / "inst"
     inst.mkdir(exist_ok=True)
@@ -108,7 +107,7 @@ def build_dr_instance(
         counts[split] = len(records)
 
     manifest = DRManifest(
-        datarefinery_version="0.19.0",
+        datarefinery_version="0.23.0",
         plugin="image_classification",
         plugin_version="1",
         recipe_hash=recipe_hash,

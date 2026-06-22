@@ -107,7 +107,7 @@ src/datarefinery/
     loader.py                # FR-1 load + schema-version gate
     validator.py             # FR-2 enumerated checks 1–23
     canonical.py             # JSON-canonical bytes for cache identity (FR-4)
-    variants.py              # FR-14 variant overlay
+    overlays.py              # FR-14 recipe overlays (J.n.5; was variants.py)
   cache/
     __init__.py
     identity.py              # SHA-256 over canonical recipe + raw inputs + seed
@@ -225,7 +225,7 @@ class DataRefinery:
         cls,
         recipe_path: pathlib.Path,
         config: RuntimeConfig | None = None,
-        variant: str | None = None,
+        overlays: Sequence[str] | None = None,
         seed: int | None = None,
     ) -> "DataRefinery": ...
 
@@ -251,10 +251,10 @@ def materialize(
     recipe_path: pathlib.Path,
     *,
     config: RuntimeConfig | None = None,
-    variant: str | None = None,
+    overlays: Sequence[str] | None = None,
     seed: int | None = None,
 ) -> Instance:
-    return DataRefinery.from_recipe(recipe_path, config, variant, seed).materialize()
+    return DataRefinery.from_recipe(recipe_path, config, overlays, seed).materialize()
 ```
 
 ### `Instance` (core/instance.py)
@@ -324,13 +324,47 @@ Why this is sufficient: the pydantic model is the recipe's *meaning* — default
 
 **Subtlety to enforce in code review:** any change to a pydantic field default that affects semantics silently invalidates every existing cache. Pre-production, that's tolerable (features.md already says upgrades may invalidate). Post-production, default changes that affect semantics MUST go through a `schema_version` bump with a migration in `recipe.loader`. A unit test pins the canonical hash for a representative fixture recipe; bumping the test value requires a deliberate review.
 
-### `recipe.variants` (FR-14)
+> **Superseded for cache identity — segmented hash (Story J.n.3).** `to_canonical_bytes` still exists as the flat full-recipe dump, but the **authoritative cache identity is now `recipe.segments.recipe_identity_hash`** (the segmented join below). The "field-default silently invalidates every cache" subtlety is further dissolved by the **no-implicit-defaults** rollout (J.n.4); see the module below.
+
+### `recipe.segments` (Story J.n.2 infra → J.n.3 authoritative)
 
 ```python
-def apply_variant(recipe: Recipe, variant_name: str | None) -> Recipe: ...
+SEGMENT_ORDER = ("core", "plugin", "overlays", "extensions")
+EMPTY_MARKER: bytes              # fixed 32-byte stand-in for an empty/absent segment
+RECIPE_FIELD_SEGMENTS: dict[str, str]    # declarative field→segment map (CI-guarded for completeness)
+segment_digest(value) -> bytes   # SHA-256 of sorted-compact JSON, or EMPTY_MARKER if empty
+join_stable(digests) -> bytes    # b"\x1f".join(digests) — the stable canonical join
+segments_of(recipe) -> dict      # partition the flat recipe into the four segments (J.n.3)
+recipe_identity_hash(recipe) -> str      # AUTHORITATIVE cache identity (J.n.3)
+prefix_hash(digests, upto) -> str        # cumulative-prefix hook for the deferred vertical axis (Q8)
 ```
 
-Variants are applied **before** canonicalization, so `cache_key` reflects the selected variant.
+The segmented hasher composes the recipe hash from independent per-segment digests, so an empty segment contributes a fixed nothing (additive) and a change to one segment cannot move another's digest (scoped invalidation — design Q1/Q3). Per-segment version constants (`CORE_SCHEMA_VERSION`, `PLUGIN_IMAGE_SCHEMA_VERSION`, `PLUGIN_AUDIO_SCHEMA_VERSION`, `OVERLAYS_SCHEMA_VERSION`, `EXTENSIONS_SCHEMA_VERSION`) and a `(segment, from, to)`-keyed `SEGMENT_MIGRATIONS` registry govern per-segment evolution (design Q4).
+
+**Internal partition (Option 1).** The author-facing recipe stays *flat*; `segments_of` partitions `recipe.model_dump(mode="json")` per `RECIPE_FIELD_SEGMENTS` — `core`/`plugin` are field-keyed; `overlays`/`extensions` are single-namespace segments contributed as their bare mapping (so an empty/stripped namespace collapses to `EMPTY_MARKER`). A CI guard (`test_every_recipe_field_is_assigned_exactly_one_segment`) pins that every `Recipe` field has exactly one segment, so a new section cannot be added without consciously choosing its segment.
+
+**Authoritative since J.n.3.** Identity switched from the flat `sha256(to_canonical_bytes)` to `recipe_identity_hash` (the segmented join). That combiner change is a canonical-form algorithm change, so it rode a `schema_version` **2→3** bump (loader `(2, 3)` bootstrap migration; v3 = the segmented-canonical era). This was the **one-time pre-1.0 cache-invalidation event** — every existing instance re-materializes once; prohibitive post-1.0 (design § 8). The `test_canonical_hash_pin` gate now pins the segmented identity; a representative image/audio pin pair (`tests/integration/test_segmented_identity.py`) locks Finding A — `AudioSource.target_sample_rate` never enters an image recipe's canonical bytes.
+
+**Per-segment versions + migrations (Story J.n.7).** Each segment evolves on its own version axis — there is **no global umbrella counter** (a global one would re-couple every segment's changes). The flat `schema_version` stays the **on-disk era marker** (Option 1 keeps the recipe flat — no on-disk segment-version block, so per-segment versioning adds *no* new invalidation); `recipe.segments` carries the structural era-detection table:
+
+```python
+SEGMENT_VERSION_KEYS = ("core", "plugin:image", "plugin:audio", "overlays", "extensions")
+SCHEMA_ERA_SEGMENT_VERSIONS: dict[int, dict[str, int]]   # flat schema_version → per-segment versions
+current_segment_versions() -> dict[str, int]             # what this build is at (the constants)
+apply_segment_migrations(flat, from_versions, to_versions) -> dict
+```
+
+On the loader read path, once the flat `(int, int)` chain has lifted a recipe to the segmented era, `apply_segment_migrations` replays the registered `SEGMENT_MIGRATIONS[(segment, v, v+1)]` steps to bring each segment from its era version up to `current_segment_versions()`. A `("core", …)` migration rewrites the core fields; a `("plugin:image", …)` migration touches the plugin fields only for an image-family recipe (Finding A — an audio bump never rewrites an image recipe, and vice-versa). **While every segment sits at the current era (the steady state for the entire pre-1.0 lifetime so far), the dispatch is an exact pass-through** — the read path cannot perturb canonical bytes while the registry is dormant. A segment-version bump without a registered migration is a hard load-time error, routing the author to the cache-identity ceremony.
+
+**Pin-test discipline.** Isolation is *enforced, not asserted*. `tests/unit/test_segment_pin_hashes.py` pins each segment's digest for a representative image and audio fixture; an unexpected move of any single segment's digest is a blocking CI failure that forces a conscious per-segment version bump + migration. The empty-`overlays`/`extensions` digests are pinned to `EMPTY_MARKER`, so the J.n.5/J.n.6 mechanisms can never retroactively perturb a recipe that doesn't use them. The no-implicit-defaults guard (`tests/unit/test_no_implicit_defaults.py`, J.n.4) fails CI if any `ParameterSpec` reintroduces a `default`. (The Q8 vertical-axis stage-boundary pins are deliberately *not* implemented — Q8 declined for this bundle; `prefix_hash` keeps them adoptable later without a combiner redesign.)
+
+### `recipe.overlays` (FR-14)
+
+```python
+def apply_overlays(recipe: Recipe, names: Sequence[str] | None) -> Recipe: ...
+```
+
+Overlays (Story J.n.5; the former `variants`) are applied **before** canonicalization in selection order, last-writer-wins per section, so `cache_key` reflects the resolved recipe. Overlay *definitions* are stripped before hashing (`overlays={}`), so they never enter identity. The applied names are recorded in `manifest.overlays`.
 
 ### `recipe.seeds` (G11 — Story I.n)
 
@@ -451,6 +485,8 @@ Stage sequence (recipe-declared order; default below):
 9. Evaluate `OutputExpectations` (FR-23) -> abort on failure with FAILED marker.
 10. Render `Visualizations` declared `reporting` (FR-13) into the report.
 11. Write `manifest.json` (FR-3.7).
+
+**Stage-order rationale: `Transformations` precedes `Featurizations`, and fit-on-train *feature* scaling is a Featurization.** Transformations operate on *raw* inputs (e.g. the image `normalize` op on pixels), so they run before features are derived. Consequently, **fit-on-train standardization of a *derived* feature lives in the `Featurizations` stage, not `Transformations`** — it must fit *after* the feature exists, and `Featurizations` is the only stage that runs after derivation *and* supports fit-on-train + statistics persistence (`pipeline.fitted_stats`, FR-6) + sibling import (FR-TRANS-1). This is a deliberate, cross-modality staple (FR-12 behavior #5): audio `audio_normalize` (per-mel-bin, reading `log_mel_spectrogram`'s `mel` output → writing `feature`) is the first instance; tabular column scaling and text embedding normalization will follow the same convention. Such an op reads a prior featurization's output field and writes a *new* field (raw and scaled both retained, satisfying the no-overwrite collision guard). The shared fit / parquet-wrap / `std == 0 → 1.0` zero-variance-guard machinery lives in `plugins.normalize_stats`, parameterized by the statistics axis (channel-last for images, mel-axis-0 for audio). A future *post-Featurization transform stage* (so "normalize is always a Transformation" generalizes) is a possible later evolution but is not in v1; the Featurization-as-scaler convention covers the need.
 
 After each named stage emits its records, the runner invokes
 `pipeline.sinks.execute_sinks(...)` (Story I.d) to dispatch any
@@ -616,9 +652,17 @@ All recipe-related models are pydantic v2 with `model_config = ConfigDict(extra=
 
 ### Recipe model
 
+The recipe is **flat** on disk (author-facing) but partitioned into four
+identity segments — `core`, `plugin`, `overlays`, `extensions` — by
+`recipe.segments.RECIPE_FIELD_SEGMENTS` (Story J.n.3, design Q1; see
+[`recipe.segments`](#recipesegments-story-jn2-infra--jn3-authoritative)).
+Segmentation is internal (Option 1): it drives hashing, per-segment
+versioning, and validation dispatch — not author shape. `schema_version`
+is `3` (the segmented-canonical era).
+
 ```python
 class Recipe(pydantic.BaseModel):
-    schema_version: int                            # FR-1; gate-checked at load
+    schema_version: int = 3                        # FR-1; gate-checked at load; v3 = segmented era
     plugin: str                                    # FR-16; resolved against discovery
     seed: int = 0                                  # default seed; CLI --seed overrides for ad-hoc runs
     Input: InputSection
@@ -642,7 +686,7 @@ Per-section models (sketch; full field definitions land alongside the FR-1 imple
 
 | Model | Required fields |
 |---|---|
-| `InputSection` | `sources: list[InputSource]` (each with `name`, `type`, `path`, optional `label_from: LabelFromSpec`, optional `partition: str`, `unlabeled: bool = False`). Model-level validation: `unlabeled=true` requires `partition` and forbids `label_from`. |
+| `InputSection` | `sources: list[SerializeAsAny[InputSource]]` (each with `name`, `type`, `path`, optional `label_from: LabelFromSpec`, optional `partition: str`, `unlabeled: bool = False`). Model-level validation: `unlabeled=true` requires `partition` and forbids `label_from`. **Plugin source subclasses (Story J.n.3, design Q1):** `InputSource` is the open base; `AudioSource(InputSource)` adds `target_sample_rate: int`. A before-validator selects the subclass *presence-based* (a source declaring an audio-only field is an `AudioSource`), keeping `type` a free `str`. `SerializeAsAny` so a selected subclass serializes its own fields. The base's `extra="forbid"` structurally enforces Finding A: an image source cannot carry `target_sample_rate`, so audio fields never enter an image recipe's canonical bytes. |
 | `LabelFromSpec` | `path: pathlib.Path`, `join: Literal["by_id", "by_row_order"]`, `header: list[str] | None`, `id_field: str | None`, `label_field: str`. When `header` is omitted the loader reads column names from the CSV's header row; when `header` is provided the file is treated as **headerless** and the recipe-supplied names *are* the column names (recipe-as-truth, no heuristic header detection). |
 | `OutputSection` | `record_schema: dict[str, FieldSpec]` (field name -> dtype/shape) |
 | `LabelsSection` | `field: str`, `source: LabelSource` (direct or derived; FR-22) |
@@ -668,7 +712,7 @@ class Manifest(pydantic.BaseModel):
     recipe_hash: str                   # full SHA-256 hex
     input_hash: str                    # full SHA-256 hex
     seed: int
-    variant: str | None
+    overlays: list[str]                # manifest v2 (J.n.5); was `variant: str | None`
     created_at: datetime.datetime
     elapsed_seconds: float
     is_partial: bool

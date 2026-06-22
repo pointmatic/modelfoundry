@@ -462,9 +462,10 @@ Derive new features from one or more existing inputs.
 
 **Behavior:**
 1. Each featurization declares its inputs, output field name, computation, and the splits it applies to.
-2. Featurizations may reference any declared input source, including filenames and metadata.
+2. Featurizations may reference any declared input source, including filenames and metadata — **including the output of an upstream featurization in the same stage** (Featurizations run in recipe-declared order within the stage).
 3. Featurizations may be deterministic or fit-on-train; fit-on-train featurizations follow FR-6 and FR-10's rules.
 4. The same machinery produces derived labels (see `Labels` declaration in FR-19).
+5. **Fit-on-train normalization of a derived feature is a staple, cross-modality capability and lives here, not in `Transformations`.** Standardizing a feature that an earlier stage *derived* (audio log-mel spectra per-mel-bin now; tabular column scaling and text embedding normalization as those plugins mature) requires the fit to run *after* the feature exists. The pipeline runs `Transformations` **before** `Featurizations` (a Transformation normalizes *raw* inputs — e.g. the image `normalize` op on pixels), so a Transformation cannot see a derived feature. The `Featurizations` stage is the only stage that runs after derivation *and* supports fit-on-train + statistics persistence (FR-6) + sibling import (FR-TRANS-1). Such an op reads a prior featurization's output field and writes the scaled result to a new field (e.g. audio `log_mel_spectrogram` → `mel`, then fit-on-train `audio_normalize` → `feature`), keeping the raw and scaled features both present and the no-overwrite collision guard (check 23 / FR-12 edge case) satisfied.
 
 **Edge Cases:**
 - Featurization referencing a field not in `Input` or upstream output -> caught by `validate` (check 7).

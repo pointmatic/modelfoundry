@@ -142,7 +142,7 @@ def test_cross_validation_helpers(tmp_path: Path) -> None:
     inst = resolve_data_instance(DataSpec(recipe=recipe_yaml), _config(cache_root))
     assert inst.instance_provides_splits(["train", "val"]) is True
     assert inst.instance_provides_splits(["train", "missing"]) is False
-    assert inst.instance_schema_version() == 2  # v1 source migrates to v2 on load
+    assert inst.instance_schema_version() == 3  # v1 source migrates to v3 on load (DR v0.23)
     assert inst.instance_num_classes() == len(_CLASSES)
 
 

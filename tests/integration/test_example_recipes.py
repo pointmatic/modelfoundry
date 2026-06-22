@@ -45,7 +45,7 @@ def _repo_root_cwd(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 
 
 def _require_dr1_instance() -> None:
-    status = dr.resolve_instance(_DR_RECIPE, cache_root=_DATA_ROOT, seed=None, variant=None)
+    status = dr.resolve_instance(_DR_RECIPE, cache_root=_DATA_ROOT, seed=None, overlays=None)
     if status.cache_status != "hit":
         pytest.skip(
             f"DR-1 CIFAR-10 instance not materialized under ./{_DATA_ROOT} "

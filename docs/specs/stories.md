@@ -184,6 +184,87 @@ Reconcile the spec docs to what Phase I actually shipped (the code is the source
 
 ---
 
+**Story bundle I.j.1–I.j.5 — DataRefinery v0.23.0 adoption + family `overlays` standard.** *(Authored in `debug` mode by developer direction, 2026-06-22: a `[Planned]` `I.j.#` split under the existing Phase I, not a new phase/subphase — phase/subphase creation is `plan_phase` territory. If the developer prefers this carry a Subphase I-1 heading, that is a one-line `plan_phase` follow-up.)*
+
+**Why this bundle exists.** Upgrading the upstream dependency to **DataRefinery v0.23.0** (`pyproject.toml`: `ml-datarefinery>=0.23`) surfaced two *coordinated* upstream changes, not loose drift. Grounded in the vendored DR `concept`/`features`/`tech-spec`:
+
+1. **DR Story J.n.3 — segmented identity became authoritative.** DR's cache identity switched from flat `sha256(to_canonical_bytes)` to `recipe_identity_hash(recipe)` (its own segmented `join_stable`), riding a DR-recipe `schema_version` **2→3** bump. `dr.Instance.load` now hard-validates `recipe.json` ↔ `manifest.recipe_hash`.
+2. **DR Story J.n.5 — `variants` → `overlays`.** DR renamed *and widened* the concept: a single `variant: str` became an ordered `overlays: Sequence[str]` (last-writer-wins per section); `resolve_instance(variant=…)` → `resolve_instance(overlays=…)`; DR `manifest.variant` → `manifest.overlays: list[str]`.
+
+What blew this past a bugfix (developer decision, 2026-06-22): rather than a minimal compat patch, **ModelFoundry adopts the family `overlays` standard end-to-end** — renaming MF's *own* `variants:` recipe surface to `overlays:`, widening it to a multi-overlay list, and updating MF's ModelInstance manifest contract to match. Renaming MF's canonical overlay field (`recipe/canonical.py::_OVERLAY_FIELD`) **perturbs the `overlays` segment's canonical bytes → invalidates every MF cache**, so this is a *second* ceremonious cache-invalidation event after I.h's v0.16.0 — handled with the full ceremony (re-pin the canonical-hash test with conscious sign-off, CHANGELOG blast-radius note, re-materialize per OR-9). The four-tool family's segmented-identity + `overlays` namespace is a **governed shared contract** (`project-essentials.md`); this bundle keeps MF *in unity* with it.
+
+**Release shape — phase-bundled, one minor.** Stories I.j.1–I.j.5 run **unversioned during work**; **I.j.3 owns the single bump → v0.17.0** (one cache-invalidation event, not five). Compat lands first (I.j.1) so "green on DR 0.23" is isolated from the invalidating rename.
+
+**Scope guard — three distinct meanings of "variant", only one is renamed.** (a) MF's *recipe overlay* (`variants:` block, `apply_variant`, `manifest.variant`, `--variant`, canonical `_OVERLAY_FIELD`) — **renamed → `overlays`**. (b) DR's boundary kwarg — **mapped** to DR's `overlays`. (c) `OperationSpec.variant` in [recipe/sections.py](../../src/modelfoundry/recipe/sections.py) = "the typed op param instance" (e.g. `cross_entropy` is a *variant* of loss) and the "weighted variant" loss comment — **left untouched** (unrelated meaning).
+
+---
+
+### Story I.j.1: DataRefinery v0.23.0 compatibility — restore green [Done]
+
+Get the suite green on DR v0.23.0 with **zero change to MF's own surface or cache identity** (the family rename follows in I.j.2). Debug-mode reproduction: `pyve test --env smoke-pytorch tests/unit/test_data_binding.py tests/unit/test_pytorch_augmentations.py tests/unit/test_fixture_foundation.py tests/integration/test_loose_coupling.py` → **19 failed, 37 passed, 1 error** before the fix.
+
+- [x] **RC-A — fixtures use DR's authoritative identity hash.** In [tests/fixtures/datarefinery_instances/builder.py](../../tests/fixtures/datarefinery_instances/builder.py) and [cifar10_smoke/builder.py](../../tests/fixtures/datarefinery_instances/cifar10_smoke/builder.py), replaced `sha256(to_canonical_bytes(dr_recipe))` with `recipe_identity_hash(dr_recipe)` (`from datarefinery.recipe.segments import recipe_identity_hash`) on the same in-memory recipe written to `recipe.json`; bumped the embedded DR recipe `schema_version: 2 → 3` (v3 loads the existing recipe shape directly). **Broader than planned:** the same old-style hash builder is *duplicated inline* in 9 more test files — `test_pytorch_data_adapter`, `test_pytorch_trainer` (×2), `test_pytorch_optimization`, `test_materialize_runner`, `test_pytorch_evaluation`, `test_sklearn_baseline`, `test_modelfoundry_api`, `test_init_cmd`, `test_materialize_cmd` — all migrated identically (+ dropped the now-unused `import hashlib`). Also updated the `test_data_binding::test_cross_validation_helpers` assertion `schema_version == 2 → 3` (DR's loader now bootstrap-migrates v1 → v3, was v1 → v2). Test-fixture-only.
+- [x] **RC-B(interim) — DR boundary kwarg.** Mapped MF's still-named `variant` to DR's new kwarg at [data_binding.py](../../src/modelfoundry/pipeline/data_binding.py) `_resolve_via_library`: `overlays=[variant] if variant else None`; updated the module docstring. MF's own `variant` surface stays put — **superseded by I.j.2**. Four *direct* `dr.resolve_instance(..., variant=None)` call-sites in tests (`test_random_baseline`, `test_cifar10_resnet20`, `test_example_recipes`, `test_validate_cmd`) also retargeted `variant=None → overlays=None` (surfaced by whole-tree mypy).
+- [x] **RC-C — DR augmentation params now fully required.** `test_pytorch_augmentations` passed partial params to DR realizers. **Broader than the planned `RandomErasingParams` note:** DR v0.23 made *all three* param models fully-required — `RandomCropParams` (now needs `padding_mode`), `ColorJitterParams` (`hue`), `RandomErasingParams` (`scale`+`ratio`). Passed the full set in each affected case, using values equal to MF's own defaults so the shared dict drives both realizers identically (MF's models still default them — adapter unaffected).
+- [x] **RC-D — stale version string.** `datarefinery_version="0.19.0"` → `"0.23.0"` in both [builder.py](../../tests/fixtures/datarefinery_instances/builder.py) and [cifar10_smoke/builder.py](../../tests/fixtures/datarefinery_instances/cifar10_smoke/builder.py).
+- [x] Re-ran the DR-touching surface + heavier `smoke-pytorch` integration tests → green. Full CI gate green: ruff check + ruff format --check + mypy (typecheck env) + light (567 passed / 47 skipped / 1 xfailed) + smoke-pytorch (768 passed / 15 skipped / 1 xfailed).
+
+**Version:** unversioned (rides the I.j.3 v0.17.0 bundle).
+
+---
+
+### Story I.j.2: Adopt the family `overlays` standard across MF (atomic rename + multi-overlay list) [Planned]
+
+One coherent cross-layer rename of MF's *own* overlay surface `variants` → `overlays`, widened to an ordered list (last-writer-wins per section, mirroring DR). Atomic so the tree stays green; **cache-invalidating** (the `_OVERLAY_FIELD` rename moves the `overlays`-segment canonical bytes), so the canonical-hash pin is re-pinned **in this story** (the change that moves the bytes also fixes the guard).
+
+- [ ] **Recipe layer.** [recipe/models.py:203](../../src/modelfoundry/recipe/models.py#L203) `variants:` → `overlays:`; `DataSpec.variant` ([:29](../../src/modelfoundry/recipe/models.py#L29)) → `overlays: list[str] = []`. Rename [recipe/variants.py](../../src/modelfoundry/recipe/variants.py) → `recipe/overlays.py`; `apply_variant(dict, str|None)` → `apply_overlays(dict, Sequence[str]|None)` with ordered last-writer-wins merge + unknown-name error. [recipe/loader.py](../../src/modelfoundry/recipe/loader.py) param/import/call. [recipe/__init__.py](../../src/modelfoundry/recipe/__init__.py) docstring.
+- [ ] **Cache identity (the invalidating line).** [recipe/canonical.py:61](../../src/modelfoundry/recipe/canonical.py#L61) `_OVERLAY_FIELD = "variants"` → `"overlays"`. Segment label stays `"overlays"` (already named so since Phase I) — this aligns the *recipe field* to the *segment*.
+- [ ] **Validator.** Check 16 `variants_keys_declared` → `overlays_keys_declared`; `variants_block` param → `overlays_block` ([validator.py:78,101,421-444](../../src/modelfoundry/recipe/validator.py#L78)).
+- [ ] **Consumer surface (kept in the same commit to stay green).** [core/config.py:33](../../src/modelfoundry/core/config.py#L33) `RuntimeConfig.variant` → `overlays: list[str] = []`; [core/manifest.py:73](../../src/modelfoundry/core/manifest.py#L73) `manifest.variant` → `overlays: list[str]` (**MF ModelInstance on-disk contract change**); [core/modelfoundry.py](../../src/modelfoundry/core/modelfoundry.py) (`variant` param/attr/docstrings); [pipeline/runner.py:60-67,180](../../src/modelfoundry/pipeline/runner.py#L60); [data_binding.py](../../src/modelfoundry/pipeline/data_binding.py) (drop the interim bridge — pass the real `overlays` list); [reporting/report.py:57-58](../../src/modelfoundry/reporting/report.py#L57).
+- [ ] **CLI.** [cli/app.py:292-312](../../src/modelfoundry/cli/app.py#L292) `--variant` → `--overlay` (repeatable `list[str]`); [materialize_cmd.py](../../src/modelfoundry/cli/commands/materialize_cmd.py) + [status_cmd.py:65](../../src/modelfoundry/cli/commands/status_cmd.py#L65) param/pass-through + manifest display (join overlays).
+- [ ] **Re-pin + tests.** Re-pin `_PINNED_HASH` in [test_canonical.py:96](../../tests/unit/test_canonical.py#L96) with a conscious-sign-off comment. Rename `test_recipe_variants.py` → `test_recipe_overlays.py` (list semantics); update `test_canonical.py`, `test_config.py`, `test_data_binding.py`, `test_recipe_validator.py`, `tests/cli/test_materialize_cmd.py`; fixtures `pytorch_with_variants.yml` → `…_overlays.yml`, `invalid/invalid_variants_keys.yml`, `cifar10_resnet20.yml`. Leave `recipe/sections.py` op-variant terminology untouched (scope guard).
+
+**Version:** unversioned (rides I.j.3).
+
+---
+
+### Story I.j.3: Cache-invalidation release ceremony — owns v0.17.0 [Planned]
+
+The single ceremonious release for the bundle's one cache-invalidation event (per `project-essentials.md` "invalidations are ceremonious" + OR-9 pre-prod rules).
+
+- [ ] **CHANGELOG.md** — v0.17.0 entry: DR v0.23.0 adoption + the MF `overlays` rename; blast radius (every MF cache invalidated → re-materialize), recipe-author migration note (`variants:` → `overlays:`), the conscious canonical re-pin reference (I.j.2).
+- [ ] **Bump** `pyproject.toml` → `0.17.0`.
+- [ ] Confirm the full CI gate green (ruff check + ruff format --check + mypy src tests + light & smoke-pytorch tests) at the bump.
+
+**Version:** **minor → v0.17.0** (cache-invalidating family-standard adoption; second invalidation event after I.h's v0.16.0; pre-prod OR-9 — release-note + re-materialize, no migration written, zero pre-1.0 support window).
+
+---
+
+### Story I.j.4: Documentation & shared-contract alignment [Planned]
+
+Reconcile MF's spec docs to the shipped `overlays` surface (alignment, not net-new requirements — the code is source of truth). Doc-only; rides v0.17.0.
+
+- [ ] **MF `features.md`** — FR-14 `variants` → `overlays` (list semantics, last-writer-wins); recipe-shape list; any validator-check 16 reference.
+- [ ] **MF `tech-spec.md`** — `recipe.overlays` module (was `recipe.variants`), `apply_overlays`, `DataSpec`/`RuntimeConfig`/manifest field rename, `canonical._OVERLAY_FIELD` note, CLI `--overlay`.
+- [ ] **MF `concept.md`** + **`README.md`** — `overlays` phrasing where `variant(s)` appears; `--overlay` in the shared-options line.
+- [ ] **`docs/guides/recipe-authoring.md`** (if present for MF) — overlay-authoring section rename + multi-overlay example.
+
+**Version:** no bump (doc-only; rides v0.17.0).
+
+---
+
+### Story I.j.5: Cross-repo governance — `join_stable` byte-format divergence [Planned]
+
+Record the family-contract status surfaced by the upgrade. **Not an MF code change** — a governance/coordination action.
+
+- [ ] **Finding.** DR v0.23 has now *implemented* its `join_stable` — closing the open item in `project-essentials.md` / `docs/spikes/I.a-segmented-recipe-identity.md`. **The byte formats diverge:** DR uses `b"\x1f".join(digests)` (unframed unit-separator join of raw per-segment digests); MF uses a **labeled, length-framed, prefix-capable** concatenation ([canonical.py:103-124](../../src/modelfoundry/recipe/canonical.py#L103-L124)). This does **not** functionally break MF — MF consumes the DR instance as an opaque hashed unit (reads DR's `manifest.recipe_hash`, XORs into `data_instance_hash16`; never recomputes DR's hash with MF's combiner). It becomes load-bearing only if/when the deferred vertical / cross-tool hash-chain axis ships (both sides kept the combiner prefix-capable for exactly that).
+- [ ] **Update `project-essentials.md`** — change the cross-repo open item from "DR has not yet implemented `join_stable`" to "DR v0.23 implemented it; formats diverge (see below); aligning is a cross-repo coordination event, not an in-tree fix." Same note in `docs/spikes/I.a-segmented-recipe-identity.md`.
+- [ ] **Surface to the family** (DataRefinery → ModelFoundry → nbfoundry → learningfoundry): is `join_stable`'s byte format meant to be byte-identical across tools, or only structurally analogous? Do **not** alter MF's combiner unilaterally.
+
+**Version:** no bump (doc/governance; rides v0.17.0).
+
+---
+
 ## Future
 
 <!--

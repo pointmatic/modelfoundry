@@ -9,7 +9,6 @@ and the `apply_params` merge-back of `batch_size` + `patience`.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import textwrap
 from collections.abc import Iterator
@@ -25,8 +24,8 @@ pytest.importorskip("optuna")
 import datarefinery as dr  # noqa: E402
 import pyarrow as pa  # noqa: E402
 from datarefinery.pipeline.manifest import Manifest as DRManifest  # noqa: E402
-from datarefinery.recipe.canonical import to_canonical_bytes  # noqa: E402
 from datarefinery.recipe.loader import load as dr_load_recipe  # noqa: E402
+from datarefinery.recipe.segments import recipe_identity_hash  # noqa: E402
 from PIL import Image  # noqa: E402
 
 from modelfoundry.pipeline.data_binding import DataRefineryInstance  # noqa: E402
@@ -59,7 +58,7 @@ def _restore_determinism() -> Iterator[None]:
 def _recipe_yaml() -> str:
     return textwrap.dedent(
         """
-        schema_version: 2
+        schema_version: 3
         plugin: image_classification
         seed: 1
         Input: {sources: [{name: t, type: image_folder, path: /x}]}
@@ -78,7 +77,7 @@ def _build_instance(tmp_path: Path) -> DataRefineryInstance:
     recipe_path = tmp_path / "dr_recipe.yml"
     recipe_path.write_text(_recipe_yaml(), encoding="utf-8")
     dr_recipe = dr_load_recipe(recipe_path)
-    recipe_hash = hashlib.sha256(to_canonical_bytes(dr_recipe)).hexdigest()
+    recipe_hash = recipe_identity_hash(dr_recipe)
 
     inst = tmp_path / "inst"
     inst.mkdir()
@@ -109,7 +108,7 @@ def _build_instance(tmp_path: Path) -> DataRefineryInstance:
         counts[split] = len(records)
 
     manifest = DRManifest(
-        datarefinery_version="0.19.0",
+        datarefinery_version="0.23.0",
         plugin="image_classification",
         plugin_version="1",
         recipe_hash=recipe_hash,
@@ -318,7 +317,13 @@ def test_n_jobs_above_one_rejected_at_construction() -> None:
     from pydantic import ValidationError as PydanticValidationError
 
     with pytest.raises(PydanticValidationError):
+        # All other required fields are supplied so `n_jobs=2` is the SOLE violation
+        # (no-implicit-defaults, I.e.3, made sampler/pruner/baseline_trial required —
+        # without them this would raise for the wrong reason).
         OptimizationSpec(
+            sampler="tpe",
+            pruner="median",
+            baseline_trial="enqueue_recipe_defaults",
             n_jobs=2,
             n_trials=3,
             search_space={"Training.batch_size": SearchSpaceSpec(categorical=[2, 4])},

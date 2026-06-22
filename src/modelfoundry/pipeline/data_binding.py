@@ -20,7 +20,7 @@ per `project-essentials.md` § Loose-coupled DataRefinery binding.
 cache identity — that is forbidden by the vendor-dependency-spec § "Resolving a
 materialized instance" (a hand-rolled key silently breaks after any canonical-
 bytes change). It calls DataRefinery's blessed resolver,
-`datarefinery.resolve_instance(recipe_path, cache_root=…, seed=…, variant=…)`,
+`datarefinery.resolve_instance(recipe_path, cache_root=…, seed=…, overlays=…)`,
 which returns a `StatusReport` (`cache_status` hit/miss/corrupt + `instance_path`
 + `manifest`). The resolver hashes the recipe's declared inputs, so the source
 inputs must be present on the resolving host (vendor-spec § Host portability).
@@ -156,7 +156,16 @@ def _resolve_via_library(
     recipe's declared inputs, so the source inputs must be present on this host.
     """
     try:
-        return _dr.resolve_instance(recipe_path, cache_root=cache_root, seed=seed, variant=variant)
+        # DataRefinery v0.23 widened its boundary kwarg `variant: str` to an
+        # ordered `overlays: Sequence[str]` (Story I.j.1 RC-B interim bridge).
+        # ModelFoundry's own single-`variant` surface is unchanged here; I.j.2
+        # renames it to a real `overlays` list that flows straight through.
+        return _dr.resolve_instance(
+            recipe_path,
+            cache_root=cache_root,
+            seed=seed,
+            overlays=[variant] if variant else None,
+        )
     except Exception as exc:
         raise DataBindingError(
             f"could not resolve DataRefinery instance for recipe {recipe_path}: {exc}",

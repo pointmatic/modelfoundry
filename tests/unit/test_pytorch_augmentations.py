@@ -301,7 +301,7 @@ def test_random_crop_output_dimensions_match(data: Any) -> None:
 def test_random_crop_uniform_content_matches(data: Any) -> None:
     img, color = _uniform_image(data, lo=10, hi=16)
     size = data.draw(st.integers(4, img.shape[0]))
-    params: dict[str, object] = {"size": size, "padding": 0}
+    params: dict[str, object] = {"size": size, "padding": 0, "padding_mode": "reflect"}
 
     dr_out = realize_random_crop({"image": img}, seed=9, variant_index=0, params=params)["image"]
     mf_out = build_realizer("random_crop", params, seed=9)(_chw_float(img))
@@ -332,7 +332,7 @@ def test_color_jitter_preserves_spatial_uniformity(data: Any) -> None:
     # spatially-uniform image stays uniform under jitter (every pixel transformed
     # identically), even though the two realizers pick different jitter magnitudes.
     img, _ = _uniform_image(data, lo=8, hi=14)
-    params = {"brightness": 0.5, "contrast": 0.5, "saturation": 0.5}
+    params = {"brightness": 0.5, "contrast": 0.5, "saturation": 0.5, "hue": 0.0}
     dr_out = realize_color_jitter({"image": img}, seed=4, variant_index=0, params=params)["image"]
     mf_out = build_realizer("color_jitter", params, seed=4)(_chw_float(img))
 
@@ -349,10 +349,9 @@ def test_color_jitter_preserves_spatial_uniformity(data: Any) -> None:
 @settings(max_examples=20, deadline=None)
 def test_random_erasing_preserves_shape(data: Any) -> None:
     img = _dr_image(data, lo=10, hi=16)
-    dr_out = realize_random_erasing({"image": img}, seed=8, variant_index=0, params={"p": 1.0})[
-        "image"
-    ]
-    mf_out = build_realizer("random_erasing", {"p": 1.0}, seed=8)(_chw_float(img))
+    params = {"p": 1.0, "scale": (0.02, 0.33), "ratio": (0.3, 3.3)}
+    dr_out = realize_random_erasing({"image": img}, seed=8, variant_index=0, params=params)["image"]
+    mf_out = build_realizer("random_erasing", params, seed=8)(_chw_float(img))
     assert dr_out.shape == img.shape
     assert tuple(mf_out.shape) == (3, img.shape[0], img.shape[1])
 
@@ -361,10 +360,9 @@ def test_random_erasing_preserves_shape(data: Any) -> None:
 @settings(max_examples=20, deadline=None)
 def test_random_erasing_p0_is_identity_across_realizers(data: Any) -> None:
     img = _dr_image(data, lo=10, hi=16)
-    dr_out = realize_random_erasing({"image": img}, seed=8, variant_index=0, params={"p": 0.0})[
-        "image"
-    ]
-    mf_out = build_realizer("random_erasing", {"p": 0.0}, seed=8)(_chw_float(img))
+    params = {"p": 0.0, "scale": (0.02, 0.33), "ratio": (0.3, 3.3)}
+    dr_out = realize_random_erasing({"image": img}, seed=8, variant_index=0, params=params)["image"]
+    mf_out = build_realizer("random_erasing", params, seed=8)(_chw_float(img))
     assert np.array_equal(dr_out, img)
     assert torch.equal(mf_out, _chw_float(img))
 
