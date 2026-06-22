@@ -19,7 +19,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class DataSpec(BaseModel):
@@ -76,6 +76,43 @@ class TrainingSpec(BaseModel):
     # time. "auto" picks the best available accelerator. Validator check 20
     # rejects an explicit device the plugin reports unavailable.
     device: Literal["auto", "cpu", "cuda", "mps"] = "auto"
+
+
+class InferenceSpec(BaseModel):
+    """Recipe-declared stochastic-inference block (R2.1, Story H.m).
+
+    `mode: point` (the default, and the shape applied when the block is absent)
+    is single-pass inference with dropout inactive — the established
+    `predict()` / `predict_proba()` point-estimate semantics, byte-unchanged.
+
+    `mode: mc_dropout` requests **T** (`mc_samples`, author-declared, target
+    20-50) stochastic forward passes with `Dropout` kept active, seeded
+    deterministically per pass via `derive_seed(master_seed, "dropout", t)`. The
+    aggregation of those passes into mean probabilities + a predictive-uncertainty
+    estimate, and their persistence, land in Story H.n.
+
+    Adding this block to `ModelRecipe` shifts the canonical bytes of every recipe
+    that omits it (a default participates in the cache identity) — a
+    cache-invalidating change handled pre-production per OR-9 (release-note +
+    re-materialize, no `schema_version` bump). See `project-essentials.md` §
+    Cache identity.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    mode: Literal["point", "mc_dropout"] = "point"
+    mc_samples: int | None = Field(default=None, gt=0)
+
+    @model_validator(mode="after")
+    def _check_mc_samples(self) -> InferenceSpec:
+        if self.mode == "mc_dropout" and self.mc_samples is None:
+            raise ValueError(
+                "Inference.mode='mc_dropout' requires `mc_samples` (T, the number of "
+                "stochastic forward passes; the consumer targets 20-50)"
+            )
+        if self.mode == "point" and self.mc_samples is not None:
+            raise ValueError("Inference.mc_samples is only valid when mode='mc_dropout'")
+        return self
 
 
 class SearchSpaceSpec(BaseModel):
@@ -144,6 +181,7 @@ class ModelRecipe(BaseModel):
     Optimizer: OptimizerSpec
     Training: TrainingSpec
     Optimization: OptimizationSpec | None = None
+    Inference: InferenceSpec | None = None
     Evaluation: EvaluationSpec
     Visualizations: list[VisualizationSpec] = []
     OutputExpectations: list[ExpectationSpec] = []

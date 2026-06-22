@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.0] - 2026-06-21
+
+Minor — the **MC-dropout stochastic-inference surface** (Story H.m, R2.1 / R2.4): a recipe can declare
+`Inference: {mode: mc_dropout, mc_samples: T}` to request **T** seeded active-dropout forward passes,
+the foundation for predictive uncertainty (aggregation + persistence land in H.n). Default single-pass
+`predict()` / `predict_proba()` point-estimate semantics are unchanged for recipes that omit the block.
+**Cache-invalidating:** the new `Inference` recipe field shifts the canonical bytes of every recipe that
+omits it — re-materialize existing instances (pre-production OR-9: release-note only; no `schema_version`
+bump).
+
+### Added
+
+- **`Inference` recipe block** (`mode: point | mc_dropout`, `mc_samples`) — `point` (the default, and the shape applied when the block is absent) is single-pass with dropout inactive; `mc_dropout` requires an author-declared `mc_samples` (T, target 20-50) (R2.1).
+- **MC-dropout mechanism** (`plugins/pytorch/stochastic.py`) — `enable_mc_dropout` keeps only `Dropout`-family modules active under `.eval()`; `mc_forward_proba` runs T forward passes, each seeded from `derive_seed(master_seed, "dropout", pass_index)` so the T-pass sequence reproduces byte-for-byte (R2.4), preserving the four determinism invariants.
+
+### Changed
+
+- Adding the `Inference` field perturbs the recipe canonical bytes; existing cached ModelInstances are stale and must be re-materialized (pre-production OR-9).
+
 ## [0.12.0] - 2026-06-21
 
 Minor — activate **`LoRA` adapters** for the pretrained-encoder path and their serialization (Story

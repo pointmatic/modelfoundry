@@ -142,3 +142,44 @@ def test_output_bytes_independent_of_num_workers(tmp_path: Path) -> None:
         for nw in (1, 2, 4)
     }
     assert outputs[1] == outputs[2] == outputs[4]
+
+
+# --- MC-dropout stochastic inference (R2.4, Story H.m) ---
+
+
+def _mc_passes(seed: int) -> bytes:
+    """Run the seeded T-pass MC-dropout sequence on a freshly-built dropout model.
+
+    Builds the model the way the runner does (seeded weight init before
+    `build_model`), then returns the T-pass output bytes for byte-identity.
+    """
+    from modelfoundry.pipeline.seeding import derive_seed
+    from modelfoundry.plugins.pytorch.architecture import build_model
+    from modelfoundry.plugins.pytorch.determinism import enable_deterministic_algorithms
+    from modelfoundry.plugins.pytorch.stochastic import mc_forward_proba
+
+    # Mirror the runner's prepare_for_build: seed weight init before build_model.
+    enable_deterministic_algorithms(derive_seed(seed, "weight_init"))
+    model = build_model(
+        {
+            "num_classes": _NUM_CLASSES,
+            "layers": [
+                {"op": "Flatten"},
+                {"op": "Linear", "in_features": _IMAGE_SIZE * _IMAGE_SIZE * 3, "out_features": 16},
+                {"op": "ReLU"},
+                {"op": "Dropout", "p": 0.5},
+                {"op": "Linear", "in_features": 16, "out_features": _NUM_CLASSES},
+            ],
+        }
+    )
+    batch = torch.zeros(4, 3, _IMAGE_SIZE, _IMAGE_SIZE) + 0.5
+    return mc_forward_proba(model, batch, n_samples=20, master_seed=seed).numpy().tobytes()
+
+
+def test_mc_dropout_passes_are_byte_identical_across_runs() -> None:
+    # Same seed → byte-identical T-pass sequence (criterion 4, MC portion).
+    assert _mc_passes(seed=7) == _mc_passes(seed=7)
+
+
+def test_mc_dropout_passes_depend_on_seed() -> None:
+    assert _mc_passes(seed=7) != _mc_passes(seed=8)
