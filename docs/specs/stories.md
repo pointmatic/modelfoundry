@@ -135,12 +135,12 @@ F4 (part). The interpreting code supplies no behavior-affecting value. With the 
 
 ---
 
-### Story I.f: Golden re-pin + invalid-fixture verification [Planned]
+### Story I.f: Golden re-pin + invalid-fixture verification [Done]
 
 F6 (enforcement portion, rescoped — the recipe/fixture/template rewrites moved into I.e.1-I.e.3 to keep each story green). What remains is the conscious sign-off + invalid-fixture correctness.
 
-- [ ] Confirm the 14 invalid fixtures still fail for the *right* reason under the new schema (flat-discriminated + explicit-values); adjust as needed so each trips exactly its documented check.
-- [ ] **Consciously re-pin `_PINNED_HASH`** in [test_canonical.py](../../tests/unit/test_canonical.py) and remove its `xfail` — the deliberate reviewer sign-off the test exists to force (the one cache-invalidating change has fully landed).
+- [x] Confirmed the invalid fixtures still fail for the *right* reason under the new schema — the fixture-verification layer in [test_recipe_validator.py](../../tests/unit/test_recipe_validator.py) is green (15 passed, 1 pre-existing check-13 xfail). The I.e.2 corpus migration added the now-required values to the invalid fixtures too, so none acquired a spurious "missing field" failure.
+- [x] **Consciously re-pinned `_PINNED_HASH`** in [test_canonical.py](../../tests/unit/test_canonical.py) (`60cc77…` → `eca50b…`) and removed the `xfail` — the deliberate reviewer sign-off for Phase I's one-time cache-invalidating change (combiner + discriminated surfaces + extensions segment + num_workers reclassification + no-implicit-defaults). `_PINNED_RECIPE` updated to the explicit-values form.
 
 **Version:** **no bump** (bundled).
 

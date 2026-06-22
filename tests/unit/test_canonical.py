@@ -8,8 +8,6 @@ import hashlib
 import textwrap
 from pathlib import Path
 
-import pytest
-
 from modelfoundry.recipe.canonical import canonical_bytes, recipe_hash
 from modelfoundry.recipe.loader import load_recipe
 from modelfoundry.recipe.models import ModelRecipe
@@ -73,6 +71,9 @@ _PINNED_RECIPE = textwrap.dedent(
     Training:
       max_epochs: 3
       batch_size: 32
+      device: auto
+      precision: fp32
+      checkpoint_cadence: 1
     Inference:
       mode: mc_dropout
       mc_samples: 30
@@ -80,25 +81,22 @@ _PINNED_RECIPE = textwrap.dedent(
       splits: [val, test]
       primary_metric: macro_f1
       metrics: [macro_f1, per_class_f1, per_class_precision, per_class_recall, confusion_matrix]
+      calibration_bins: 10
     """
 ).strip()
 
-_PINNED_HASH = "60cc771852d238bc0e2a1c8d44e983026e42420a46d388226b8dae45685f8b6e"
+# Re-pinned at Story I.f — the single conscious sign-off for Phase I's one-time
+# cache-invalidating change (segmented `join_stable` combiner [I.b] + discriminated-
+# union surfaces [I.c] + `extensions` segment [I.d] + `num_workers` reclassification
+# [I.e.1] + no-implicit-defaults [I.e.2/I.e.3]). Prior pin (flat total dump):
+# 60cc771852d238bc0e2a1c8d44e983026e42420a46d388226b8dae45685f8b6e.
+_PINNED_HASH = "eca50ba1ccc6718b8ec525b4a5c8415561509e3355c58935306a2d3f03e82bc8"
 
 
-@pytest.mark.xfail(
-    reason=(
-        "Phase I changes the canonical form ONCE — Story I.b swaps the flat dump for "
-        "the segmented `join_stable` combiner, and I.c/I.e perturb it further. The "
-        "golden re-pin is deliberately deferred to Story I.f (the single conscious "
-        "sign-off the test exists to force). xfail strict: remove + re-pin at I.f."
-    ),
-    strict=True,
-)
 def test_pinned_canonical_hash_is_stable(tmp_path: Path) -> None:
-    # Guards every pydantic field default in the canonical bytes (project-essentials
-    # § Cache identity). A failure here means the canonical form shifted — confirm
-    # the change is an intended cache-invalidating event before re-pinning.
+    # Guards the segmented canonical bytes (project-essentials § Cache identity). A
+    # failure here means the canonical form shifted — confirm the change is an
+    # intended cache-invalidating event before re-pinning this literal.
     assert recipe_hash(_load(tmp_path, _PINNED_RECIPE, name="pinned.yml")) == _PINNED_HASH
 
 
