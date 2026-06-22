@@ -152,7 +152,7 @@ def _recipe(
         },
         Loss=LossSpec(op="cross_entropy"),
         Optimizer=OptimizerSpec(op="adamw", learning_rate=0.01),
-        Training=TrainingSpec(max_epochs=1, batch_size=4, num_workers=0, device="cpu"),
+        Training=TrainingSpec(max_epochs=1, batch_size=4, device="cpu"),
         Optimization=optimization,
         Evaluation=EvaluationSpec(
             splits=["val"] if eval_splits is None else eval_splits,

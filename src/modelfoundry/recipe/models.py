@@ -67,7 +67,10 @@ class TrainingSpec(BaseModel):
 
     max_epochs: int = Field(gt=0)
     batch_size: int = Field(gt=0)
-    num_workers: int = Field(ge=0, default=2)
+    # `num_workers` is NOT a recipe field (Story I.e.1, Option A): it is
+    # output-neutral execution context (the E.e `worker_init_fn` makes trained
+    # bytes independent of worker count), so it lives in `RuntimeConfig`
+    # (`--num-workers` / `MODELFOUNDRY_NUM_WORKERS`), not in cache identity.
     precision: Literal["fp32", "amp"] = "fp32"
     checkpoint_cadence: int = Field(gt=0, default=1)
     early_stopping: EarlyStoppingSpec | None = None

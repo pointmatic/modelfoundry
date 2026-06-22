@@ -147,6 +147,22 @@ def test_env_used_when_flag_absent(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
     assert cfg.cache_root == tmp_path / "envc"
 
 
+def test_num_workers_flag_flows_into_runtime_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Story I.e.1: --num-workers (execution context) wins over env and default.
+    monkeypatch.setenv("MODELFOUNDRY_NUM_WORKERS", "2")
+    cfg = build_runtime_config(
+        cache_root=None,
+        data_cache_root=None,
+        log_level=None,
+        log_target=None,
+        plugin_path=None,
+        verbose=False,
+        quiet=False,
+        num_workers=6,
+    )
+    assert cfg.num_workers == 6
+
+
 def test_plugin_path_splits_on_comma() -> None:
     cfg = build_runtime_config(
         cache_root=None,

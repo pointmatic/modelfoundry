@@ -155,7 +155,6 @@ def _recipe() -> ModelRecipe:
         Training=TrainingSpec(
             max_epochs=4,
             batch_size=2,
-            num_workers=0,
             device="cpu",
             checkpoint_cadence=1,
             early_stopping=EarlyStoppingSpec(monitor="val_loss", mode="min", patience=2),

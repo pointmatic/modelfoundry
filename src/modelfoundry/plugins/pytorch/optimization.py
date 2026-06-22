@@ -69,6 +69,7 @@ def run_optimization(
     seed: int,
     temp_dir: Path,
     *,
+    num_workers: int = 0,
     progress: ProgressReporter | None = None,
 ) -> OptimizationResult:
     """Run the Optuna study and persist `trials.parquet` + `best-params.json`."""
@@ -95,7 +96,9 @@ def run_optimization(
     if opt.baseline_trial == "enqueue_recipe_defaults":
         study.enqueue_trial(baseline_params(recipe), skip_if_exists=True)
 
-    objective = _make_objective(opt, recipe, data, seed, metric_key, direction, opt_dir, progress)
+    objective = _make_objective(
+        opt, recipe, data, seed, metric_key, direction, opt_dir, progress, num_workers
+    )
     study.optimize(objective, n_trials=opt.n_trials, n_jobs=1)
 
     trials_parquet = opt_dir / "trials.parquet"
@@ -158,6 +161,7 @@ def _make_objective(
     direction: str,
     opt_dir: Path,
     progress: ProgressReporter | None,
+    num_workers: int = 0,
 ) -> Any:
     import optuna
 
@@ -196,6 +200,7 @@ def _make_objective(
                 data,
                 trial_seed,
                 opt_dir / "trials" / str(trial.number),
+                num_workers=num_workers,
                 epoch_callback=report,
             )
 

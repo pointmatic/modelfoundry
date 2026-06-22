@@ -256,7 +256,6 @@ def _recipe(
         Training=TrainingSpec(
             max_epochs=max_epochs,
             batch_size=2,
-            num_workers=0,
             device="cpu",
             checkpoint_cadence=1,
             early_stopping=(

@@ -431,7 +431,7 @@ def _write_model_recipe(tmp_path: Path, *, max_epochs: int, n_trials: int) -> Pa
         },
         "Loss": {"op": "cross_entropy"},
         "Optimizer": {"op": "adamw", "learning_rate": 0.01},
-        "Training": {"max_epochs": max_epochs, "batch_size": 4, "num_workers": 0, "device": "cpu"},
+        "Training": {"max_epochs": max_epochs, "batch_size": 4, "device": "cpu"},
         "Evaluation": {
             "splits": ["val"],
             "primary_metric": "accuracy",

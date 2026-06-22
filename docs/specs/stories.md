@@ -85,22 +85,36 @@ F3. A sanctioned declarative bag where `extra` is relaxed only inside the namesp
 
 **Version:** **no bump** (bundled).
 
-### Story I.e: No implicit defaults + `num_workers` reclassification (Option A) [Planned]
+### Story I.e: No implicit defaults + `num_workers` reclassification (Option A) — split into I.e.1 / I.e.2
 
-F4. The interpreting code supplies no behavior-affecting value; the scaffolder emits all values.
+> **Restructured (developer-approved 2026-06-22):** the original I.e model changes are **mechanically coupled** to I.f's recipe/fixture rewrite — all 29 recipe files set `num_workers` (removing it from `extra="forbid"` `TrainingSpec` breaks them) and most omit `precision`/`calibration_bins`/`sampler`/`pruner`/`baseline_trial` (dropping their defaults makes them required → omitting recipes fail to load). I.e-then-I.f as written yields a **red suite between the two stories**. To keep the suite green at every boundary, each model change lands **with** its corresponding recipe/fixture rewrite: split into **I.e.1** (`num_workers`) + **I.e.2** (no-implicit-defaults); **I.f** rescoped to the conscious golden re-pin + invalid-fixture verification.
 
-- [ ] Drop value-`default=`s from the param models / specs per the I.a catalog; **keep mode-selecting optionals** (the "absent ⇒ behavior" mapping moves into the versioned segment contract).
-- [ ] Scaffolder ([init.py:87](../../src/modelfoundry/scaffolder/init.py#L87)) becomes the value-emitter — emit every behavior-affecting field explicitly.
-- [ ] **`num_workers` → execution context (Option A):** remove from `TrainingSpec`; add to `RuntimeConfig` + `--num-workers` + `MODELFOUNDRY_NUM_WORKERS`; `Plugin` Protocol signature change to thread it to the DataLoader. (The E.e `worker_init_fn` output-neutrality guard stays green.)
+### Story I.e.1: `num_workers` → execution context (Option A) [Done]
+
+F4 (part). Move `num_workers` out of recipe identity into execution context, stripping it from every recipe in the same step (green-preserving). Per I.a Decision 6.
+
+- [x] Remove `num_workers` from `TrainingSpec` ([models.py](../../src/modelfoundry/recipe/models.py)); add `num_workers: int = 0` to `RuntimeConfig` ([config.py](../../src/modelfoundry/core/config.py)) + `--num-workers` CLI flag + `MODELFOUNDRY_NUM_WORKERS` (precedence CLI > env > default; **default `0`, was `2`** — PyTorch-portable, deterministic; users tune per machine).
+- [x] `Plugin` Protocol signature change: `num_workers` keyword threaded to `run_training` / `run_optimization` → `build_dataloader` (off `TrainingSpec`); runner passes `self.config.num_workers`. pytorch threads it through trainer/optimization/`_make_objective`; sklearn/random accept it (no DataLoader).
+- [x] Strip `num_workers` from all 29 recipes/fixtures + scaffolder emits none. The E.e `worker_init_fn` output-neutrality guard stays green — determinism test now varies `num_workers` via `RuntimeConfig` (no longer perturbs `recipe_hash`) and asserts byte-identical output.
 
 **Version:** **no bump** (bundled).
 
-### Story I.f: One-time mass migration (recipes, fixtures, template, golden re-pin) [Planned]
+### Story I.e.2: No implicit defaults [Planned]
 
-F6 (migration portion). Rewrite every recipe surface to the flat-discriminated + explicit-values form; one-time.
+F4 (part). The interpreting code supplies no behavior-affecting value; the scaffolder emits all values — landed **with** the recipe/fixture rewrite so the suite stays green.
 
-- [ ] Rewrite the ~24 recipes (15 `recipes/` + 9 valid `tests/fixtures/recipes/`) and 14 invalid fixtures (keep them invalid for the *right* reason under the new schema) + the scaffolder template.
-- [ ] **Consciously re-pin `_PINNED_HASH`** in [test_canonical.py](../../tests/unit/test_canonical.py) — the deliberate reviewer sign-off the test exists to force (one cache-invalidating change is landing).
+- [ ] Drop value-`default=`s from the param models / specs per the I.a catalog (`precision`, `checkpoint_cadence`, `calibration_bins`, `sampler`, `pruner`, `baseline_trial`, viz `mode`, …); **keep mode-selecting optionals** (`Inference=None`, `early_stopping=None`, `Optimization=None`, `Optimizer.schedule=None`, `Data.variant=None`; the "absent ⇒ behavior" mapping moves into the versioned segment contract).
+- [ ] Scaffolder ([init.py:87](../../src/modelfoundry/scaffolder/init.py#L87)) becomes the value-emitter — emit every behavior-affecting field explicitly.
+- [ ] Rewrite the recipes/fixtures/template to author the now-required values (the green-preserving half of the former I.f recipe rewrite).
+
+**Version:** **no bump** (bundled).
+
+### Story I.f: Golden re-pin + invalid-fixture verification [Planned]
+
+F6 (enforcement portion, rescoped — the recipe/fixture/template rewrites moved into I.e.1/I.e.2 to keep each story green). What remains is the conscious sign-off + invalid-fixture correctness.
+
+- [ ] Confirm the 14 invalid fixtures still fail for the *right* reason under the new schema (flat-discriminated + explicit-values); adjust as needed so each trips exactly its documented check.
+- [ ] **Consciously re-pin `_PINNED_HASH`** in [test_canonical.py](../../tests/unit/test_canonical.py) and remove its `xfail` — the deliberate reviewer sign-off the test exists to force (the one cache-invalidating change has fully landed).
 
 **Version:** **no bump** (bundled).
 

@@ -45,7 +45,7 @@ Architecture:
   layers: [{op: Flatten}, {op: Linear, in_features: 48, out_features: 3}]
 Loss: {op: cross_entropy}
 Optimizer: {op: adamw, learning_rate: 0.01}
-Training: {max_epochs: 1, batch_size: 4, num_workers: 0, device: cpu}
+Training: {max_epochs: 1, batch_size: 4, device: cpu}
 Evaluation: {splits: [val], primary_metric: accuracy, metrics: [accuracy, macro_f1]}
 Visualizations:
   - {name: curves, op: training_curves, mode: reporting}

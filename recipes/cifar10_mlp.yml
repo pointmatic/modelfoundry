@@ -32,7 +32,6 @@ Optimizer:
 Training:
   max_epochs: 1
   batch_size: 128
-  num_workers: 0
   device: cpu
 
 Evaluation:

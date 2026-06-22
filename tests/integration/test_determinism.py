@@ -39,7 +39,7 @@ def _restore_determinism() -> Iterator[None]:
     torch.use_deterministic_algorithms(False)
 
 
-def _recipe_dict(num_workers: int) -> dict[str, Any]:
+def _recipe_dict() -> dict[str, Any]:
     return {
         "schema_version": 1,
         "plugin": "pytorch",
@@ -61,7 +61,6 @@ def _recipe_dict(num_workers: int) -> dict[str, Any]:
         "Training": {
             "max_epochs": 1,
             "batch_size": 4,
-            "num_workers": num_workers,
             "device": "cpu",
         },
         "Evaluation": {
@@ -100,16 +99,19 @@ def _materialize(tmp_path: Path, data: Any, *, tag: str, num_workers: int) -> Pa
     from modelfoundry import ModelFoundry
 
     recipe_path = tmp_path / f"recipe_{tag}.yml"
-    recipe_path.write_text(yaml.safe_dump(_recipe_dict(num_workers)), encoding="utf-8")
-    config = RuntimeConfig(cache_root=tmp_path / f"cache_{tag}")
+    recipe_path.write_text(yaml.safe_dump(_recipe_dict()), encoding="utf-8")
+    # Story I.e.1: num_workers is execution context (RuntimeConfig), NOT a recipe
+    # field — so it no longer perturbs recipe.yml / recipe_hash at all; only the
+    # DataLoader worker count varies, and the output must stay byte-identical.
+    config = RuntimeConfig(cache_root=tmp_path / f"cache_{tag}", num_workers=num_workers)
     return Path(ModelFoundry.from_recipe(recipe_path, data=data, config=config).materialize().path)
 
 
-# The determinism-critical training outputs. `num_workers` is a recipe field, so
-# it legitimately perturbs recipe.yml / manifest.recipe_hash / the checkpoint's
-# embedded recipe_hash16 across worker counts — the B.j `worker_init_fn` contract
-# guarantees only that the trained *output* is worker-count-independent, so the
-# num_workers test compares these artifacts rather than the whole instance.
+# The determinism-critical training outputs. `num_workers` is now execution
+# context (Story I.e.1), so it does NOT perturb recipe.yml / manifest.recipe_hash /
+# the checkpoint's embedded recipe_hash16 — the B.j `worker_init_fn` contract
+# guarantees the trained *output* is worker-count-independent, so the num_workers
+# test compares these artifacts (the whole instance would also match now).
 _OUTPUT_ARTIFACTS = (
     "model/weights/state_dict.pt",
     "evaluation/predictions.parquet",

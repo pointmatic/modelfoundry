@@ -108,7 +108,13 @@ class MaterializeRunner:
             opt_result = self._stage(
                 "optimization",
                 lambda: self.plugin.run_optimization(
-                    opt_spec, base_recipe, self.data, self.seed, temp_dir, progress=progress
+                    opt_spec,
+                    base_recipe,
+                    self.data,
+                    self.seed,
+                    temp_dir,
+                    num_workers=self.config.num_workers,
+                    progress=progress,
                 ),
             )
             recipe = apply_params(recipe, opt_result.best_params)
@@ -127,7 +133,14 @@ class MaterializeRunner:
         training_result = self._stage(
             "training",
             lambda: self.plugin.run_training(
-                recipe.Training, model, recipe, self.data, self.seed, temp_dir, progress=progress
+                recipe.Training,
+                model,
+                recipe,
+                self.data,
+                self.seed,
+                temp_dir,
+                num_workers=self.config.num_workers,
+                progress=progress,
             ),
         )
 

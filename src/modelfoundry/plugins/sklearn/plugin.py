@@ -195,10 +195,12 @@ class SklearnPlugin:
         seed: int,
         temp_dir: Path,
         *,
+        num_workers: int = 0,
         progress: ProgressReporter | None = None,
     ) -> SklearnTrainingResult:
-        # The sklearn baseline fits in one `.fit()` call — no per-epoch loop — so
-        # `progress` is accepted for Protocol conformance and intentionally unused.
+        # The sklearn baseline fits in one `.fit()` call — no per-epoch loop and no
+        # DataLoader — so `progress` and `num_workers` are accepted for Protocol
+        # conformance (Story I.e.1) and intentionally unused.
         from modelfoundry.plugins.sklearn.data import feature_matrix
 
         x, y, classes = feature_matrix(data, "train")
@@ -345,6 +347,7 @@ class SklearnPlugin:
         seed: int,
         temp_dir: Path,
         *,
+        num_workers: int = 0,
         progress: ProgressReporter | None = None,
     ) -> Any:
         raise NotImplementedError(

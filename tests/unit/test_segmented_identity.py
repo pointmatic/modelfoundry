@@ -179,6 +179,17 @@ def test_extensions_accepts_arbitrary_nested_content(tmp_path: Path) -> None:
     assert r.extensions == {"a": {"b": [1, 2, 3]}, "c": "hello"}
 
 
+def test_training_spec_rejects_num_workers(tmp_path: Path) -> None:
+    import pytest
+
+    from modelfoundry.core.errors import RecipeError
+
+    # Story I.e.1: num_workers is execution context (RuntimeConfig), no longer a
+    # recipe field — TrainingSpec is extra="forbid", so authoring it is rejected.
+    with pytest.raises(RecipeError):
+        _load(tmp_path, _PYTORCH.replace("batch_size: 32", "batch_size: 32\n  num_workers: 4"))
+
+
 def test_unknown_toplevel_key_still_forbidden(tmp_path: Path) -> None:
     import pytest
 

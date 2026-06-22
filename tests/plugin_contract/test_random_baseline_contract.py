@@ -63,7 +63,7 @@ def _random_recipe() -> dict[str, Any]:
         },
         "Loss": {"op": "cross_entropy"},
         "Optimizer": {"op": "none"},
-        "Training": {"max_epochs": 1, "batch_size": 8, "num_workers": 0, "device": "cpu"},
+        "Training": {"max_epochs": 1, "batch_size": 8, "device": "cpu"},
         "Evaluation": {
             "splits": ["val"],
             "primary_metric": "accuracy",

@@ -77,12 +77,15 @@ def run_training(
     seed: int,
     temp_dir: Path,
     *,
+    num_workers: int = 0,
     epoch_callback: Callable[[int, dict[str, float]], None] | None = None,
     progress: ProgressReporter | None = None,
 ) -> TrainingResult:
     """Train `model` over the bound instance, writing artifacts under `temp_dir`.
 
-    `epoch_callback(epoch, record)` runs after each epoch's metrics are produced
+    `num_workers` is execution context (Story I.e.1) threaded from `RuntimeConfig`,
+    not a recipe field; the B.j `worker_init_fn` makes output bytes independent of
+    it. `epoch_callback(epoch, record)` runs after each epoch's metrics are produced
     (before checkpointing) — the Optuna optimization stage (C.i) uses it to report
     intermediate values and raise `optuna.TrialPruned` to prune a trial early.
     `progress`, when supplied, receives a per-epoch `on_epoch(epoch, record)` for
@@ -102,10 +105,10 @@ def run_training(
 
     augmentations = compose_augmentations(_lazy_train_augmentations(data), master_seed=seed)
     train_ds = DataRefineryDataset(data, "train", augmentations=augmentations)
-    train_loader = build_dataloader(train_ds, training, master_seed=seed)
+    train_loader = build_dataloader(train_ds, training, master_seed=seed, num_workers=num_workers)
     num_classes = len(train_ds.label_to_index)
 
-    val_loader = _maybe_val_loader(data, training, seed)
+    val_loader = _maybe_val_loader(data, training, seed, num_workers=num_workers)
 
     class_weights, class_weights_path = _fit_class_weights(recipe, train_ds, training_dir)
     loss_fn = build_loss(
@@ -298,12 +301,14 @@ def _lazy_train_augmentations(data: DataRefineryInstance) -> list[AugmentationOp
 
 
 def _maybe_val_loader(
-    data: DataRefineryInstance, training: TrainingSpec, seed: int
+    data: DataRefineryInstance, training: TrainingSpec, seed: int, *, num_workers: int = 0
 ) -> DataLoader[tuple[torch.Tensor, int]] | None:
     if "val" not in data.splits:
         return None
     val_ds = DataRefineryDataset(data, "val")
-    return build_dataloader(val_ds, training, master_seed=seed, shuffle=False)
+    return build_dataloader(
+        val_ds, training, master_seed=seed, shuffle=False, num_workers=num_workers
+    )
 
 
 def _fit_class_weights(

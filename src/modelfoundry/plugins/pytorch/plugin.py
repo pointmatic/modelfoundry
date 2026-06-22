@@ -167,6 +167,7 @@ class PyTorchPlugin:
         seed: int,
         temp_dir: Path,
         *,
+        num_workers: int = 0,
         progress: ProgressReporter | None = None,
     ) -> OptimizationResult:
         # Lazy import keeps this module (loaded on every discovery) torch-free.
@@ -174,7 +175,9 @@ class PyTorchPlugin:
             run_optimization as _run_optimization,
         )
 
-        return _run_optimization(opt, recipe, data, seed, temp_dir, progress=progress)
+        return _run_optimization(
+            opt, recipe, data, seed, temp_dir, num_workers=num_workers, progress=progress
+        )
 
     def run_training(
         self,
@@ -185,12 +188,22 @@ class PyTorchPlugin:
         seed: int,
         temp_dir: Path,
         *,
+        num_workers: int = 0,
         progress: ProgressReporter | None = None,
     ) -> TrainingResult:
         # Lazy import keeps this module (loaded on every discovery) torch-free.
         from modelfoundry.plugins.pytorch.trainer import run_training as _run_training
 
-        return _run_training(training, model, recipe, data, seed, temp_dir, progress=progress)
+        return _run_training(
+            training,
+            model,
+            recipe,
+            data,
+            seed,
+            temp_dir,
+            num_workers=num_workers,
+            progress=progress,
+        )
 
     def run_evaluation(
         self,

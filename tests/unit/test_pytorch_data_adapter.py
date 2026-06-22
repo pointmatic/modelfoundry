@@ -195,10 +195,12 @@ def test_iteration_is_invariant_to_num_workers(tmp_path: Path) -> None:
 
     def collect(num_workers: int) -> tuple[Any, list[int]]:
         ds = DataRefineryDataset(wrapped, "train")
-        spec = TrainingSpec(max_epochs=1, batch_size=2, num_workers=num_workers)
+        spec = TrainingSpec(max_epochs=1, batch_size=2)
         images: list[Any] = []
         labels: list[int] = []
-        for batch_images, batch_labels in build_dataloader(ds, spec, master_seed=7):
+        for batch_images, batch_labels in build_dataloader(
+            ds, spec, master_seed=7, num_workers=num_workers
+        ):
             images.append(batch_images)
             labels.extend(int(x) for x in batch_labels)
         return torch.cat(images), labels
@@ -254,8 +256,11 @@ def test_iteration_invariant_to_num_workers_with_augmentations(tmp_path: Path) -
     def collect(num_workers: int) -> Any:
         aug = compose_augmentations(ops, master_seed=7)
         ds = DataRefineryDataset(wrapped, "train", augmentations=aug)
-        spec = TrainingSpec(max_epochs=1, batch_size=2, num_workers=num_workers)
-        images = [batch for batch, _ in build_dataloader(ds, spec, master_seed=7)]
+        spec = TrainingSpec(max_epochs=1, batch_size=2)
+        images = [
+            batch
+            for batch, _ in build_dataloader(ds, spec, master_seed=7, num_workers=num_workers)
+        ]
         return torch.cat(images)
 
     assert torch.equal(collect(0), collect(2))

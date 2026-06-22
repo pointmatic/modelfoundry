@@ -54,7 +54,7 @@ def _write_recipe(path: Path) -> Path:
         },
         "Loss": {"op": "cross_entropy"},
         "Optimizer": {"op": "adamw", "learning_rate": 0.01},
-        "Training": {"max_epochs": 1, "batch_size": 4, "num_workers": 0, "device": "cpu"},
+        "Training": {"max_epochs": 1, "batch_size": 4, "device": "cpu"},
         "Evaluation": {
             "splits": ["val"],
             "primary_metric": "accuracy",

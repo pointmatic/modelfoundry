@@ -120,7 +120,7 @@ def _build_instance(tmp_path: Path) -> DataRefineryInstance:
 
 
 def _training() -> TrainingSpec:
-    return TrainingSpec(max_epochs=1, batch_size=4, num_workers=0, device="cpu")
+    return TrainingSpec(max_epochs=1, batch_size=4, device="cpu")
 
 
 def _evaluation() -> EvaluationSpec:

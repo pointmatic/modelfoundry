@@ -103,6 +103,7 @@ def build_runtime_config(
     plugin_path: str | None,
     verbose: bool,
     quiet: bool,
+    num_workers: int | None = None,
 ) -> RuntimeConfig:
     """Build the per-invocation `RuntimeConfig` from the shared options.
 
@@ -132,6 +133,8 @@ def build_runtime_config(
         overrides["log_target"] = log_target
     if plugin_path is not None:
         overrides["plugin_path"] = tuple(Path(p) for p in plugin_path.split(",") if p)
+    if num_workers is not None:
+        overrides["num_workers"] = num_workers
 
     return RuntimeConfig.from_env(**overrides)
 
@@ -192,6 +195,13 @@ def _root(
         str | None,
         typer.Option("--plugin-path", help="Comma-separated extra plugin search paths."),
     ] = None,
+    num_workers: Annotated[
+        int | None,
+        typer.Option(
+            "--num-workers",
+            help="DataLoader worker count (execution context, env: MODELFOUNDRY_NUM_WORKERS).",
+        ),
+    ] = None,
     verbose: Annotated[
         bool, typer.Option("--verbose", "-v", help="Verbose output (log level DEBUG).")
     ] = False,
@@ -206,6 +216,7 @@ def _root(
         log_level=log_level,
         log_target=log_target,
         plugin_path=plugin_path,
+        num_workers=num_workers,
         verbose=verbose,
         quiet=quiet,
     )

@@ -225,13 +225,16 @@ def build_dataloader(
     training_spec: TrainingSpec,
     master_seed: int,
     *,
+    num_workers: int = 0,
     shuffle: bool = True,
 ) -> DataLoader[tuple[torch.Tensor, int]]:
     """Build a deterministic `DataLoader` over `dataset`.
 
     Shuffle order is owned by a seeded `generator` (main process); each worker is
     seeded by the spawn-safe `worker_init_fn_factory` (B.j / C.a.1), so output
-    bytes are independent of `num_workers`. `pin_memory` engages only for CUDA.
+    bytes are independent of `num_workers`. `num_workers` is execution context
+    (Story I.e.1, from `RuntimeConfig`), not a recipe field. `pin_memory` engages
+    only for CUDA.
     """
     generator = torch.Generator()
     generator.manual_seed(derive_seed(master_seed, "data_shuffle") & _I64)
@@ -239,7 +242,7 @@ def build_dataloader(
         dataset,
         batch_size=training_spec.batch_size,
         shuffle=shuffle,
-        num_workers=training_spec.num_workers,
+        num_workers=num_workers,
         worker_init_fn=worker_init_fn_factory(master_seed),
         generator=generator,
         pin_memory=torch.cuda.is_available(),

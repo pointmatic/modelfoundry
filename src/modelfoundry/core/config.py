@@ -33,13 +33,19 @@ class RuntimeConfig(BaseModel):
     variant: str | None = None
     seed: int | None = None
     overwrite: bool = False
+    # DataLoader worker count (Story I.e.1, Option A): execution context, not a
+    # recipe field. Output-neutral by the E.e `worker_init_fn` contract; default 0
+    # is PyTorch-portable (single-process, no spawn surprises) — tune per machine
+    # via `--num-workers` / `MODELFOUNDRY_NUM_WORKERS`.
+    num_workers: int = 0
 
     @classmethod
     def from_env(cls, prefix: str = ENV_PREFIX, **overrides: Any) -> RuntimeConfig:
         """Build a `RuntimeConfig` from environment variables, then `overrides`.
 
         Reads `<prefix>CACHE_ROOT`, `<prefix>DATA_CACHE_ROOT`, `<prefix>LOG_LEVEL`,
-        `<prefix>LOG_TARGET`, and `<prefix>PLUGIN_PATH` (comma-separated → tuple).
+        `<prefix>LOG_TARGET`, `<prefix>PLUGIN_PATH` (comma-separated → tuple), and
+        `<prefix>NUM_WORKERS` (int).
         Unset vars fall back to field defaults. Explicit `overrides` (e.g. parsed
         CLI flags) win over env-derived values.
         """
@@ -55,5 +61,7 @@ class RuntimeConfig(BaseModel):
             values["log_target"] = raw
         if raw := env.get(f"{prefix}PLUGIN_PATH"):
             values["plugin_path"] = tuple(Path(p) for p in raw.split(",") if p)
+        if raw := env.get(f"{prefix}NUM_WORKERS"):
+            values["num_workers"] = int(raw)
         values.update(overrides)
         return cls(**values)

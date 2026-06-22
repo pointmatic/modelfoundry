@@ -138,6 +138,7 @@ class Plugin(Protocol):
         seed: int,
         temp_dir: Path,
         *,
+        num_workers: int = 0,
         progress: ProgressReporter | None = None,
     ) -> OptimizationResult: ...
 
@@ -150,6 +151,7 @@ class Plugin(Protocol):
         seed: int,
         temp_dir: Path,
         *,
+        num_workers: int = 0,
         progress: ProgressReporter | None = None,
     ) -> TrainingResult: ...
 

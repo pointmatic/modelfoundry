@@ -22,6 +22,17 @@ def test_defaults() -> None:
     assert cfg.variant is None
     assert cfg.seed is None
     assert cfg.overwrite is False
+    assert cfg.num_workers == 0  # Story I.e.1: execution context, PyTorch-portable default
+
+
+def test_num_workers_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MODELFOUNDRY_NUM_WORKERS", "4")
+    assert RuntimeConfig.from_env().num_workers == 4
+
+
+def test_num_workers_explicit_override_wins_over_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MODELFOUNDRY_NUM_WORKERS", "4")
+    assert RuntimeConfig.from_env(num_workers=8).num_workers == 8
 
 
 def test_from_env_empty_yields_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
