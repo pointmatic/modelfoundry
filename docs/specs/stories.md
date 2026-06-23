@@ -332,6 +332,21 @@ Add the feature-array load path; image path unchanged (additive). → New branch
 
 ---
 
+### Story I.m.1: Real-DR audio materialize end-to-end smoke [Done]
+
+Ordering-insert (sub-numbered for placement, not a split of I.m): now that **DataRefinery v0.24.0** shipped the `npy_per_record` sink + `feature_path` rewrite (DR Stories K.c/K.d), verify MF's I.m loader against an **actually-materialized** DR audio instance — not just the synthesized I.l mimic. A real `dr.materialize` proves the seam end-to-end and pins MF's loader assumptions to DR's true output bytes. **Skip-if-absent** on `librosa`/`soundfile`/`torch` so the light env and audio-less CI stay green. Distinct from I.p (the MF-internal MC-dropout *acceptance* test on the synthesized fixture). → New [test_audio_real_dr.py](../../tests/integration/test_audio_real_dr.py) (6 tests, module-scoped real materialize); **no `src/` change** — MF's I.m loader binds real DR v0.24.0 output unmodified.
+
+- [x] **Env: audio decode deps.** Add `librosa` + `soundfile` to the smoke-pytorch env ([tests/integration/env/pytorch.txt](../../tests/integration/env/pytorch.txt)) — DR's `audio_flat` source decodes via `librosa.load`; both are `ml-datarefinery[audio]`'s closure. Light env unaffected (test skips without them).
+- [x] **Synthesized WAV source + real materialize.** A helper synthesizes per-class sine-tone `.wav` clips (offline, no downloads) in a flat layout + an id→label CSV, authors a DR `audio_classification` recipe (`audio_flat` + `label_from` `by_id`/`kind: direct`; `window` Generation op; `log_mel_spectrogram` + fit-on-train `audio_normalize` Featurizations with explicit `splits` + `fit_source: train`; an `npy_per_record` Sink on field `mel` at `post_Featurizations`), and runs a real `dr.materialize`. → **Spike-discovered DR wiring** (recorded so I.n–I.r don't re-derive it): the `window` op needs `seed` + explicit `splits`; featurization ops need **explicit `splits`** (empty ≠ all — no-implicit-defaults); `audio_normalize` needs `fit_source: train`; `mel`/`feature_path` must **not** be in `Output.record_schema` (the Generation stage requires every declared Output field on each generated record, but `mel` is post-Featurizations and `feature_path` is sink-rewritten); `audio_folder` doesn't stamp `label` (use `audio_flat` + `label_from` `by_id` / `kind: direct`, mirroring the image `_materialize` fixture).
+- [x] **MF end-to-end bind + decode.** Bind the materialized instance through MF (`resolve_data_instance` real consumer path → schema gate + `_verify_record_images_resolvable` + `DataRefineryDataset`); assert the feature branch decodes real DR output to `(1, n_mels, n_frames)` float32, `feature_path` resolves instance-root-relative (Q1) and nested (Q5), the stray source `.wav` `path` is ignored in favor of `feature_path` (Q6), `audio_normalize` fitted stats are per-mel-bin, labels resolve (3 classes), and `record_counts` is post-windowing. → Verified against a real instance: `feature_path = features/<split>/clips/<n>.wav__w####.npy`, feature `(1, 16, 32)` float32, decode is **byte-verbatim** to DR's `.npy` (no normalize at load — I.n's job).
+- [x] **Full CI gate green.** ruff + ruff format + mypy (166) + light (581 passed / 49 skipped — audio integration module skips without torch/librosa) + smoke-pytorch (796 passed / 15 skipped / 1 xfailed; the 6 real-DR audio tests materialize + bind green).
+
+**Version:** no bump (rides v0.18.0).
+
+> **Cross-repo note.** DR v0.24.0 shipped the sink; MF verified the pinned Q1–Q6 contract against DR's actual `write_npy_per_record` / `feature_path_rewrite_plan` code. The forward-declared vendor-spec § "Audio feature-array persistence" status (and the I.j.5 governance entry) want a "shipped/verified" doc update — folded into the subphase's doc-sync story (I.q/I.r), not here.
+
+---
+
 ### Story I.n: `audio_normalize` fit-on-train branch [Planned]
 
 Apply the persisted per-mel-bin statistics at load — the audio analogue of image `normalize`, on the correct axis.

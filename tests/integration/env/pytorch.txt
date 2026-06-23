@@ -17,3 +17,9 @@
 pytest
 pytest-cov
 hypothesis
+# Audio decode stack for the Subphase I-1 real-DR materialize smoke
+# (tests/integration/test_audio_real_dr.py). DataRefinery's `audio_flat` source
+# decodes via `librosa.load`; both are `ml-datarefinery[audio]`'s closure. The
+# test skips (importorskip) wherever these are absent, so other envs are unaffected.
+librosa
+soundfile

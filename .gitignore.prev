@@ -1,0 +1,60 @@
+# >>> pyve:managed:gitignore >>>
+# pyve-managed .gitignore — do not edit between the markers;
+# add your own ignores above or below the managed section.
+# macOS
+.DS_Store
+
+# Pyve-managed
+.pyve/
+.vscode/settings.json
+
+# Python build and test artifacts
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.egg-info
+*.egg
+.coverage
+coverage.xml
+htmlcov/
+.pytest_cache/
+dist/
+build/
+
+# Jupyter notebooks
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# <<< pyve:managed:gitignore <<<
+# macOS only
+
+# Python build and test artifacts
+.hypothesis/
+.mypy_cache/
+.ruff_cache/
+
+# ModelFoundry / DataRefinery content-addressed cache roots (materialized instances)
+models/
+data/
+
+# Jupyter notebooks
+
+# Pyve virtual environment
+
+# project-guide
+/docs/project-guide/.metadata.yml
+/docs/project-guide/README.md
+/docs/project-guide/developer/
+/docs/project-guide/templates/
+/docs/project-guide/**/*.bak.*
+
+# project
+do-not-commit*.md
+# Local/scratch CIFAR recipes are ignored, but the bundled DataRefinery base
+# recipe that the test suite + README quickstart + the cifar10_resnet20
+# deliverable all bind to must ship in the repo — a clean CI checkout can't
+# fetch it otherwise (Story G.c).
+recipes/cifar10*.yaml
+!recipes/cifar10-base.yaml
+scripts/data_refinery_materize.py
