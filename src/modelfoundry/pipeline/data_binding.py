@@ -212,12 +212,14 @@ def _verify_record_images_resolvable(instance_path: Path) -> None:
     """Fail fast at bind time if a record's image can't be resolved from the instance.
 
     Mirrors the loader's resolution precedence (`plugins/pytorch/data.py::_decode`):
-    an `image_path` sidecar resolves under `dataset/`; a bare `path` is either an
-    absolute source path (normal flow, used as-is) or an instance-relative string
-    written by DataRefinery's `png_per_record` sink. Catching an unresolvable image
-    here surfaces the error before a (potentially long) training run rather than
-    mid-run — the silent-failure class behind Gap 1 (both `validate`s pass, training
-    dies pulling pixels). Absolute bare paths are left to the loader (external source).
+    a `feature_path` (audio feature array, Subphase I-1) is authoritative and resolves
+    instance-root-relative; an `image_path` sidecar resolves under `dataset/`; a bare
+    `path` is either an absolute source path (normal flow, used as-is) or an
+    instance-relative string written by DataRefinery's `png_per_record` sink. Catching
+    an unresolvable asset here surfaces the error before a (potentially long) training
+    run rather than mid-run — the silent-failure class behind Gap 1 (both `validate`s
+    pass, training dies pulling pixels). Absolute bare paths are left to the loader
+    (external source).
     """
     dataset_dir = instance_path / "dataset"
     if not dataset_dir.is_dir():
@@ -227,6 +229,21 @@ def _verify_record_images_resolvable(instance_path: Path) -> None:
             if not line:
                 continue
             record = json.loads(line)
+            feature = record.get("feature_path")
+            if feature is not None:
+                # Q1/Q6: instance-root-relative and authoritative over any stray `path`.
+                target = instance_path / str(feature)
+                if not target.is_file():
+                    raise DataBindingError(
+                        f"record feature array not resolvable from instance: {target} "
+                        f"(instance-relative `feature_path` in {jsonl_path.name}; expected "
+                        f"under {instance_path})",
+                        detail={
+                            "feature_path": str(target),
+                            "record_id": record.get("record_id"),
+                        },
+                    )
+                continue
             relative = record.get("image_path")
             if relative:
                 sidecar = dataset_dir / str(relative)

@@ -178,6 +178,12 @@ class DataRefineryDataset(Dataset[tuple[torch.Tensor, int]]):
 
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, int]:
         record = self._records[idx]
+        if "feature_path" in record:
+            # Audio feature-array branch (Subphase I-1): a prepared (n_mels, n_frames)
+            # float32 mel array, loaded raw. `feature_path` is authoritative over a
+            # stray `path` (Q6). Image augmentations / image-normalize do not apply;
+            # the per-mel-bin `audio_normalize` is layered in by Story I.n.
+            return self._decode_features(record), self._label_for(record)
         image = self._decode(record)  # 0-255 pixel units — the units DR fit stats in
         if self.augmentations is not None:
             # Augment on the [0,1] image BEFORE normalization (H.d), then restore 0-255 for
@@ -203,9 +209,11 @@ class DataRefineryDataset(Dataset[tuple[torch.Tensor, int]]):
             # No fit-on-train normalization declared: scale to [0,1] so a bare CNN still
             # receives sensibly-ranged inputs.
             image = image / 255.0
+        return image, self._label_for(record)
+
+    def _label_for(self, record: dict[str, object]) -> int:
         label_value = record.get(self._label_field) if self._label_field else None
-        label = self.label_to_index[label_value] if label_value is not None else -1
-        return image, label
+        return self.label_to_index[label_value] if label_value is not None else -1
 
     def _decode(self, record: dict[str, object]) -> torch.Tensor:
         path = self._resolve_image_path(record)
@@ -229,6 +237,29 @@ class DataRefineryDataset(Dataset[tuple[torch.Tensor, int]]):
             return self._dataset_dir / str(relative)
         bare = Path(str(record["path"]))
         return bare if bare.is_absolute() else self.instance.path / bare
+
+    def _decode_features(self, record: dict[str, object]) -> torch.Tensor:
+        # Audio feature-array load (Subphase I-1, vendor-spec § Audio feature-array
+        # persistence). The raw float32 mel array is preserved verbatim — no [0,1]
+        # rescale, no normalize here (Story I.n applies `audio_normalize`).
+        path = self._resolve_feature_path(record)
+        array = np.load(path)
+        if array.ndim != 2:  # Q4: mono decode ⇒ always rank-2 (n_mels, n_frames)
+            raise DataBindingError(
+                f"audio feature array at {path} has ndim={array.ndim}; expected 2-D "
+                f"(n_mels, n_frames) per vendor-spec Q4",
+                detail={"feature_path": str(path), "ndim": int(array.ndim)},
+            )
+        contiguous = np.ascontiguousarray(array, dtype=np.float32)
+        # Consumer owns the channel-dim insertion (Q4) → (1, n_mels, n_frames).
+        return torch.from_numpy(contiguous).unsqueeze(0)
+
+    def _resolve_feature_path(self, record: dict[str, object]) -> Path:
+        # Q1: `feature_path` is INSTANCE-root-relative (a sibling of `dataset/`, the
+        # I.k sink-`path` bucket) — NOT `dataset/`-relative like `image_path`. Q5: it
+        # may be nested (`features/<split>/<clip>/<id>.npy`); join the POSIX string
+        # onto the instance root verbatim.
+        return self.instance.path / str(record["feature_path"])
 
 
 def build_dataloader(

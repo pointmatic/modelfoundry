@@ -318,15 +318,15 @@ Test substrate, foundation-first — no `src/` change. Extend the fixture machin
 
 ---
 
-### Story I.m: Feature-array branch in `_decode` + per-record branch selection [Planned]
+### Story I.m: Feature-array branch in `_decode` + per-record branch selection [Done]
 
-Add the feature-array load path; image path unchanged (additive).
+Add the feature-array load path; image path unchanged (additive). → New branch in [data.py:`__getitem__`](../../src/modelfoundry/plugins/pytorch/data.py#L179) + `_decode_features`/`_resolve_feature_path`; bind gate extended in [data_binding.py:`_verify_record_images_resolvable`](../../src/modelfoundry/pipeline/data_binding.py#L211). Verified by [test_pytorch_audio_data.py](../../tests/unit/test_pytorch_audio_data.py) (7 tests) against the I.l fixture.
 
-- [ ] **Branch selection.** In [data.py:`_decode`](../../src/modelfoundry/plugins/pytorch/data.py#L210) / `_resolve_image_path` precedence: a record carrying `feature_path` takes the feature branch; `feature_path` is **authoritative over a stray `path`** (Q6); `image_path`/bare `path` keep the image branch.
-- [ ] **Resolve `feature_path`.** Instance-root-relative (`<instance>/<feature_path>`, Q1 — the I.k sink-`path` bucket, **not** `dataset/`-relative); nested POSIX join, verbatim (Q5). A missing feature file is refused at bind time (extend the I.k `_verify_record_images_resolvable` gate to cover `feature_path`).
-- [ ] **Load + shape.** `np.load`, **assert `ndim == 2`** (Q4 — refuse otherwise), unsqueeze to `(1, n_mels, n_frames)`; preserve the raw `float32` mel values (no `/255`, no premature normalize — normalization is I.n's job, applied at `__getitem__`).
-- [ ] **Geometry guard.** Confirm `_refuse_unbaked_geometry_transforms` does not false-trip on the audio path (features are sinked content, not pre-transform pixels); add/adjust as needed.
-- [ ] **Tests (via I.l fixture).** Decode resolves a nested instance-relative `feature_path` from a **CWD that is not the instance** (parity with I.k's regression); `feature_path` wins over `path`; non-2-D array refused; default image fixtures still decode unchanged.
+- [x] **Branch selection.** In [data.py:`_decode`](../../src/modelfoundry/plugins/pytorch/data.py#L210) / `_resolve_image_path` precedence: a record carrying `feature_path` takes the feature branch; `feature_path` is **authoritative over a stray `path`** (Q6); `image_path`/bare `path` keep the image branch. → `__getitem__` checks `"feature_path" in record` first and returns `_decode_features(...)`; the image branch (augment + normalize) is untouched (label resolution factored into a shared `_label_for`).
+- [x] **Resolve `feature_path`.** Instance-root-relative (`<instance>/<feature_path>`, Q1 — the I.k sink-`path` bucket, **not** `dataset/`-relative); nested POSIX join, verbatim (Q5). A missing feature file is refused at bind time (extend the I.k `_verify_record_images_resolvable` gate to cover `feature_path`). → `_resolve_feature_path` joins `self.instance.path / feature_path`; the bind gate now checks `feature_path` **first** (authoritative) and raises `"feature array not resolvable"` when absent.
+- [x] **Load + shape.** `np.load`, **assert `ndim == 2`** (Q4 — refuse otherwise), unsqueeze to `(1, n_mels, n_frames)`; preserve the raw `float32` mel values (no `/255`, no premature normalize — normalization is I.n's job, applied at `__getitem__`). → `np.ascontiguousarray(array, dtype=np.float32)` → `torch.from_numpy(...).unsqueeze(0)`; rank≠2 raises `DataBindingError` naming `ndim`. Test asserts `torch.equal` to the raw unsqueezed array (verbatim, un-normalized).
+- [x] **Geometry guard.** Confirm `_refuse_unbaked_geometry_transforms` does not false-trip on the audio path (features are sinked content, not pre-transform pixels); add/adjust as needed. → No code change needed: the audio recipe's `Transformations` is empty (it uses `Featurizations`), so the guard returns early; covered by `test_audio_instance_binds_without_geometry_guard`.
+- [x] **Tests (via I.l fixture).** Decode resolves a nested instance-relative `feature_path` from a **CWD that is not the instance** (parity with I.k's regression); `feature_path` wins over `path`; non-2-D array refused; default image fixtures still decode unchanged. → All four covered (foreign-CWD, Q6 stray-path authority, rank guard); image-path coverage unchanged in [test_pytorch_data_adapter.py](../../tests/unit/test_pytorch_data_adapter.py) (full smoke suite green).
 
 **Version:** no bump (rides v0.18.0).
 
