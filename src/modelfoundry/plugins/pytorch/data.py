@@ -34,9 +34,10 @@ from modelfoundry.pipeline.data_binding import DataRefineryInstance
 from modelfoundry.pipeline.seeding import derive_seed, worker_init_fn_factory
 from modelfoundry.recipe.models import TrainingSpec
 
-# Fit-on-train Transformation ops the consumer applies from persisted stats; any
-# other Transformation op is pixel-altering (baked) and triggers the geometry guard.
-_FIT_ON_TRAIN_OPS = frozenset({"normalize", "mean_subtract"})
+# Fit-on-train ops the consumer applies from persisted stats; any other
+# (Transformation) op is pixel-altering (baked) and triggers the geometry guard.
+# `audio_normalize` is the Featurizations-section audio analogue (Subphase I-1).
+_FIT_ON_TRAIN_OPS = frozenset({"normalize", "mean_subtract", "audio_normalize"})
 
 _I64 = (1 << 63) - 1
 
@@ -64,6 +65,7 @@ class DataRefineryDataset(Dataset[tuple[torch.Tensor, int]]):
 
         self._refuse_unbaked_geometry_transforms()
         self._norm_steps = self._resolve_normalization_steps()
+        self._audio_norm_steps = self._resolve_audio_normalization_steps()
         self.label_to_index = self._derive_label_index()
         self._records = self._read_split_records()
 
@@ -102,7 +104,31 @@ class DataRefineryDataset(Dataset[tuple[torch.Tensor, int]]):
                 steps.append(("mean_subtract", mean.view(-1, 1, 1), None))
         return steps
 
-    def _read_vector(self, op_id: str, name: str) -> torch.Tensor:
+    def _resolve_audio_normalization_steps(
+        self,
+    ) -> list[tuple[str, torch.Tensor, torch.Tensor]]:
+        # Audio analogue of `_resolve_normalization_steps` (Story I.n): scan the
+        # recipe's `Featurizations` section for `audio_normalize` and read its
+        # per-mel-bin `mean`/`std` (length `n_mels`). The broadcast axis differs from
+        # the image CHW path — for the `(1, n_mels, n_frames)` feature tensor the mel
+        # bins live on axis 1, so stats reshape to `(1, n_mels, 1)` (per-mel-bin over
+        # the frame axis), NOT `(-1, 1, 1)`. Stats are read `float64` (Q3) so the apply
+        # promotes the `float32` mel array; `Featurizations` is read tolerantly (image
+        # recipes omit the section / leave it empty).
+        steps: list[tuple[str, torch.Tensor, torch.Tensor]] = []
+        for op in getattr(self.instance.recipe, "Featurizations", None) or []:
+            if op.op == "audio_normalize":
+                mean = self._read_vector(op.name, "mean", dtype=torch.float64)
+                std = self._read_vector(op.name, "std", dtype=torch.float64)
+                # Same exact zero-variance guard as the image path (std == 0 -> 1.0 at
+                # apply; the persisted std is left unmodified).
+                std_guarded = torch.where(std == 0.0, torch.ones_like(std), std)
+                steps.append(("audio_normalize", mean.view(1, -1, 1), std_guarded.view(1, -1, 1)))
+        return steps
+
+    def _read_vector(
+        self, op_id: str, name: str, *, dtype: torch.dtype = torch.float32
+    ) -> torch.Tensor:
         fitted = self.instance.fitted_statistics
         if fitted is None:
             raise DataBindingError(
@@ -116,9 +142,10 @@ class DataRefineryDataset(Dataset[tuple[torch.Tensor, int]]):
                 f"missing fitted statistic {name!r} for op {op_id!r}: {exc}",
                 detail={"op_id": op_id, "name": name},
             ) from exc
-        # Per the vendor spec: single `value` column, C rows in RGB axis order.
+        # Per the vendor spec: single `value` column, rows in axis order (RGB channels
+        # for image normalize; mel bins for audio_normalize).
         values = table.column("value").to_pylist()
-        return torch.tensor(values, dtype=torch.float32)
+        return torch.tensor(values, dtype=dtype)
 
     def _derive_label_index(self) -> dict[object, int]:
         # Interim (pre-DR-v0.20.0 manifest.label_classes): scan ALL labeled splits
@@ -181,9 +208,13 @@ class DataRefineryDataset(Dataset[tuple[torch.Tensor, int]]):
         if "feature_path" in record:
             # Audio feature-array branch (Subphase I-1): a prepared (n_mels, n_frames)
             # float32 mel array, loaded raw. `feature_path` is authoritative over a
-            # stray `path` (Q6). Image augmentations / image-normalize do not apply;
-            # the per-mel-bin `audio_normalize` is layered in by Story I.n.
-            return self._decode_features(record), self._label_for(record)
+            # stray `path` (Q6). Image augmentations / image-normalize do not apply.
+            features = self._decode_features(record)
+            # Per-mel-bin `audio_normalize` (Story I.n): apply the train-fitted stats on
+            # the mel axis. float64 stats promote the float32 mel; restore float32 after.
+            for _kind, mel_mean, mel_std in self._audio_norm_steps:
+                features = ((features - mel_mean) / mel_std).to(torch.float32)
+            return features, self._label_for(record)
         image = self._decode(record)  # 0-255 pixel units — the units DR fit stats in
         if self.augmentations is not None:
             # Augment on the [0,1] image BEFORE normalization (H.d), then restore 0-255 for

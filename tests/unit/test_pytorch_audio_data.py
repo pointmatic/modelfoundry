@@ -38,9 +38,54 @@ def test_feature_branch_decodes_to_channel_first_2d(tmp_path: Path) -> None:
     assert tensor.dtype == torch.float32
     assert tuple(tensor.shape) == (1, 64, 100)  # Q4 unsqueeze: (1, n_mels, n_frames)
     assert label >= 0  # class label resolved
-    # Raw mel values preserved verbatim — no /255, no premature normalize (I.n's job).
+
+
+def test_decode_features_preserves_raw_mel_before_normalization(tmp_path: Path) -> None:
+    # `_decode_features` is the raw load layer — no /255, no normalize (audio_normalize
+    # is applied later in `__getitem__`, Story I.n). It must return the .npy verbatim.
+    instance = build_dr_audio_instance(tmp_path / "a", n_mels=64, n_frames=100)
+    ds = DataRefineryDataset(instance, "train")
+    decoded = ds._decode_features(ds._records[0])
     raw = np.load(instance.path / str(ds._records[0]["feature_path"]))
-    assert torch.equal(tensor, torch.from_numpy(raw).unsqueeze(0))
+    assert torch.equal(decoded, torch.from_numpy(raw).unsqueeze(0))
+
+
+# --- audio_normalize fit-on-train application (Story I.n) ---
+
+
+def test_audio_normalize_applied_per_mel_bin(tmp_path: Path) -> None:
+    # __getitem__ standardizes each mel bin with the train-fitted stats on axis 1 of
+    # (1, n_mels, n_frames) — NOT the image CHW reshape. Byte-match a torch reference
+    # computed with the same float64 promotion, per-mel-bin reshape, and zero-variance
+    # guard (the fixture plants std == 0 at bin 3).
+    instance = build_dr_audio_instance(tmp_path / "a", n_mels=64, n_frames=100, zero_variance_bin=3)
+    ds = DataRefineryDataset(instance, "train")
+    rec = ds._records[0]
+    raw = np.load(instance.path / str(rec["feature_path"]))  # (64, 100) float32
+    fs = instance.fitted_statistics
+    mean = torch.tensor(
+        fs.get_vector("audio_norm", "mean").column("value").to_pylist(), dtype=torch.float64
+    ).view(1, -1, 1)
+    std = torch.tensor(
+        fs.get_vector("audio_norm", "std").column("value").to_pylist(), dtype=torch.float64
+    )
+    std_guarded = torch.where(std == 0.0, torch.ones_like(std), std).view(1, -1, 1)
+    raw_t = torch.from_numpy(raw).unsqueeze(0)  # (1, 64, 100) float32
+    expected = ((raw_t - mean) / std_guarded).to(torch.float32)
+    out, _ = ds[0]
+    assert out.dtype == torch.float32
+    assert torch.equal(out, expected)
+    # Zero-variance bin 3: std guarded to 1.0 -> finite, equals (raw - mean) on that bin.
+    assert torch.isfinite(out).all()
+    bin3 = (torch.from_numpy(raw[3]).double() - mean[0, 3, 0]).to(torch.float32)
+    assert torch.equal(out[0, 3], bin3)
+
+
+def test_audio_normalize_registered_fit_on_train() -> None:
+    # The geometry guard must treat audio_normalize as non-baked (fit-on-train).
+    from modelfoundry.plugins.pytorch.data import _FIT_ON_TRAIN_OPS
+
+    assert "audio_normalize" in _FIT_ON_TRAIN_OPS
 
 
 def test_audio_instance_binds_without_geometry_guard(tmp_path: Path) -> None:

@@ -347,14 +347,14 @@ Ordering-insert (sub-numbered for placement, not a split of I.m): now that **Dat
 
 ---
 
-### Story I.n: `audio_normalize` fit-on-train branch [Planned]
+### Story I.n: `audio_normalize` fit-on-train branch [Done]
 
-Apply the persisted per-mel-bin statistics at load — the audio analogue of image `normalize`, on the correct axis.
+Apply the persisted per-mel-bin statistics at load — the audio analogue of image `normalize`, on the correct axis. → New `_resolve_audio_normalization_steps` + audio apply in [data.py:`__getitem__`](../../src/modelfoundry/plugins/pytorch/data.py#L210); `_read_vector` gains a `dtype` param. Verified by [test_pytorch_audio_data.py](../../tests/unit/test_pytorch_audio_data.py) (byte-match + zero-variance + fit-on-train registration) and the real-DR end-to-end ([test_audio_real_dr.py](../../tests/integration/test_audio_real_dr.py)).
 
-- [ ] **Read DR `Featurizations`.** Extend [data.py:`_resolve_normalization_steps`](../../src/modelfoundry/plugins/pytorch/data.py#L89) to scan the bound recipe's **`Featurizations`** section (today only `Transformations` is scanned) for an `audio_normalize` op and read its `mean`/`std` vectors (`n_mels` rows) from `fitted_statistics/`.
-- [ ] **Register fit-on-train op.** Add `audio_normalize` to [`_FIT_ON_TRAIN_OPS`](../../src/modelfoundry/plugins/pytorch/data.py#L39) so the geometry guard treats it as non-baked.
-- [ ] **Apply on the mel axis.** Per-mel-bin standardization on **axis 0**: `(feat − mean[:, None]) / std[:, None]` — **not** the image CHW `.view(-1, 1, 1)`. Make the reshape modality-aware, driven by the active branch (I.m). `float64` stats over the `float32` array with promotion (Q3); same exact zero-variance guard (`std == 0 → 1.0` at apply, persisted `std` unmodified).
-- [ ] **Tests.** Per-mel-bin standardized output byte-matches a hand-computed reference (including the zero-variance bin); image `normalize`/`mean_subtract` reshape path unchanged.
+- [x] **Read DR `Featurizations`.** Extend [data.py:`_resolve_normalization_steps`](../../src/modelfoundry/plugins/pytorch/data.py#L89) to scan the bound recipe's **`Featurizations`** section (today only `Transformations` is scanned) for an `audio_normalize` op and read its `mean`/`std` vectors (`n_mels` rows) from `fitted_statistics/`. → Done as a sibling `_resolve_audio_normalization_steps` (keeps the image resolver's CHW reshape untouched); reads `Featurizations` tolerantly via `getattr(..., None) or []` (image recipes omit/empty it).
+- [x] **Register fit-on-train op.** Add `audio_normalize` to [`_FIT_ON_TRAIN_OPS`](../../src/modelfoundry/plugins/pytorch/data.py#L39) so the geometry guard treats it as non-baked.
+- [x] **Apply on the mel axis.** Per-mel-bin standardization on **axis 0**: `(feat − mean[:, None]) / std[:, None]` — **not** the image CHW `.view(-1, 1, 1)`. Make the reshape modality-aware, driven by the active branch (I.m). `float64` stats over the `float32` array with promotion (Q3); same exact zero-variance guard (`std == 0 → 1.0` at apply, persisted `std` unmodified). → Audio stats reshape to `(1, n_mels, 1)` (mel bins on axis 1 of the `(1, n_mels, n_frames)` tensor); applied only in the feature branch; `_read_vector(..., dtype=torch.float64)` promotes, output cast back to `float32`.
+- [x] **Tests.** Per-mel-bin standardized output byte-matches a hand-computed reference (including the zero-variance bin); image `normalize`/`mean_subtract` reshape path unchanged. → `test_audio_normalize_applied_per_mel_bin` byte-matches a torch reference incl. the planted std==0 bin; `_decode_features` raw-verbatim test split out; image adapter suite unchanged (full smoke green).
 
 **Version:** no bump (rides v0.18.0).
 

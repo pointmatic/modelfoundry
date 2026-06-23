@@ -148,17 +148,30 @@ def test_real_instance_binds_and_reports_npy_sink(real_audio_binding: dict[str, 
 
 
 def test_real_feature_branch_decodes_channel_first(real_audio_binding: dict[str, Any]) -> None:
-    ds = DataRefineryDataset(real_audio_binding["instance"], "train")
+    inst = real_audio_binding["instance"]
+    ds = DataRefineryDataset(inst, "train")
     tensor, label = ds[0]
     assert tensor.dtype == torch.float32
     assert tensor.ndim == 3 and tensor.shape[0] == 1  # (1, n_mels, n_frames)
     assert tensor.shape[1] == _N_MELS
     assert 0 <= label < 3
-    # Verbatim against the raw DR-written .npy (no normalize/scale at decode — I.m).
-    inst = real_audio_binding["instance"]
+    # The raw load layer is verbatim against DR's .npy (no normalize at decode); the
+    # per-mel-bin audio_normalize (I.n) is applied on top in __getitem__.
     raw = np.load(inst.path / str(ds._records[0]["feature_path"]))
     assert raw.ndim == 2
-    assert torch.equal(tensor, torch.from_numpy(np.ascontiguousarray(raw)).unsqueeze(0))
+    decoded = ds._decode_features(ds._records[0])
+    assert torch.equal(decoded, torch.from_numpy(np.ascontiguousarray(raw)).unsqueeze(0))
+
+
+def test_real_audio_normalize_applied_at_getitem(real_audio_binding: dict[str, Any]) -> None:
+    # End-to-end: ds[0] standardizes the real DR mel with the real fitted audio_normalize
+    # stats (per-mel-bin). Output must be finite and differ from the raw decode.
+    inst = real_audio_binding["instance"]
+    ds = DataRefineryDataset(inst, "train")
+    out, _ = ds[0]
+    decoded = ds._decode_features(ds._records[0])
+    assert torch.isfinite(out).all()
+    assert not torch.equal(out, decoded)  # normalization changed the values
 
 
 def test_real_feature_path_is_instance_relative_and_nested(
