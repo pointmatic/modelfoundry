@@ -69,7 +69,7 @@ def _build_fixture_instance(tmp_path: Path) -> Path:
         data_instance_hash="b" * 64,
         bound_data_instance=Path("/dr/cache/instances/abc/def/1"),
         seed=7,
-        variant=None,
+        overlays=[],
         created_at=datetime(2026, 6, 14, 12, 0, 0, tzinfo=UTC),
         elapsed_seconds=1.5,
         epoch_history=1,

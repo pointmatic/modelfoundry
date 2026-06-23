@@ -167,26 +167,27 @@ def test_deliverable_recipe_validates_clean() -> None:
     base = load_recipe(_DELIVERABLE)
     data = resolve_data_instance(base.Data, RuntimeConfig(data_cache_root=Path(_DATA_ROOT)))
 
-    for variant in (None, "cosine", "sgd_momentum", "cpu_budget"):
-        mf = ModelFoundry.from_recipe(_DELIVERABLE, data=data, variant=variant)
+    for overlay in (None, "cosine", "sgd_momentum", "cpu_budget"):
+        overlays = [overlay] if overlay else None
+        mf = ModelFoundry.from_recipe(_DELIVERABLE, data=data, overlays=overlays)
         report = mf.validate()
-        assert report.passed, (variant, [(c.id, c.name, c.message) for c in report.failures])
+        assert report.passed, (overlay, [(c.id, c.name, c.message) for c in report.failures])
 
 
-def test_deliverable_variants_flip_optimizer_and_schedule() -> None:
+def test_deliverable_overlays_flip_optimizer_and_schedule() -> None:
     from modelfoundry.recipe.loader import load_recipe
 
     base = load_recipe(_DELIVERABLE)
     assert base.Optimizer.op == "adamw"
     assert base.Optimizer.schedule is not None and base.Optimizer.schedule.op == "reduce_on_plateau"
 
-    sgd = load_recipe(_DELIVERABLE, variant="sgd_momentum")
+    sgd = load_recipe(_DELIVERABLE, overlays=["sgd_momentum"])
     assert sgd.Optimizer.op == "sgd"
     assert (sgd.Optimizer.model_extra or {})["momentum"] == pytest.approx(0.9)
 
-    cosine = load_recipe(_DELIVERABLE, variant="cosine")
+    cosine = load_recipe(_DELIVERABLE, overlays=["cosine"])
     assert cosine.Optimizer.schedule is not None and cosine.Optimizer.schedule.op == "cosine"
 
-    budget = load_recipe(_DELIVERABLE, variant="cpu_budget")
+    budget = load_recipe(_DELIVERABLE, overlays=["cpu_budget"])
     assert budget.Optimization is not None and budget.Optimization.n_trials == 8
     assert budget.Training.max_epochs == 15

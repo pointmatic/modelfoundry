@@ -1,7 +1,7 @@
 # Copyright (c) 2026 Pointmatic
 # SPDX-License-Identifier: Apache-2.0
 #
-# PyTorch recipe carrying a `variants:` overlay (selected via --variant).
+# check 16: overlay references an undeclared section
 schema_version: 1
 plugin: pytorch
 seed: 7
@@ -23,14 +23,15 @@ Training:
   precision: fp32
   checkpoint_cadence: 1
 Evaluation:
-  splits: [val]
+  splits:
+  - val
   primary_metric: accuracy
-  metrics: [accuracy, macro_f1, confusion_matrix]
+  metrics:
+  - accuracy
+  - macro_f1
+  - confusion_matrix
   calibration_bins: 10
-variants:
-  big_batch:
-    Training:
-      batch_size: 32
-  long_run:
-    Training:
-      max_epochs: 10
+overlays:
+  bad:
+    NonexistentSection:
+      foo: 1

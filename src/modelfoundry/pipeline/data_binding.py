@@ -29,6 +29,7 @@ inputs must be present on the resolving host (vendor-spec § Host portability).
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -103,7 +104,7 @@ def resolve_data_instance(
         data_spec.cache_root if data_spec.cache_root is not None else runtime_config.data_cache_root
     ).resolve()
 
-    report = _resolve_via_library(recipe_path, cache_root, data_spec.seed, data_spec.variant)
+    report = _resolve_via_library(recipe_path, cache_root, data_spec.seed, data_spec.overlays)
     instance_path = report.instance_path
     if report.cache_status == "miss":
         raise DataBindingError(
@@ -147,24 +148,22 @@ def _resolve_recipe_path(data_spec: DataSpec) -> Path:
 
 
 def _resolve_via_library(
-    recipe_path: Path, cache_root: Path, seed: int | None, variant: str | None
+    recipe_path: Path, cache_root: Path, seed: int | None, overlays: Sequence[str]
 ) -> Any:
     """Resolve the instance via DataRefinery's blessed `resolve_instance`.
 
     No cache-key re-derivation (vendor-dep-spec § "Resolving a materialized
     instance"). `resolve_instance` composes `DataRefinery.status()` and hashes the
     recipe's declared inputs, so the source inputs must be present on this host.
+    `overlays` (the DataRefinery-side overlay selection) is passed through to
+    DataRefinery's `overlays` kwarg — the family standard adopted in Story I.j.2.
     """
     try:
-        # DataRefinery v0.23 widened its boundary kwarg `variant: str` to an
-        # ordered `overlays: Sequence[str]` (Story I.j.1 RC-B interim bridge).
-        # ModelFoundry's own single-`variant` surface is unchanged here; I.j.2
-        # renames it to a real `overlays` list that flows straight through.
         return _dr.resolve_instance(
             recipe_path,
             cache_root=cache_root,
             seed=seed,
-            overlays=[variant] if variant else None,
+            overlays=list(overlays) or None,
         )
     except Exception as exc:
         raise DataBindingError(

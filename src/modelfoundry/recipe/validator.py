@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """FR-2 recipe validator — the enumerated static logical checks (1..21).
 
-`validate(recipe, data_instance, plugin, *, variants_block=None)` runs every
+`validate(recipe, data_instance, plugin, *, overlays_block=None)` runs every
 check; it never short-circuits, so a failing recipe surfaces *every* problem in
 one pass. Each check produces a `ValidationCheck`; the `ValidationReport`
 aggregates them with `passed` (all passed) and `failures` accessors.
@@ -75,7 +75,7 @@ def validate(
     data_instance: DataRefineryInstance,
     plugin: Plugin,
     *,
-    variants_block: dict[str, Any] | None = None,
+    overlays_block: dict[str, Any] | None = None,
 ) -> ValidationReport:
     # F2 discriminated-union resolution (Story I.c): resolve every op-bearing
     # section once against the plugin registry; checks 3 + 17 each read one
@@ -98,7 +98,7 @@ def validate(
         _check_13_baseline_model_id_format(recipe),
         _check_14_expectations_reference_evaluated(recipe),
         _check_15_visualization_mode_declared(recipe),
-        _check_16_variants_keys_declared(recipe, variants_block),
+        _check_16_overlays_keys_declared(recipe, overlays_block),
         _check_17_op_params_match_spec(sections),
         _check_18_data_binding_compat(recipe, data_instance),
         _check_19_dr_schema_version(data_instance),
@@ -417,31 +417,31 @@ def _check_15_visualization_mode_declared(recipe: ModelRecipe) -> ValidationChec
 # --- Check 16 ---
 
 
-def _check_16_variants_keys_declared(
-    recipe: ModelRecipe, variants_block: dict[str, Any] | None
+def _check_16_overlays_keys_declared(
+    recipe: ModelRecipe, overlays_block: dict[str, Any] | None
 ) -> ValidationCheck:
-    if variants_block is None:
+    if overlays_block is None:
         return ValidationCheck(
             id=16,
-            name="variants_keys_declared",
+            name="overlays_keys_declared",
             passed=True,
-            message="variants_block not supplied to validate(); skipping check",
+            message="overlays_block not supplied to validate(); skipping check",
         )
     dump = recipe.model_dump()
     bad: list[tuple[str, str]] = []
-    for vname, overlay in variants_block.items():
+    for oname, overlay in overlays_block.items():
         if not isinstance(overlay, dict):
-            bad.append((vname, "overlay is not a mapping"))
+            bad.append((oname, "overlay is not a mapping"))
             continue
         for section_name in overlay:
             if section_name not in dump:
-                bad.append((vname, f"section {section_name!r} not declared in recipe"))
+                bad.append((oname, f"section {section_name!r} not declared in recipe"))
     if not bad:
-        return _ok(16, "variants_keys_declared")
+        return _ok(16, "overlays_keys_declared")
     return _fail(
         16,
-        "variants_keys_declared",
-        f"variants reference undeclared sections/keys: {bad}",
+        "overlays_keys_declared",
+        f"overlays reference undeclared sections/keys: {bad}",
         detail={"violations": bad},
     )
 

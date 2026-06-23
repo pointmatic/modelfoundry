@@ -26,7 +26,10 @@ class DataSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     recipe: Path
-    variant: str | None = None
+    # Ordered DataRefinery-side overlay selection (family `overlays` standard,
+    # Story I.j.2): which upstream DR overlays to bind, passed straight to
+    # DataRefinery's `resolve_instance(overlays=…)`. Was the single `variant: str`.
+    overlays: list[str] = []
     seed: int | None = None
     cache_root: Path | None = None
 
@@ -200,7 +203,12 @@ class ModelRecipe(BaseModel):
     Evaluation: EvaluationSpec
     Visualizations: list[VisualizationSpec] = []
     OutputExpectations: list[ExpectationSpec] = []
-    variants: dict[str, dict[str, Any]] = {}
+    # Named-overlay catalog (FR-14): `overlays.<name>` blocks selected by an
+    # ordered `overlays:` list at load time (last-writer-wins per section, via
+    # `recipe.overlays.apply_overlays`) and cleared pre-hash, so an unused overlay
+    # never invalidates other selections. Renamed from `variants` in Story I.j.2 to
+    # adopt the governed cross-tool-family `overlays` standard.
+    overlays: dict[str, dict[str, Any]] = {}
     # F3 (Story I.d): the ONE sanctioned relaxed island. `extra="forbid"` holds
     # everywhere else on `ModelRecipe`; arbitrary keys are allowed *inside* this
     # bag (it is typed `dict[str, Any]`, so nested content is unconstrained).

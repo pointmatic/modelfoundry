@@ -4,7 +4,7 @@
 
 Binds the recipe, runs the materialize orchestrator, and prints a final `rich`
 summary panel on success. `--overwrite` is threaded through `RuntimeConfig`
-(the runner trashes the existing instance); `--variant` / `--seed` go to
+(the runner trashes the existing instance); `--overlay` / `--seed` go to
 `from_recipe`. Progress is rendered at *stage* granularity via `RichStageProgress`
 (the runner's `StageObserver` seam). Per-epoch training tables and per-trial
 Optuna progress bars are deferred to Story D.e.1.
@@ -15,6 +15,7 @@ Materialize failures (`ExpectationError`, `MaterializeError`, …) propagate to
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -66,7 +67,7 @@ def run(
     recipe: Path,
     config: RuntimeConfig,
     *,
-    variant: str | None = None,
+    overlays: Sequence[str] | None = None,
     seed: int | None = None,
     overwrite: bool = False,
     progress: bool = True,
@@ -80,7 +81,7 @@ def run(
         config = config.model_copy(update={"overwrite": True})
 
     mf = ModelFoundry.from_recipe(
-        recipe, data=config.data_cache_root, config=config, variant=variant, seed=seed
+        recipe, data=config.data_cache_root, config=config, overlays=overlays, seed=seed
     )
     observer = RichStageProgress(console) if progress else None
     instance = mf.materialize(stage_observer=observer)
@@ -108,7 +109,7 @@ def render_summary(
     table.add_row("plugin", f"{manifest.plugin} {manifest.plugin_version}")
     table.add_row("recipe hash", manifest.recipe_hash)
     table.add_row("seed", str(manifest.seed))
-    table.add_row("variant", manifest.variant or "—")
+    table.add_row("overlays", ", ".join(manifest.overlays) or "—")
     table.add_row("elapsed", f"{manifest.elapsed_seconds:.2f}s")
     table.add_row("primary metric", _primary_metric(manifest.evaluation, primary_metric))
     table.add_row("expectations", _expectations(manifest))

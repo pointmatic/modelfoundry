@@ -42,10 +42,10 @@ from typing import Any
 from modelfoundry.recipe.models import ModelRecipe
 
 # Segment partition (I.a Decision 2). The recipe is flat on disk; these group its
-# fields into the independently-hashed segments. `overlays` carries the selected
-# variant's resolved delta — but the loader merges and clears `variants` pre-hash
-# (see `recipe.variants.apply_variant`), so it is empty (⇒ sparse) until overlays
-# become first-class (deferred). The core/plugin boundary firms up in I.c/I.e.
+# fields into the independently-hashed segments. `overlays` carries the named-
+# overlay catalog — but the loader applies the selected overlays and clears the
+# catalog pre-hash (see `recipe.overlays.apply_overlays`), so it is empty (⇒
+# sparse) on a materialized recipe. The core/plugin boundary firms up in I.c/I.e.
 _CORE_FIELDS: tuple[str, ...] = ("schema_version", "plugin", "seed", "Data")
 _PLUGIN_FIELDS: tuple[str, ...] = (
     "Architecture",
@@ -58,7 +58,7 @@ _PLUGIN_FIELDS: tuple[str, ...] = (
     "Visualizations",
     "OutputExpectations",
 )
-_OVERLAY_FIELD = "variants"
+_OVERLAY_FIELD = "overlays"
 _EXTENSIONS_FIELD = "extensions"
 
 # Framed-label for the optional upstream prefix digest (vertical axis). The

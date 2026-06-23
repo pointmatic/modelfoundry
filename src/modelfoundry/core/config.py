@@ -4,7 +4,7 @@
 
 `RuntimeConfig` carries the non-recipe knobs ModelFoundry needs at run time:
 the two cache roots, the operator-log level/target, the plugin search path, and
-the per-invocation overrides (`variant`, `seed`, `overwrite`). Precedence is
+the per-invocation overrides (`overlays`, `seed`, `overwrite`). Precedence is
 recipe (semantic) > CLI flags (execution context) > env vars > built-in
 defaults; this module owns the env-vars → defaults rungs. CLI flags and recipe
 overrides are applied by their respective callers on top of the value built
@@ -30,7 +30,10 @@ class RuntimeConfig(BaseModel):
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     log_target: str = "stderr"
     plugin_path: tuple[Path, ...] = ()
-    variant: str | None = None
+    # Ordered MF recipe-overlay selection (family `overlays` standard, Story
+    # I.j.2): the named overlays applied at load time, last-writer-wins per
+    # section. Was the single `variant: str | None`.
+    overlays: list[str] = []
     seed: int | None = None
     overwrite: bool = False
     # DataLoader worker count (Story I.e.1, Option A): execution context, not a

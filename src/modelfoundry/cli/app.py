@@ -289,8 +289,12 @@ def _cmd_status(
 def _cmd_materialize(
     ctx: typer.Context,
     recipe: Annotated[Path, typer.Argument(help="Path to the ModelFoundry recipe (YAML).")],
-    variant: Annotated[
-        str | None, typer.Option("--variant", help="Recipe variant overlay to apply.")
+    overlay: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--overlay",
+            help="Recipe overlay to apply (repeatable; applied in order, last-writer-wins).",
+        ),
     ] = None,
     seed: Annotated[
         int | None, typer.Option("--seed", help="Override the recipe's master seed.")
@@ -309,7 +313,7 @@ def _cmd_materialize(
         materialize_cmd.run(
             recipe,
             _config(ctx),
-            variant=variant,
+            overlays=overlay,
             seed=seed,
             overwrite=overwrite,
             progress=progress,

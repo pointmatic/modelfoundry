@@ -19,7 +19,7 @@ def test_defaults() -> None:
     assert cfg.log_level == "INFO"
     assert cfg.log_target == "stderr"
     assert cfg.plugin_path == ()
-    assert cfg.variant is None
+    assert cfg.overlays == []
     assert cfg.seed is None
     assert cfg.overwrite is False
     assert cfg.num_workers == 0  # Story I.e.1: execution context, PyTorch-portable default

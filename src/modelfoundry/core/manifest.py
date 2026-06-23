@@ -70,7 +70,10 @@ class Manifest(BaseModel):
     data_instance_hash: str
     bound_data_instance: Path
     seed: int
-    variant: str | None
+    # Ordered MF recipe-overlay selection applied to this instance (family
+    # `overlays` standard, Story I.j.2). Was the single `variant: str | None`;
+    # the rename is an on-disk ModelInstance contract change.
+    overlays: list[str]
     created_at: datetime
     elapsed_seconds: float
     warnings: list[ManifestWarning] = []

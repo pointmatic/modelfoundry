@@ -62,7 +62,7 @@ def render_status(
         ("recipe hash", manifest.recipe_hash),
         ("bound data instance", str(manifest.bound_data_instance)),
         ("seed", str(manifest.seed)),
-        ("variant", manifest.variant or "—"),
+        ("overlays", ", ".join(manifest.overlays) or "—"),
         ("cache", "[green]hit[/green]"),
         ("materialized at", manifest.created_at.isoformat()),
         ("elapsed", f"{manifest.elapsed_seconds:.2f}s"),

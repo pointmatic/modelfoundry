@@ -20,7 +20,7 @@ _RECIPES_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "recipes"
 _HAPPY_RECIPES = [
     "minimal_pytorch.yml",
     "pytorch_with_optimization.yml",
-    "pytorch_with_variants.yml",
+    "pytorch_with_overlays.yml",
     "pytorch_failing_expectations.yml",
     "sklearn_stub.yml",
 ]

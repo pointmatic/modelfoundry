@@ -42,11 +42,11 @@ Evaluation:
   metrics: [accuracy, macro_f1, confusion_matrix]
   calibration_bins: 10
 
-variants:
+overlays:
   # Capacity is latent until the training budget is scaled. The 5-epoch base CNN
   # loses to the flattened-pixel sklearn MLP; with 40 epochs it overtakes — a
-  # legacy-vs-modern-model lesson in one `--variant` flag:
-  #   modelfoundry materialize recipes/cifar10_cnn.yml --variant well_trained
+  # legacy-vs-modern-model lesson in one `--overlay` flag:
+  #   modelfoundry materialize recipes/cifar10_cnn.yml --overlay well_trained
   well_trained:
     Training:
       max_epochs: 40
@@ -55,7 +55,7 @@ variants:
   # `well_trained` trains a fixed 40 epochs at a constant LR and reports the noisy
   # final-epoch model; `scheduled` anneals the LR and stops on a val_loss plateau,
   # keeping the budget adaptive:
-  #   modelfoundry materialize recipes/cifar10_cnn.yml --variant scheduled
+  #   modelfoundry materialize recipes/cifar10_cnn.yml --overlay scheduled
   scheduled:
     Optimizer:
       schedule:

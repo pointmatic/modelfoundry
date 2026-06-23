@@ -46,14 +46,14 @@
 #     median pruning + the early-stopping patience trim this materially in practice
 #     final training (40 epochs, early-stops on val_accuracy): ≤ 40 × ~7 s ≈ 5 min
 #
-# If that overruns your budget, use the `cpu_budget` variant (8 trials × 4
+# If that overruns your budget, use the `cpu_budget` overlay (8 trials × 4
 # epochs + 15 final epochs ≈ 5–7 min total), or switch `Optimization.sampler`
 # to `random` for a cheaper, embarrassingly-shardable search (documented
 # fallback — `random` needs no warm-up and is the recommended path when the TPE
 # warm-up overhead isn't justified by the trial budget):
 #
 #     modelfoundry materialize recipes/cifar10_resnet20.yml --data ./data \
-#         --variant cpu_budget
+#         --overlay cpu_budget
 #
 # The downsized CI/e2e smoke lives at tests/fixtures/recipes/cifar10_resnet20.yml.
 # -----------------------------------------------------------------------------
@@ -75,13 +75,13 @@ Loss:
 # Base optimizer: AdamW + reduce_on_plateau.
 #
 # The R5 "optimizer (AdamW / SGD+momentum)" and "schedule (reduce_on_plateau /
-# cosine)" comparisons are expressed as `variants:` (below), NOT as Optuna search
+# cosine)" comparisons are expressed as `overlays:` (below), NOT as Optuna search
 # dimensions. The flat search space can't carry op-conditional params: a single
 # `Optimizer.schedule` block can't validate for both ops (cosine *requires*
 # `T_max`, which reduce_on_plateau's extra="forbid" model rejects), and SGD's
 # `momentum` breaks an AdamW trial the same way. Searching an `.op` choice would
 # need a grouped/conditional search-space mechanism — a follow-up plugin story.
-# Until then, op-choice is a variant comparison (side-by-side materializations,
+# Until then, op-choice is an overlay comparison (side-by-side materializations,
 # full per-op params preserved); LR / weight_decay / batch_size / patience are
 # the genuine Optuna search dimensions.
 Optimizer:
@@ -131,7 +131,7 @@ Visualizations:
   - {op: training_curves, mode: reporting}
   - {op: confusion_matrix, mode: reporting}
 
-variants:
+overlays:
   # plateau-vs-cosine schedule comparison. The overlay swaps the schedule op
   # cleanly: the base's `monitor` is a structural ScheduleSpec field (dropped
   # before the cosine param model sees it), and `T_max` matches `max_epochs`.

@@ -32,7 +32,7 @@ def _instance(cache_root: Path, rh16: str, dh16: str, seed: int, created_at: dat
         data_instance_hash=dh16 + "0" * 48,
         bound_data_instance=Path("/dr/x"),
         seed=seed,
-        variant=None,
+        overlays=[],
         created_at=created_at,
         elapsed_seconds=1.0,
         epoch_history=1,

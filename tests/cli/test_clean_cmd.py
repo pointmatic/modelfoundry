@@ -33,7 +33,7 @@ def _instance(cache_root: Path, rh16: str, created_at: datetime) -> Path:
         data_instance_hash="d" * 64,
         bound_data_instance=Path("/dr/x"),
         seed=0,
-        variant=None,
+        overlays=[],
         created_at=created_at,
         elapsed_seconds=1.0,
         epoch_history=1,

@@ -54,8 +54,8 @@ def _recipe_section(artifacts: InstanceArtifacts) -> str:
     lines.append(f"- **Plugin:** {plugin}")
     if (seed := _attr(manifest, "seed", _attr(recipe, "seed"))) is not None:
         lines.append(f"- **Seed:** {seed}")
-    if (variant := _attr(manifest, "variant")) is not None:
-        lines.append(f"- **Variant:** {variant}")
+    if overlays := _attr(manifest, "overlays"):
+        lines.append(f"- **Overlays:** {', '.join(overlays)}")
     if recipe is not None:
         architecture = _attr(recipe, "Architecture")
         if isinstance(architecture, dict):

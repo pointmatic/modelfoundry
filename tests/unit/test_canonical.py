@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import hashlib
 import textwrap
+from collections.abc import Sequence
 from pathlib import Path
 
 from modelfoundry.recipe.canonical import canonical_bytes, recipe_hash
@@ -33,7 +34,7 @@ BASE = textwrap.dedent(
       primary_metric: macro_f1
       metrics: [macro_f1, accuracy]
       calibration_bins: 10
-    variants:
+    overlays:
       big_batch:
         Training: {batch_size: 256}
     """
@@ -45,12 +46,12 @@ def _load(
     text: str,
     name: str = "r.yml",
     *,
-    variant: str | None = None,
+    overlays: Sequence[str] | None = None,
     seed: int | None = None,
 ) -> ModelRecipe:
     p = tmp_path / name
     p.write_text(text, encoding="utf-8")
-    return load_recipe(p, variant=variant, seed=seed)
+    return load_recipe(p, overlays=overlays, seed=seed)
 
 
 # A representative recipe exercising the Subphase H-1 surface (the `Inference`
@@ -85,12 +86,15 @@ _PINNED_RECIPE = textwrap.dedent(
     """
 ).strip()
 
-# Re-pinned at Story I.f — the single conscious sign-off for Phase I's one-time
-# cache-invalidating change (segmented `join_stable` combiner [I.b] + discriminated-
-# union surfaces [I.c] + `extensions` segment [I.d] + `num_workers` reclassification
-# [I.e.1] + no-implicit-defaults [I.e.2/I.e.3]). Prior pin (flat total dump):
-# 60cc771852d238bc0e2a1c8d44e983026e42420a46d388226b8dae45685f8b6e.
-_PINNED_HASH = "eca50ba1ccc6718b8ec525b4a5c8415561509e3355c58935306a2d3f03e82bc8"
+# Re-pinned at Story I.j.2 — the conscious sign-off for the family `overlays`-
+# standard adoption (DataRefinery v0.23). Renaming `variants` → `overlays` moves
+# the `core` segment's `Data` sub-document (`DataSpec.variant: None` → `overlays:
+# []`), which perturbs the canonical bytes for every recipe — a second deliberate
+# cache-invalidating event after Phase I's v0.16.0 (project-essentials.md § Cache
+# identity; OR-9 pre-prod re-materialize). Prior pin (Phase I segmented form):
+# eca50ba1ccc6718b8ec525b4a5c8415561509e3355c58935306a2d3f03e82bc8. Pre-Phase-I
+# flat total dump: 60cc771852d238bc0e2a1c8d44e983026e42420a46d388226b8dae45685f8b6e.
+_PINNED_HASH = "1ab1a63858fc388906e31ff606829b7599ab8e83bcfcaa64b019447942262ffa"
 
 
 def test_pinned_canonical_hash_is_stable(tmp_path: Path) -> None:
@@ -138,7 +142,7 @@ def test_cosmetic_edits_produce_identical_bytes(tmp_path: Path) -> None:
           primary_metric: macro_f1
           splits: [val, test]
           calibration_bins: 10
-        variants:
+        overlays:
           big_batch: {Training: {batch_size: 256}}
         """
     ).strip()
@@ -164,15 +168,15 @@ def test_adding_an_op_param_perturbs_bytes(tmp_path: Path) -> None:
     )
 
 
-def test_variant_selection_perturbs_bytes(tmp_path: Path) -> None:
+def test_overlay_selection_perturbs_bytes(tmp_path: Path) -> None:
     plain = _load(tmp_path, BASE)
-    varied = _load(tmp_path, BASE, name="varied.yml", variant="big_batch")
+    varied = _load(tmp_path, BASE, name="varied.yml", overlays=["big_batch"])
     assert recipe_hash(plain) != recipe_hash(varied)
 
 
-def test_unused_variant_edit_does_not_perturb_applied_bytes(tmp_path: Path) -> None:
-    # Editing an unused variant must not change the no-variant canonical bytes,
-    # because the loader clears `variants` before canonicalization.
+def test_unused_overlay_edit_does_not_perturb_applied_bytes(tmp_path: Path) -> None:
+    # Editing an unused overlay must not change the no-overlay canonical bytes,
+    # because the loader clears the `overlays` catalog before canonicalization.
     edited = BASE.replace("batch_size: 256", "batch_size: 999")
     assert canonical_bytes(_load(tmp_path, BASE)) == canonical_bytes(
         _load(tmp_path, edited, name="edited.yml")

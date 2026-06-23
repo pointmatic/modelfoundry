@@ -159,7 +159,7 @@ def test_recipe_segments_partitions_core_plugin_overlays_extensions(tmp_path: Pa
     assert "Training" in segs["plugin"]
     assert "Loss" in segs["plugin"]
     assert "schema_version" not in segs["plugin"]
-    assert segs["overlays"] == {}  # variants are cleared by the loader pre-hash
+    assert segs["overlays"] == {}  # the overlays catalog is cleared by the loader pre-hash
     assert segs["extensions"] == {}  # Story I.d: absent ⇒ empty ⇒ sparse-omitted
 
 

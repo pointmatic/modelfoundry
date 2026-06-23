@@ -566,16 +566,16 @@ def test_check_15_invalid_viz_mode_rejected_at_construction() -> None:
         ModelRecipe.model_validate(data)
 
 
-def test_check_16_variant_references_undeclared_section() -> None:
-    variants = {"big_batch": {"Phantom": {"x": 1}}}
-    failing = _check(validate(_recipe(), _instance(), _Plugin(), variants_block=variants), 16)
+def test_check_16_overlay_references_undeclared_section() -> None:
+    overlays = {"big_batch": {"Phantom": {"x": 1}}}
+    failing = _check(validate(_recipe(), _instance(), _Plugin(), overlays_block=overlays), 16)
     assert not failing.passed
     assert "Phantom" in _detail_text(failing)
 
 
-def test_check_16_passes_when_variants_block_omitted() -> None:
+def test_check_16_passes_when_overlays_block_omitted() -> None:
     check_16 = _check(validate(_recipe(), _instance(), _Plugin()), 16)
-    # Passes-with-skip-message rather than failing when variants_block is absent.
+    # Passes-with-skip-message rather than failing when overlays_block is absent.
     assert check_16.passed and check_16.message is not None
 
 
@@ -720,12 +720,12 @@ def test_invalid_schema_version_fixture_rejected_by_loader() -> None:
     assert "99" in str(exc.value)
 
 
-def test_invalid_variants_fixture_trips_check_16() -> None:
-    # check 16: the loader clears `variants`, so thread the raw block separately.
-    path = INVALID_DIR / "invalid_variants_keys.yml"
+def test_invalid_overlays_fixture_trips_check_16() -> None:
+    # check 16: the loader clears `overlays`, so thread the raw block separately.
+    path = INVALID_DIR / "invalid_overlays_keys.yml"
     recipe = load_recipe(path)
-    variants_block = yaml.safe_load(path.read_text(encoding="utf-8"))["variants"]
-    report = validate(recipe, _instance(), _FixturePlugin(), variants_block=variants_block)
+    overlays_block = yaml.safe_load(path.read_text(encoding="utf-8"))["overlays"]
+    report = validate(recipe, _instance(), _FixturePlugin(), overlays_block=overlays_block)
     assert {c.id for c in report.failures} == {16}, [(c.id, c.message) for c in report.failures]
     assert "NonexistentSection" in _detail_text(_check(report, 16))
 

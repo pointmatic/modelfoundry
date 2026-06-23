@@ -28,7 +28,7 @@ Loss:
   op: cross_entropy
 
 # Base optimizer: AdamW + reduce_on_plateau. The AdamW-vs-SGD+momentum and
-# plateau-vs-cosine "comparisons" are `variants:` (below), not search dimensions:
+# plateau-vs-cosine "comparisons" are `overlays:` (below), not search dimensions:
 # the flat Optuna search space can't carry op-conditional params (cosine's
 # required `T_max` collides with plateau's extra="forbid"; SGD's `momentum`
 # breaks AdamW). See the deliverable recipe header for the full rationale.
@@ -75,7 +75,7 @@ Visualizations:
   - {op: training_curves, mode: reporting}
   - {op: confusion_matrix, mode: reporting}
 
-variants:
+overlays:
   # plateau-vs-cosine schedule comparison: overlay swaps the schedule op cleanly
   # (the base's `monitor` is a structural ScheduleSpec field, dropped before the
   # cosine param model sees it).

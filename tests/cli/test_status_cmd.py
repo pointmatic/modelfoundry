@@ -41,7 +41,7 @@ def _manifest(**overrides: Any) -> Manifest:
         "data_instance_hash": "b" * 64,
         "bound_data_instance": Path("/dr/cache/instances/abc/def/1"),
         "seed": 7,
-        "variant": None,
+        "overlays": [],
         "created_at": datetime(2026, 6, 14, 12, 0, 0, tzinfo=UTC),
         "elapsed_seconds": 12.5,
         "epoch_history": 3,
@@ -120,10 +120,10 @@ def test_render_expectations_passed_and_failed_counts() -> None:
     assert "1 failed" in out
 
 
-def test_render_variant_none_renders_placeholder() -> None:
-    out = _render_to_str(_materialized(_manifest(variant=None)))
-    # The variant row is present even when unset (rendered as a dash/none token).
-    assert "variant" in out.lower()
+def test_render_overlays_empty_renders_placeholder() -> None:
+    out = _render_to_str(_materialized(_manifest(overlays=[])))
+    # The overlays row is present even when unset (rendered as a dash/none token).
+    assert "overlays" in out.lower()
 
 
 def test_render_partial_instance_is_flagged() -> None:

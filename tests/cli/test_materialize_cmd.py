@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests for the `materialize` CLI command (Story D.e, FR-3).
 
-D.e ships the verb (--variant/--seed/--overwrite, final summary, exit codes), a
+D.e ships the verb (--overlay/--seed/--overwrite, final summary, exit codes), a
 stage-level progress seam (`StageObserver` on the runner, rendered by the CLI's
 `RichStageProgress`), and the reusable `suppress_fd_output` fd-level context
 manager. The deep in-trainer per-epoch tables + per-trial Optuna bars are
@@ -80,7 +80,7 @@ def _manifest(**overrides: Any) -> Manifest:
         "data_instance_hash": "b" * 64,
         "bound_data_instance": Path("/dr/cache/instances/abc/def/1"),
         "seed": 7,
-        "variant": None,
+        "overlays": [],
         "created_at": datetime(2026, 6, 14, 12, 0, 0, tzinfo=UTC),
         "elapsed_seconds": 12.5,
         "epoch_history": 3,
@@ -214,10 +214,10 @@ def _fake_mf(instance: Any, captured: dict[str, Any]) -> SimpleNamespace:
 
 def _patch_from_recipe(monkeypatch: pytest.MonkeyPatch, mf: Any, captured: dict[str, Any]) -> None:
     def _fake(
-        recipe: Any, *, data: Any = None, config: Any = None, variant: Any = None, seed: Any = None
+        recipe: Any, *, data: Any = None, config: Any = None, overlays: Any = None, seed: Any = None
     ) -> Any:
         captured["config"] = config
-        captured["variant"] = variant
+        captured["overlays"] = overlays
         captured["seed"] = seed
         return mf
 
@@ -254,18 +254,18 @@ def test_run_overwrite_threads_into_config(monkeypatch: pytest.MonkeyPatch) -> N
     assert captured["config"].overwrite is True
 
 
-def test_run_threads_variant_and_seed(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_run_threads_overlays_and_seed(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, Any] = {}
     _patch_from_recipe(monkeypatch, _fake_mf(_instance(_manifest()), captured), captured)
     run(
         Path("r.yml"),
         RuntimeConfig(),
-        variant="cpu_bench",
+        overlays=["cpu_bench"],
         seed=99,
         progress=False,
         console=Console(file=io.StringIO()),
     )
-    assert captured["variant"] == "cpu_bench"
+    assert captured["overlays"] == ["cpu_bench"]
     assert captured["seed"] == 99
 
 

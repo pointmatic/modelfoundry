@@ -25,6 +25,7 @@ sklearn plugins.
 from __future__ import annotations
 
 import time
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -57,14 +58,14 @@ class MaterializeRunner:
         data_instance: DataRefineryInstance,
         plugin: Plugin,
         runtime_config: RuntimeConfig,
-        variant: str | None = None,
+        overlays: Sequence[str] | None = None,
         stage_observer: StageObserver | None = None,
     ) -> None:
         self.recipe = recipe
         self.data = data_instance
         self.plugin = plugin
         self.config = runtime_config
-        self.variant = variant if variant is not None else runtime_config.variant
+        self.overlays = list(overlays) if overlays is not None else list(runtime_config.overlays)
         self.seed = recipe.seed
         self.observer = stage_observer
         self.logger = get_logger(
@@ -177,7 +178,7 @@ class MaterializeRunner:
             data_instance_hash=key.data_instance_hash16,
             bound_data_instance=Path(self.data.path),
             seed=self.seed,
-            variant=self.variant,
+            overlays=self.overlays,
             created_at=datetime.now(UTC),
             elapsed_seconds=time.monotonic() - started,
             warnings=[ManifestWarning(message=w) for w in warnings],

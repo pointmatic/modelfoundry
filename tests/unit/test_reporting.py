@@ -82,7 +82,7 @@ def _manifest() -> Manifest:
         data_instance_hash="b" * 16,
         bound_data_instance=Path("/cache/instances/x"),
         seed=7,
-        variant=None,
+        overlays=[],
         created_at=datetime(2026, 6, 12, tzinfo=UTC),
         elapsed_seconds=12.5,
         epoch_history=3,

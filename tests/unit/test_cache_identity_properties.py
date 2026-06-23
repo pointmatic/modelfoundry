@@ -22,6 +22,7 @@ generated recipes so the invariants hold across the input space:
 from __future__ import annotations
 
 import random
+from collections.abc import Sequence
 from copy import deepcopy
 from typing import Any
 
@@ -37,7 +38,7 @@ from modelfoundry.recipe.canonical import (
     recipe_segments,
 )
 from modelfoundry.recipe.models import ModelRecipe
-from modelfoundry.recipe.variants import apply_variant
+from modelfoundry.recipe.overlays import apply_overlays
 
 _MASK64 = (1 << 64) - 1
 
@@ -116,14 +117,14 @@ def data_triples(draw: st.DrawFn) -> DataInstanceTriple:
 # --- helpers ---
 
 
-def _recipe(d: dict[str, Any], variant: str | None = None) -> ModelRecipe:
+def _recipe(d: dict[str, Any], overlays: Sequence[str] | None = None) -> ModelRecipe:
     """Mirror `load_recipe`'s canonicalization path without touching disk."""
-    return ModelRecipe.model_validate(apply_variant(deepcopy(d), variant))
+    return ModelRecipe.model_validate(apply_overlays(deepcopy(d), overlays))
 
 
 def _canonical_from_yaml(text: str) -> bytes:
     data = yaml.safe_load(text)
-    return canonical_bytes(ModelRecipe.model_validate(apply_variant(data, None)))
+    return canonical_bytes(ModelRecipe.model_validate(apply_overlays(data, None)))
 
 
 def _cosmetic_variant(d: dict[str, Any], order_seed: int) -> str:
@@ -190,21 +191,21 @@ def test_op_name_change_perturbs_hash(d: dict[str, Any], new_op: str) -> None:
 
 
 @given(recipe_dicts(), st.integers(1, 2048))
-def test_variant_switch_perturbs_hash(d: dict[str, Any], variant_batch: int) -> None:
-    assume(variant_batch != d["Training"]["batch_size"])
-    with_variant = deepcopy(d)
-    with_variant["variants"] = {"v": {"Training": {"batch_size": variant_batch}}}
-    plain = recipe_hash(_recipe(with_variant))
-    varied = recipe_hash(_recipe(with_variant, variant="v"))
+def test_overlay_switch_perturbs_hash(d: dict[str, Any], overlay_batch: int) -> None:
+    assume(overlay_batch != d["Training"]["batch_size"])
+    with_overlay = deepcopy(d)
+    with_overlay["overlays"] = {"v": {"Training": {"batch_size": overlay_batch}}}
+    plain = recipe_hash(_recipe(with_overlay))
+    varied = recipe_hash(_recipe(with_overlay, overlays=["v"]))
     assert plain != varied
 
 
 @given(recipe_dicts(), st.integers(1, 2048))
-def test_unused_variant_does_not_perturb_hash(d: dict[str, Any], variant_batch: int) -> None:
-    # A declared-but-unselected variant must not change the no-variant identity.
-    with_variant = deepcopy(d)
-    with_variant["variants"] = {"v": {"Training": {"batch_size": variant_batch}}}
-    assert recipe_hash(_recipe(d)) == recipe_hash(_recipe(with_variant))
+def test_unused_overlay_does_not_perturb_hash(d: dict[str, Any], overlay_batch: int) -> None:
+    # A declared-but-unselected overlay must not change the no-overlay identity.
+    with_overlay = deepcopy(d)
+    with_overlay["overlays"] = {"v": {"Training": {"batch_size": overlay_batch}}}
+    assert recipe_hash(_recipe(d)) == recipe_hash(_recipe(with_overlay))
 
 
 # --- the H.m `Inference` block participates in cache identity (Story H.p) ---

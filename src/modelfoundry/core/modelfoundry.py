@@ -14,6 +14,7 @@ return the `ModelInstance`.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -44,11 +45,11 @@ class ModelFoundry:
     over the raw constructor; it loads, binds, and discovers in one call.
 
     Attributes:
-        recipe: The parsed, variant-applied recipe.
+        recipe: The parsed, overlay-applied recipe.
         data: The bound, read-only DataRefinery instance (FR-6).
         plugin: The framework plugin named by `recipe.plugin`.
         config: The effective runtime configuration.
-        variant: The selected variant name, or `None`.
+        overlays: The ordered selected overlay names (possibly empty).
         key: The `CacheKey` identifying this `(recipe, data, seed)` binding (FR-4).
         paths: The on-disk `CachePaths` for the instance directory.
     """
@@ -59,14 +60,14 @@ class ModelFoundry:
         data_instance: DataRefineryInstance,
         plugin: Plugin,
         config: RuntimeConfig,
-        variant: str | None = None,
+        overlays: Sequence[str] | None = None,
     ) -> None:
         """Construct from already-resolved parts; prefer `from_recipe` for the usual path."""
         self.recipe = recipe
         self.data = data_instance
         self.plugin = plugin
         self.config = config
-        self.variant = variant
+        self.overlays = list(overlays) if overlays is not None else []
         self.key = self._cache_key()
         self.paths = CachePaths(config.cache_root, self.key)
 
@@ -77,13 +78,13 @@ class ModelFoundry:
         *,
         data: DataRefineryInstance | str | Path,
         config: RuntimeConfig | None = None,
-        variant: str | None = None,
+        overlays: Sequence[str] | None = None,
         seed: int | None = None,
     ) -> ModelFoundry:
         """Load `recipe_path`, bind `data`, discover the plugin, and return a `ModelFoundry`.
 
         This is the primary constructor (FR-22): it parses and validates the
-        recipe (FR-1), applies the variant overlay (FR-14), binds the upstream
+        recipe (FR-1), applies the selected overlays (FR-14), binds the upstream
         data instance (FR-6), and resolves the framework plugin (FR-24).
 
         Args:
@@ -94,7 +95,8 @@ class ModelFoundry:
             config: Runtime configuration; a default `RuntimeConfig()` is used
                 when omitted. When `data` is a path it overrides
                 `config.data_cache_root`.
-            variant: Name of a `variants.<name>` overlay to apply, or `None`.
+            overlays: Ordered names of `overlays.<name>` blocks to apply (last-
+                writer-wins per section); empty/`None` applies none.
             seed: Master seed override; falls back to the recipe's own seed.
 
         Returns:
@@ -108,7 +110,7 @@ class ModelFoundry:
             PluginError: The recipe's `plugin` is not discoverable.
         """
         config = config or RuntimeConfig()
-        recipe = load_recipe(recipe_path, variant=variant, seed=seed)
+        recipe = load_recipe(recipe_path, overlays=overlays, seed=seed)
 
         if isinstance(data, DataRefineryInstance):
             data_instance = data
@@ -122,7 +124,7 @@ class ModelFoundry:
                 f"recipe plugin {recipe.plugin!r} is not discoverable; known: {sorted(plugins)}",
                 detail={"plugin": recipe.plugin},
             )
-        return cls(recipe, data_instance, plugins[recipe.plugin], config, variant)
+        return cls(recipe, data_instance, plugins[recipe.plugin], config, overlays)
 
     # --- verbs ---
 
@@ -189,7 +191,7 @@ class ModelFoundry:
             data_instance=self.data,
             plugin=self.plugin,
             runtime_config=self.config,
-            variant=self.variant,
+            overlays=self.overlays,
             stage_observer=stage_observer,
         ).run()
         return ModelInstance.load(self.paths.instance_dir, plugin=self.plugin)
@@ -313,7 +315,7 @@ def materialize(
     *,
     data: DataRefineryInstance | str | Path,
     config: RuntimeConfig | None = None,
-    variant: str | None = None,
+    overlays: Sequence[str] | None = None,
     seed: int | None = None,
 ) -> ModelInstance:
     """Bind `recipe_path` to `data` and materialize it in one call (FR-22).
@@ -325,7 +327,7 @@ def materialize(
         data: A pre-bound `DataRefineryInstance`, or a path to the DataRefinery
             cache root to resolve the recipe's `Data:` block against.
         config: Runtime configuration; defaults to `RuntimeConfig()` when omitted.
-        variant: Name of a `variants.<name>` overlay to apply, or `None`.
+        overlays: Ordered names of `overlays.<name>` blocks to apply, or `None`.
         seed: Master seed override; falls back to the recipe's own seed.
 
     Returns:
@@ -342,5 +344,5 @@ def materialize(
         MaterializeError: A materialization stage failed (FR-3).
     """
     return ModelFoundry.from_recipe(
-        recipe_path, data=data, config=config, variant=variant, seed=seed
+        recipe_path, data=data, config=config, overlays=overlays, seed=seed
     ).materialize()

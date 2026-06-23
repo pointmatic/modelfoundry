@@ -44,7 +44,7 @@ def _minimal_manifest() -> Manifest:
         data_instance_hash="0" * 16,
         bound_data_instance=Path("/tmp/dr"),
         seed=0,
-        variant=None,
+        overlays=[],
         created_at=datetime.now(UTC),
         elapsed_seconds=0.0,
         epoch_history=0,
