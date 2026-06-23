@@ -149,7 +149,7 @@ modelfoundry/                                       # repo root
 │       │   ├── __init__.py
 │       │   ├── modelfoundry.py                     # ModelFoundry class (entry-point class for library callers)
 │       │   ├── instance.py                         # ModelInstance frozen dataclass + notebook-shaped accessors (FR-22)
-│       │   ├── config.py                           # RuntimeConfig (cache_root, data_cache_root, log_level, plugin_path, variant, seed)
+│       │   ├── config.py                           # RuntimeConfig (cache_root, data_cache_root, log_level, plugin_path, overlays, seed)
 │       │   ├── manifest.py                         # Manifest pydantic model + JSON I/O
 │       │   └── errors.py                           # ModelfoundryError hierarchy (FR-feature-map: BR-10 from consumer-dep-spec)
 │       ├── recipe/
@@ -160,7 +160,7 @@ modelfoundry/                                       # repo root
 │       │   ├── sections.py                         # F2 discriminated-union surface resolver (checks 3/17), Story I.c
 │       │   ├── versioning.py                       # F5 umbrella + per-segment versions + migration seam, Story I.g
 │       │   ├── canonical.py                        # FR-4 segmented join_stable cache-identity bytes
-│       │   ├── variants.py                         # FR-14 variant overlay
+│       │   ├── overlays.py                         # FR-14 overlay application
 │       │   └── search_space.py                     # FR-11 Optimization.search_space resolution + recipe-path injection
 │       ├── cache/
 │       │   ├── __init__.py
@@ -208,7 +208,7 @@ modelfoundry/                                       # repo root
 ├── tests/
 │   ├── conftest.py                                 # shared fixtures: tmp cache roots, minimal DataRefinery fixture, sample recipes
 │   ├── unit/
-│   │   ├── test_recipe_loader.py                   # FR-1: schema-version gate, plugin resolution, variant overlay, canonicalization byte-stability
+│   │   ├── test_recipe_loader.py                   # FR-1: schema-version gate, plugin resolution, overlay merge, canonicalization byte-stability
 │   │   ├── test_recipe_validator.py                # FR-2: every check 1..22 has a test
 │   │   ├── test_cache_identity.py                  # FR-4: cosmetic-edit invariance, semantic-edit perturbation, loose-coupling rule
 │   │   ├── test_atomic_promote.py                  # FR-5: failure at every materialize stage leaves FAILED marker
@@ -248,7 +248,7 @@ modelfoundry/                                       # repo root
 │       ├── recipes/
 │       │   ├── minimal_pytorch.yml                 # smallest passing recipe
 │       │   ├── pytorch_with_optimization.yml       # Optimization stage exercise
-│       │   ├── pytorch_with_variants.yml           # variant overlay exercise
+│       │   ├── pytorch_with_overlays.yml           # overlay exercise
 │       │   ├── pytorch_failing_expectations.yml    # OutputExpectations failure smoke
 │       │   ├── sklearn_stub.yml                    # exercises plugin=sklearn rejection
 │       │   └── invalid_*.yml                       # one fixture per validator rejection
@@ -293,7 +293,7 @@ class ModelFoundry:
         *,
         data: DataRefineryInstance,           # required, eager binding (concept Open Q1)
         config: RuntimeConfig | None = None,
-        variant: str | None = None,
+        overlays: Sequence[str] | None = None,
         seed: int | None = None,
     ) -> "ModelFoundry": ...
 
@@ -322,12 +322,12 @@ def materialize(
     *,
     data: DataRefineryInstance,
     config: RuntimeConfig | None = None,
-    variant: str | None = None,
+    overlays: Sequence[str] | None = None,
     seed: int | None = None,
     overwrite: bool = False,
 ) -> ModelInstance:
     return ModelFoundry.from_recipe(
-        recipe_path, data=data, config=config, variant=variant, seed=seed
+        recipe_path, data=data, config=config, overlays=overlays, seed=seed
     ).materialize(overwrite=overwrite)
 ```
 
@@ -387,13 +387,13 @@ SUPPORTED_SCHEMA_VERSIONS: frozenset[int] = SUPPORTED_COMBINER_VERSIONS  # = fro
 def load_recipe(
     path: pathlib.Path,
     *,
-    variant: str | None = None,
+    overlays: Sequence[str] | None = None,
     seed: int | None = None,
 ) -> ModelRecipe:
-    """Parse YAML, gate on the umbrella schema_version, apply variant overlay, construct."""
+    """Parse YAML, gate on the umbrella schema_version, apply overlays, construct."""
 ```
 
-Raises `RecipeError` on schema-version mismatch, malformed YAML, unknown plugin, unknown variant. Unknown top-level keys are rejected (`extra="forbid"` on the pydantic root model — relaxed only inside the `extensions:` island).
+Raises `RecipeError` on schema-version mismatch, malformed YAML, unknown plugin, unknown overlay. Unknown top-level keys are rejected (`extra="forbid"` on the pydantic root model — relaxed only inside the `extensions:` island).
 
 ### `recipe.versioning` (FR-5, Story I.g)
 
@@ -442,7 +442,12 @@ def validate(
 ```python
 def recipe_segments(recipe: ModelRecipe) -> dict[str, Any]:
     """Partition the (flat-on-disk) recipe into core / plugin / overlays / extensions
-    sub-documents (Story I.b, I.a Decision 2)."""
+    sub-documents (Story I.b, I.a Decision 2).
+
+    The `overlays` segment reads the recipe's `overlays` catalog field
+    (`_OVERLAY_FIELD = "overlays"`, renamed from `variants` in Story I.j.2 to adopt
+    the family standard). The loader clears that catalog pre-hash (apply_overlays),
+    so on a materialized recipe the segment is empty and sparse-omitted."""
 
 def join_stable(segments: dict[str, Any], *, upstream: bytes | None = None) -> bytes:
     """Combine per-segment digests into one stable 32-byte identity digest.
@@ -486,7 +491,7 @@ def cache_key(
     """
 ```
 
-Loose-coupling (CR-15): the bound DataRefinery instance's `recipe_hash` participates in the **data instance identity**, but the consuming ModelFoundry recipe's cache identity treats the DataRefinery instance as a single hashed unit — re-materializing upstream changes the data_instance_hash16 only when the DataRefinery cache directory itself moves (new variant, new seed, new recipe shape, new input bytes). Re-materializing upstream into the same DataRefinery cache directory is a no-op for ModelFoundry's cache identity. This is intentional per FR-4 and the consumer-dep-spec's loose-coupling rule.
+Loose-coupling (CR-15): the bound DataRefinery instance's `recipe_hash` participates in the **data instance identity**, but the consuming ModelFoundry recipe's cache identity treats the DataRefinery instance as a single hashed unit — re-materializing upstream changes the data_instance_hash16 only when the DataRefinery cache directory itself moves (new overlays, new seed, new recipe shape, new input bytes). Re-materializing upstream into the same DataRefinery cache directory is a no-op for ModelFoundry's cache identity. This is intentional per FR-4 and the consumer-dep-spec's loose-coupling rule.
 
 ### `cache.atomic` (FR-5)
 
@@ -649,7 +654,7 @@ Implements the Plugin Protocol against PyTorch. Key sub-modules:
 - `visualizations.py` — Matplotlib renderers for `training_curves`, `optimization_history`, `confusion_matrix`, `calibration_curve`, `predictions_grid`. Each visualization op takes `InstanceArtifacts` and returns PNG bytes (single PNG) or `None` (skipped, e.g. `optimization_history` without an Optimization stage and `mode: reporting` declared — emits a placeholder PNG so the manifest's `visualizations` record is consistent).
 - `persistence.py` — `save_model(model, model_dir)` writes:
   - `model/weights/state_dict.pt` — `torch.save(model.state_dict(), ...)`.
-  - `model/architecture.json` — the canonical post-variant-overlay, post-Optimization-merge `Architecture` block, serialized with the same JSON-canonical bytes recipe canonicalization uses.
+  - `model/architecture.json` — the canonical post-overlay, post-Optimization-merge `Architecture` block, serialized with the same JSON-canonical bytes recipe canonicalization uses.
   - `model/checkpoints/checkpoint-best.pt` — the pre-production checkpoint dict (FR-25 foundation; ready to grow optimizer_state later without a public-API change).
   `load_model(path)` reads `model/architecture.json`, rebuilds the `nn.Module` via the recursive builder, then `load_state_dict` from `model/weights/state_dict.pt`. No external config object required (TR-6 round-trip guarantee).
 - `determinism.py` — wraps `torch.use_deterministic_algorithms(True)` + sets `CUBLAS_WORKSPACE_CONFIG=:4096:8` in the environment; documents which ops hard-error under deterministic mode. The plugin's `health_check()` (FR-19) reports whether deterministic mode can be enabled on the installed backend.
@@ -694,7 +699,7 @@ class ModelRecipe(pydantic.BaseModel):
     Evaluation: EvaluationSpec
     Visualizations: list[VisualizationSpec] = []
     OutputExpectations: list[ExpectationSpec] = []
-    variants: dict[str, dict[str, Any]] = {}   # name -> partial overlay
+    overlays: dict[str, dict[str, Any]] = {}   # name -> partial overlay
     extensions: dict[str, Any] = {}            # F3 (I.d): the one relaxed island; enters identity only when non-empty
 ```
 
@@ -704,7 +709,7 @@ class ModelRecipe(pydantic.BaseModel):
 class DataSpec(pydantic.BaseModel):
     model_config = ConfigDict(extra="forbid")
     recipe: pathlib.Path                   # DataRefinery recipe path
-    variant: str | None = None
+    overlays: list[str] = []
     seed: int | None = None
     cache_root: pathlib.Path | None = None # override DataRefinery cache root for this binding
 ```
@@ -777,7 +782,7 @@ class Manifest(pydantic.BaseModel):
     data_instance_hash: str                # 16 hex chars — the bound DataRefinery instance triple
     bound_data_instance: pathlib.Path      # resolved absolute path for inspect()/status() lineage
     seed: int
-    variant: str | None
+    overlays: list[str]
     created_at: datetime                   # UTC ISO 8601
     elapsed_seconds: float
     warnings: list[ManifestWarning] = []
@@ -800,7 +805,7 @@ class RuntimeConfig(pydantic.BaseModel):
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     log_target: str = "stderr"                       # file path or "stderr" / "stdout"
     plugin_path: tuple[pathlib.Path, ...] = ()
-    variant: str | None = None
+    overlays: list[str] = []
     seed: int | None = None                          # CLI override; participates in cache identity
     overwrite: bool = False
 ```
@@ -846,7 +851,7 @@ CLI exit codes (mirrors DataRefinery's mapping): `0` success, `1` user/recipe/co
 | `--log-level` | `MODELFOUNDRY_LOG_LEVEL` | `INFO` | Operational log level. |
 | `--log-target` | `MODELFOUNDRY_LOG_TARGET` | `stderr` | JSON-lines log sink. |
 | `--plugin-path` | `MODELFOUNDRY_PLUGIN_PATH` | (empty) | Extra plugin discovery paths. |
-| `--variant` | (none) | (none) | Variant overlay name. |
+| `--overlay` | (none) | (none) | Overlay name (repeatable; applied in order). |
 | `--seed` | (none) | (recipe) | Ad-hoc seed override; changes cache identity. |
 | `--overwrite` | (none) | `false` | Re-materialize even on cache hit. |
 
@@ -871,7 +876,7 @@ Root command: `modelfoundry`. Subcommands:
 
 **Shared flags** (apply to every subcommand): `--cache-root`, `--data-cache-root`, `--log-level`, `--log-target`, `--plugin-path`, `--verbose`, `--quiet`.
 
-**Subcommand-local flags**: `--variant`, `--seed`, `--overwrite` (`materialize` only); `--view` (`inspect` only); `--dry-run` (`clean`).
+**Subcommand-local flags**: `--overlay`, `--seed`, `--overwrite` (`materialize` only); `--view` (`inspect` only); `--dry-run` (`clean`).
 
 **Exit codes**: `0` success, `1` user/recipe/contract error, `2` system/plugin error, `130` SIGINT.
 

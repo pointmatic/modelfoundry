@@ -242,14 +242,14 @@ The single ceremonious release for the bundle's one cache-invalidation event (pe
 
 ---
 
-### Story I.j.4: Documentation & shared-contract alignment [Planned]
+### Story I.j.4: Documentation & shared-contract alignment [Done]
 
 Reconcile MF's spec docs to the shipped `overlays` surface (alignment, not net-new requirements — the code is source of truth). Doc-only; rides v0.17.0.
 
-- [ ] **MF `features.md`** — FR-14 `variants` → `overlays` (list semantics, last-writer-wins); recipe-shape list; any validator-check 16 reference.
-- [ ] **MF `tech-spec.md`** — `recipe.overlays` module (was `recipe.variants`), `apply_overlays`, `DataSpec`/`RuntimeConfig`/manifest field rename, `canonical._OVERLAY_FIELD` note, CLI `--overlay`.
-- [ ] **MF `concept.md`** + **`README.md`** — `overlays` phrasing where `variant(s)` appears; `--overlay` in the shared-options line.
-- [ ] **`docs/guides/recipe-authoring.md`** (if present for MF) — overlay-authoring section rename + multi-overlay example.
+- [x] **MF `features.md`** — FR-14 retitled `Variants` → `Overlays` (list semantics, last-writer-wins; **flipped** the now-contradicted "CLI rejects multiple `--variant` flags" to "repeatable `--overlay`, applied in order"); CR-12 `Variants` → `Overlays`; the `(recipe, data_instance, seed, overlays)` determinism tuple (CR-5/QR-1/§Persistence/AC-6); OR-5 overlay-selection, UR-4/§13 recipe-shape lists, NG-9; `Data.overlays`, check 16, `--overlay` flag-table row, status-report fields, TR-1/TR-2 ("overlay merge"/"overlay switch"). Left op-param "class-weighted variant", DR "aggressive variant sidecar", "ResNet variant", "aggressive-mode variants", and "invariant(s)" untouched.
+- [x] **MF `tech-spec.md`** — module tree `recipe/variants.py` → `recipe/overlays.py` (`# FR-14 overlay application`); `from_recipe`/module-`materialize`/`load_recipe` signatures `variant: str|None` → `overlays: Sequence[str]|None`; `DataSpec`/`RuntimeConfig` `overlays: list[str] = []`; `Manifest.overlays: list[str]`; `ModelRecipe.overlays` catalog; call-site `overlays=overlays`; loose-coupling note; `--overlay` flag-table + subcommand list; added a `recipe_segments` docstring note on `_OVERLAY_FIELD = "overlays"` (cleared pre-hash). Left op-param `param_model = variant` + aggressive-augmentation + "invariant" untouched.
+- [x] **MF `concept.md`** + **`README.md`** — `overlays` phrasing + the determinism tuple; the two `README` YAML examples (`variants:` → `overlays:`) + their `--overlay` commands; concept recipe-section lists + "Named **overlays** … last-writer-wins". Left DR per-record-seed "for variants" + "invariants" untouched.
+- [x] **`docs/guides/recipe-authoring.md`** — N/A: absent for MF (degraded gracefully, no error).
 
 **Version:** no bump (doc-only; rides v0.17.0).
 

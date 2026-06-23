@@ -6,7 +6,7 @@ Compile a YAML recipe into a reproducible, framework-agnostic trained-model inst
 
 ModelFoundry consumes a materialized [DataRefinery](https://github.com/pointmatic/datarefinery) instance and compiles a single YAML **model recipe** into a content-addressed, atomically-promoted **ModelInstance**: the trained model, per-epoch metrics, hyperparameter-search trials, held-out evaluation, predictions, visualizations, and a manifest. The result object returns notebook-shaped primitives (`pandas.DataFrame` / `numpy.ndarray` / PNG `bytes`) and works identically inside Jupyter, Marimo, IPython, or a plain `.py` script — no framework imports in user code.
 
-Reproducibility is a first-class concern: every stochastic source is seeded, the cache identity is computed from the recipe's **segmented** canonical form (independently-hashed `core` / `plugin` / `overlays` / `extensions` segments, so a plugin-surface change never invalidates another plugin's caches), and the same `(recipe, data, seed, variant)` tuple materializes to a byte-identical `ModelInstance`.
+Reproducibility is a first-class concern: every stochastic source is seeded, the cache identity is computed from the recipe's **segmented** canonical form (independently-hashed `core` / `plugin` / `overlays` / `extensions` segments, so a plugin-surface change never invalidates another plugin's caches), and the same `(recipe, data, seed, overlays)` tuple materializes to a byte-identical `ModelInstance`.
 
 > **Status:** pre-production (`0.x.y` series). APIs, CLI surface, and cache layout may change between minor versions until the `1.0.0` production release. See [`docs/specs/`](docs/specs/) for the concept, feature, technical, and story specifications.
 
@@ -104,18 +104,18 @@ Run all four and the result tells a bigger story than "use a CNN" (CPU, determin
 | Random (chance) | `cifar10_random.yml` | 0.095 |
 | **PyTorch CNN — 5 epochs** | `cifar10_cnn.yml` | **0.275** |
 | scikit-learn MLP | `cifar10_mlp.yml` | 0.352 |
-| **PyTorch CNN — 40 epochs** | `cifar10_cnn.yml --variant well_trained` | **0.403** |
+| **PyTorch CNN — 40 epochs** | `cifar10_cnn.yml --overlay well_trained` | **0.403** |
 
-The more-expressive CNN **loses to the flattened-pixel MLP at a small training budget**, and only **overtakes it once the budget is scaled up** — the same capacity-vs-budget dynamic that separates a legacy model from a modern over-parameterized one. Scaling the budget is itself a one-line recipe change, expressed as a variant:
+The more-expressive CNN **loses to the flattened-pixel MLP at a small training budget**, and only **overtakes it once the budget is scaled up** — the same capacity-vs-budget dynamic that separates a legacy model from a modern over-parameterized one. Scaling the budget is itself a one-line recipe change, expressed as an overlay:
 
 ```yaml
-variants:
+overlays:
   well_trained:
     Training: {max_epochs: 40}
 ```
 
 ```bash
-modelfoundry materialize recipes/cifar10_cnn.yml --variant well_trained
+modelfoundry materialize recipes/cifar10_cnn.yml --overlay well_trained
 ```
 
 Every run is content-addressed and reproducible, so each comparison is cached and byte-stable — re-running finds the existing instance instead of recomputing.
@@ -218,16 +218,16 @@ Training:
 
 > Phase I introduced **no implicit defaults**: behavior-affecting fields like `precision` / `checkpoint_cadence` / `device` are authored in the recipe, not supplied by code — `modelfoundry init` emits them for you. DataLoader `num_workers` moved the *other* way: it is now **execution context**, set via `--num-workers` or `MODELFOUNDRY_NUM_WORKERS` (not a recipe field), since it never affects the trained bytes.
 
-`device` participates in the recipe's canonical hash, so the same recipe run with `device: cpu` and `device: mps` materializes into two distinct `ModelInstance` cache entries — no silent cross-device collision. Use the `variants:` block to keep both side-by-side without maintaining two recipe files:
+`device` participates in the recipe's canonical hash, so the same recipe run with `device: cpu` and `device: mps` materializes into two distinct `ModelInstance` cache entries — no silent cross-device collision. Use the `overlays:` block to keep both side-by-side without maintaining two recipe files:
 
 ```yaml
-variants:
+overlays:
   cpu_bench:
     Training: {device: cpu}
 ```
 
 ```bash
-modelfoundry materialize model.yml --variant cpu_bench
+modelfoundry materialize model.yml --overlay cpu_bench
 ```
 
 ## Documentation

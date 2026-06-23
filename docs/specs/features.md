@@ -10,7 +10,7 @@ For the upstream contract ModelFoundry consumes (DataRefinery as vendor), see [`
 
 ## Project Goal
 
-ModelFoundry compiles a single YAML **model recipe** — declaring `plugin`, `Data` binding (to a materialized DataRefinery instance), `Architecture`, `Loss`, `Optimizer`, `Training`, `Optimization`, `Evaluation`, `Visualizations`, `OutputExpectations`, and `variants` — into a materialized **ModelInstance**: the recipe itself, the trained model (weights + a round-trippable `architecture.json`), per-epoch training history, hyperparameter-search trial history, held-out evaluation metrics, persisted per-record predictions, reporting visualizations, and a manifest, atomically promoted into a content-addressed cache. A category-specific **plugin** contributes the operations relevant to its backend; the pre-production release ships a PyTorch plugin scoped to image classification at CIFAR-10 scale, with a sklearn stub plugin sketched against the same `OperationSpec` set to keep abstractions honest (Keras and HuggingFace plugins are close follow-ons but not pre-production deliverables). ModelFoundry never performs data prep — splitting, cleaning, sampling, tokenization, and feature engineering are DataRefinery's responsibility. ModelFoundry is exposed as co-equal Python library and CLI surfaces, stays notebook-substrate-neutral (works identically inside Jupyter, Marimo, IPython, nbfoundry, or a plain `.py` script), runs fully offline by default, and treats reproducibility as a first-class concern: every stochastic source is seeded, the cache identity is computed from the recipe's normalized semantic form, and the `ModelInstance` API returns notebook-shaped primitives (`pandas.DataFrame`, `numpy.ndarray`, PNG `bytes`).
+ModelFoundry compiles a single YAML **model recipe** — declaring `plugin`, `Data` binding (to a materialized DataRefinery instance), `Architecture`, `Loss`, `Optimizer`, `Training`, `Optimization`, `Evaluation`, `Visualizations`, `OutputExpectations`, and `overlays` — into a materialized **ModelInstance**: the recipe itself, the trained model (weights + a round-trippable `architecture.json`), per-epoch training history, hyperparameter-search trial history, held-out evaluation metrics, persisted per-record predictions, reporting visualizations, and a manifest, atomically promoted into a content-addressed cache. A category-specific **plugin** contributes the operations relevant to its backend; the pre-production release ships a PyTorch plugin scoped to image classification at CIFAR-10 scale, with a sklearn stub plugin sketched against the same `OperationSpec` set to keep abstractions honest (Keras and HuggingFace plugins are close follow-ons but not pre-production deliverables). ModelFoundry never performs data prep — splitting, cleaning, sampling, tokenization, and feature engineering are DataRefinery's responsibility. ModelFoundry is exposed as co-equal Python library and CLI surfaces, stays notebook-substrate-neutral (works identically inside Jupyter, Marimo, IPython, nbfoundry, or a plain `.py` script), runs fully offline by default, and treats reproducibility as a first-class concern: every stochastic source is seeded, the cache identity is computed from the recipe's normalized semantic form, and the `ModelInstance` API returns notebook-shaped primitives (`pandas.DataFrame`, `numpy.ndarray`, PNG `bytes`).
 
 ### Core Requirements
 
@@ -18,14 +18,14 @@ ModelFoundry compiles a single YAML **model recipe** — declaring `plugin`, `Da
 - **CR-2: Recipe-driven training, optimization, and evaluation.** A single YAML recipe declares the entire model build; the recipe is the only canonical artifact describing what `materialize()` does.
 - **CR-3: Materialized ModelInstance.** Each successful `materialize()` run produces a ModelInstance composed of (recipe, trained model + `architecture.json`, training history, optimization trials, held-out evaluation metrics + predictions, reporting visualizations, manifest). All components are required for the instance to be considered complete.
 - **CR-4: Schema-versioned recipes.** Each recipe declares a `schema_version` — the **umbrella** (combination-function) version (Phase I). ModelFoundry refuses to load a recipe whose umbrella version it does not recognize. Identity also tracks **per-segment versions** (`core` / `plugin` / `overlays` / `extensions`) in code (`recipe/versioning.py`), with a migration registry keyed by `(segment, from, to)` — **empty pre-1.0**. Pre-production, version 1 may be redefined as design evolves with no migration path; post-production, versions are immutable and documented migrations ship with the tool.
-- **CR-5: Determinism.** Same `(recipe, data_instance, seed, variant)` tuple produces a byte-identical ModelInstance (excluding wall-clock fields), subject to the plugin-documented determinism caveats in QR-3.
+- **CR-5: Determinism.** Same `(recipe, data_instance, seed, overlays)` tuple produces a byte-identical ModelInstance (excluding wall-clock fields), subject to the plugin-documented determinism caveats in QR-3.
 - **CR-6: Semantic cache identity.** Cache identity is derived from the recipe's normalized semantic form (parsed, key-sorted, comments stripped) plus the bound DataRefinery instance hash plus seed. Cosmetic edits do not trigger rebuilds; semantic edits do.
 - **CR-7: Atomic materialization.** Pipeline writes target a temp location and atomically promote on success. On failure the temp directory is left in place with a `FAILED` marker. Partial ModelInstances never appear in the cache.
 - **CR-8: Coexist-with-DataRefinery boundary.** ModelFoundry consumes a materialized DataRefinery `Instance` and never performs data prep itself. The `Data:` recipe block is a binding, not a pipeline.
 - **CR-9: Plugin model.** A plugin specializes ModelFoundry for a single backend and contributes the operations its `Architecture` / `Loss` / `Optimizer` / `Training` / `Optimization` / `Evaluation` / `Visualizations` sections expose. The pre-production release ships an end-to-end PyTorch plugin (image classification, CIFAR-10-scale baseline architectures) plus a sklearn stub plugin (recipe section list + `OperationSpec` outline only; no working ops).
 - **CR-10: Co-equal surfaces.** Python library API and CLI cover the same capabilities; neither grows operations the other lacks.
 - **CR-11: Notebook-substrate neutrality.** The `ModelInstance` API returns framework-agnostic primitives (`pandas.DataFrame`, `numpy.ndarray`, PNG `bytes`) and notebook-native `.predict()` / `.predict_proba()`. The same surface works identically inside Jupyter, Marimo, IPython, nbfoundry lifecycle templates, and plain `.py` scripts — no substrate-specific adapter, no `display()` shim, no kernel coupling.
-- **CR-12: Variants.** A recipe may declare named variants overlaying any section. A new ModelInstance is materialized per variant; the variant overlay participates in cache identity. Recipe inheritance is out of scope for the pre-production release.
+- **CR-12: Overlays.** A recipe may declare named overlays applied to any section; a recipe selects an ordered list of them (last-writer-wins per section). A new ModelInstance is materialized per overlay selection; the applied overlays participate in cache identity. Recipe inheritance is out of scope for the pre-production release.
 - **CR-13: Offline operability.** The deterministic training path (validate, materialize, report, inspect) works with no network access (modulo HuggingFace pretrained weights served from a warm local cache). LLM enhancement of `init` is strictly opt-in.
 - **CR-14: Round-trippable architecture.** The trained model persists `model/architecture.json` alongside weights. `ModelInstance.load(path).predict(X)` rebuilds the model from disk alone without any external config object.
 - **CR-15: Loose-coupled DataRefinery binding.** The bound DataRefinery instance's `recipe_hash` does NOT participate in the consuming ModelFoundry recipe's cache identity. Re-materializing upstream does NOT auto-invalidate downstream; the user re-materializes ModelFoundry explicitly. Tight coupling is a deferred upgrade tracked under FR-26 and requires a `schema_version` bump.
@@ -37,7 +37,7 @@ ModelFoundry compiles a single YAML **model recipe** — declaring `plugin`, `Da
 - **OR-2: Rich-based CLI ergonomics.** Per-epoch tables, per-trial progress bars, cache hit/miss summary, color-aware output via `rich`. Output degrades cleanly in non-TTY contexts.
 - **OR-3: Diagnostic failures.** Failed materialization preserves the temp directory with a clear marker naming the failing stage, error class, and message. Failed validation produces structured, actionable error messages naming the offending section and field.
 - **OR-4: Logging channels.** Two strictly separated channels: `rich` user-facing output on stdout (epoch tables, trial progress, final summary) and stdlib `logging` operational output as JSON lines via `modelfoundry.logging.JsonFormatter` to a configurable `--log-target`. Library callers get a logger named `modelfoundry`; ModelFoundry never hijacks the root logger.
-- **OR-5: Configuration precedence.** Recipe file → CLI flags → environment variables. The recipe is authoritative for model-build semantics; CLI flags and env vars only control execution context (cache root, log level, seed override for ad-hoc runs, plugin search path, variant selection).
+- **OR-5: Configuration precedence.** Recipe file → CLI flags → environment variables. The recipe is authoritative for model-build semantics; CLI flags and env vars only control execution context (cache root, log level, seed override for ad-hoc runs, plugin search path, overlay selection).
 - **OR-6: Cache management.** A predictable on-disk layout under a configurable root (default `./models/`); `clean` operates on cache entries by recipe hash, age, or `FAILED` marker.
 - **OR-7: Plugin discovery.** Plugins are discovered via `pyproject.toml` entry points; a plugin search path may be extended via configuration for development.
 - **OR-8: API and CLI surface stability.** Pre-production, the library API, CLI verb names, and flag names may change without migration shims; deprecation aliases are best-effort. Post-production, the public surface follows semver-style stability with documented deprecations.
@@ -48,7 +48,7 @@ ModelFoundry compiles a single YAML **model recipe** — declaring `plugin`, `Da
 
 ### Quality Requirements
 
-- **QR-1: Reproducibility guarantee.** A successful run is byte-identical when re-executed against the same `(recipe, data_instance, seed, variant)` tuple, subject to the plugin-declared determinism caveats below.
+- **QR-1: Reproducibility guarantee.** A successful run is byte-identical when re-executed against the same `(recipe, data_instance, seed, overlays)` tuple, subject to the plugin-declared determinism caveats below.
 - **QR-2: Minimal runtime dependencies.** The pre-production base depends on `numpy`, `pandas`, `pyarrow`, `pyyaml`, `rich`, `matplotlib`, `scikit-learn` (for sklearn stub + metric implementations shared across plugins), `optuna`, and `pydantic`. Plugins declare their own deps via optional extras: `[pytorch]` (`torch`, `torchvision`, `torchmetrics`), `[sklearn]` (already in base), `[huggingface]` (`transformers`, `peft`, `evaluate`) — deferred, `[keras]` (`tensorflow`, `keras`) — deferred. Optional `[llm]` (`lmentry`) extra enables the `init` scaffolder's LLM-enhancement layer.
 - **QR-3: Determinism caveats.** The reproducibility guarantee applies when the plugin enables deterministic-algorithm mode and serial trial execution. Specifically, the PyTorch plugin:
   - sets `torch.use_deterministic_algorithms(True)` and `CUBLAS_WORKSPACE_CONFIG=:4096:8` by default (trade-off: slower training; a few ops hard-error rather than silently fall back to non-deterministic kernels);
@@ -67,7 +67,7 @@ ModelFoundry compiles a single YAML **model recipe** — declaring `plugin`, `Da
 - **UR-1: Direct Python consumer.** A practitioner can write `from modelfoundry import ModelFoundry; mf = ModelFoundry.from_recipe(path, data=di); mi = mf.materialize()` against a materialized DataRefinery instance and consume `mi.metrics`, `mi.evaluation`, `mi.confusion_matrix`, `mi.predictions`, `mi.figures` without touching any framework-specific library.
 - **UR-2: Notebook-substrate-neutral consumer.** The same three-line surface above works identically inside a Jupyter cell, a Marimo cell, an IPython REPL, and a plain `.py` script. Notebook cells render the result accessors directly (e.g. `IPython.display.Image(mi.figures["training_curves"])`, `mi.predictions.head()`).
 - **UR-3: nbfoundry indirect consumer.** nbfoundry's `model_experimentation`, `model_optimization`, and `model_evaluation` lifecycle templates consume ModelFoundry through the `ModelfoundryAdapter` Protocol declared in nbfoundry's consumer-dependency-spec. The pre-production release honors the full BR-1..BR-12 contract — tightening nbfoundry's permissive Protocol stub is a no-op for compiled notebook code.
-- **UR-4: Recipe legibility.** Section names (`Architecture`, `Loss`, `Optimizer`, `Training`, `Optimization`, `Evaluation`, `Visualizations`, `OutputExpectations`, `variants`) describe intent without leaking framework or ML-jargon collisions. The recipe never names `torch`, `optuna`, `keras`, or other libraries.
+- **UR-4: Recipe legibility.** Section names (`Architecture`, `Loss`, `Optimizer`, `Training`, `Optimization`, `Evaluation`, `Visualizations`, `OutputExpectations`, `overlays`) describe intent without leaking framework or ML-jargon collisions. The recipe never names `torch`, `optuna`, `keras`, or other libraries.
 - **UR-5: Discoverable installation.** End users install ModelFoundry via `pip install ml-modelfoundry[pytorch]` from a clean Python 3.12 venv with no extra configuration; the `[pytorch]` extra brings in the pre-production default plugin's deps. Sentence-zero installation works on the documented platforms (QR-4).
 - **UR-6: CIFAR-10 quickstart.** A new user follows the documented CIFAR-10 quickstart and produces a trained `ModelInstance` end-to-end (DataRefinery → ModelFoundry) on Apple Silicon without manual workarounds.
 
@@ -81,7 +81,7 @@ ModelFoundry compiles a single YAML **model recipe** — declaring `plugin`, `Da
 - **NG-6: No regression-task support in the pre-production release.** The pre-production PyTorch plugin scopes to classification only; the regression-task surface is plugin-extensible but not a pre-production deliverable.
 - **NG-7: No model architectures beyond CIFAR-10-scale image classification in the pre-production release.** The pre-production release ships baseline CNN primitives (and an optional pretrained-encoder + LoRA path) sufficient for CIFAR-10; larger-scale architectures, detection, segmentation, generative models are out of scope.
 - **NG-8: No resume-from-stage during materialization.** Atomic temp-then-promote is the pre-production failure model (matches DataRefinery).
-- **NG-9: No recipe inheritance or multi-file recipe composition.** Variants suffice for the pre-production release.
+- **NG-9: No recipe inheritance or multi-file recipe composition.** Overlays suffice for the pre-production release.
 - **NG-10: No tight-coupled DataRefinery binding in the pre-production release.** Bound `data_instance.recipe_hash` participating in the consuming recipe's cache identity is a future `schema_version` bump.
 - **NG-11: No hard LLM dependency.** ModelFoundry must work fully offline; LLM enhancement of `init` is optional.
 - **NG-12: No notebook-substrate-specific integration.** No Marimo reactivity hooks, no Jupyter magics, no IPython display hijacking. ModelFoundry stays substrate-neutral; substrate-specific affordances are the consumer's concern.
@@ -103,7 +103,7 @@ ModelFoundry compiles a single YAML **model recipe** — declaring `plugin`, `Da
   ```yaml
   Data:
     recipe: <filesystem path to the DataRefinery recipe YAML>
-    variant: <optional variant name selected at the DataRefinery side>
+    overlays: <optional ordered overlay names selected at the DataRefinery side>
     seed: <optional DataRefinery seed override>
   ```
   The block resolves to a `DataRefineryInstance` by computing DataRefinery's canonical recipe hash + input hash + seed and locating the promoted instance under the DataRefinery cache root. The instance must already be materialized — eager binding (concept Open Question 1, locked).
@@ -115,7 +115,7 @@ ModelFoundry compiles a single YAML **model recipe** — declaring `plugin`, `Da
 - `Evaluation` block — `splits: list[str]`, `primary_metric: str`, `metrics: list[str]` drawn from the pre-production vocabulary (`macro_f1`, `per_class_f1`, `per_class_precision`, `per_class_recall`, `accuracy`, `confusion_matrix`, `ece`, `calibration_curve`), optional `comparison.baseline_model_id`.
 - `Visualizations` block — list of ops, each with `name`, `op` (`training_curves`, `optimization_history`, `confusion_matrix`, `calibration_curve`, `predictions_grid`), `mode` (`exploration` or `reporting`), optional `splits`.
 - `OutputExpectations` block — list of post-materialization assertions (`{metric: val_macro_f1, op: gte, value: 0.55}`); failures abort with a `FAILED` marker.
-- `variants` block — optional named overlays applied at materialize time; selection changes cache identity.
+- `overlays` block — optional named overlays applied in order (last-writer-wins per section) at materialize time; selection changes cache identity.
 - `extensions` block (Phase I / F3) — the one sanctioned relaxed island: a declarative bag where `extra` is allowed only inside the namespace (the rest of the recipe stays `extra="forbid"`). Enters cache identity only when non-empty; plugins declare consumed keys via `Plugin.extension_keys` and the validator warns (non-fatally) on unclaimed keys (FR-2 check 22). **Declarative params only — never recipe-activated code.**
 
 **DataRefinery instance reference** — resolved through the `Data:` block above. ModelFoundry queries the bound instance's splits, label schema, num-classes, and record schema via DataRefinery's library API.
@@ -128,7 +128,7 @@ ModelFoundry compiles a single YAML **model recipe** — declaring `plugin`, `Da
 - `--log-level` / `MODELFOUNDRY_LOG_LEVEL` — operational log level.
 - `--log-target` / `MODELFOUNDRY_LOG_TARGET` — JSON-lines log sink (file path; default stderr).
 - `--plugin-path` / `MODELFOUNDRY_PLUGIN_PATH` — extra plugin discovery paths (development).
-- `--variant` — selects a named variant from the recipe at materialize time.
+- `--overlay` — selects named overlays from the recipe at materialize time (repeatable; applied in order, last-writer-wins).
 - `--seed` — ad-hoc seed override (changes cache identity).
 - `--overwrite` / `--force` — re-materialize even on cache hit (writes a new instance under the same key only by removing the existing one first; the pre-production default is to refuse and error).
 
@@ -187,7 +187,7 @@ Load a YAML model recipe, validate its schema version, and produce an in-memory 
 2. Read `schema_version` (the umbrella combination-function version); refuse to load if absent or unrecognized (gated by `SUPPORTED_SCHEMA_VERSIONS`, sourced from `recipe.versioning.SUPPORTED_COMBINER_VERSIONS`).
 3. Route through any registered per-segment migration (`recipe.versioning.migrate_segment`, keyed by `(segment, from, to)`) — empty pre-1.0, so an actual version gap refuses-with-pointer ("re-materialize").
 4. Resolve the declared `plugin` and verify it is discoverable on the configured plugin path.
-5. Apply the `variants` overlay if `--variant` is set; canonicalize the merged form for the cache key.
+5. Apply the selected `overlays` if `--overlay` is set; canonicalize the merged form for the cache key.
 6. Construct the recipe object with all declared sections.
 
 **Edge Cases:**
@@ -196,7 +196,7 @@ Load a YAML model recipe, validate its schema version, and produce an in-memory 
 - Malformed YAML -> structured error pointing to the offending line.
 - Unknown top-level keys -> hard error with `extra="forbid"` semantics (forward-compatible recipes are not valid; readers should fail loudly).
 - Unknown `plugin` -> hard error naming the plugin and the configured plugin path.
-- `--variant` references a name not declared in `variants` -> hard error listing available variants.
+- `--overlay` references a name not declared in `overlays` -> hard error listing available overlays.
 
 ### FR-2: Recipe Validation (`validate`)
 
@@ -215,7 +215,7 @@ Verify a recipe's correctness without running the pipeline. Covers schema correc
 4. Every operation in `Architecture` / `Loss` / `Optimizer` / `Training` / `Optimization` / `Evaluation` / `Visualizations` declares the splits it applies to where applicable, and the splits exist in the bound DataRefinery instance.
 5. Fit-on-train operations (e.g. `cross_entropy_class_weighted` with `weight_source`) declare `train` as the fit source. Class weights cannot be fit on `val` or `test`.
 6. `Training.early_stopping.monitor` references a metric that `Evaluation.metrics` produces, or a built-in (`train_loss`, `val_loss`).
-7. `Optimization.search_space` keys reference legitimate recipe paths (e.g. `Optimizer.learning_rate` exists in the schema after variant overlay).
+7. `Optimization.search_space` keys reference legitimate recipe paths (e.g. `Optimizer.learning_rate` exists in the schema after overlay application).
 8. `Optimization` categorical hyperparameter defaults are members of the declared choice set (validates `baseline_trial: enqueue_recipe_defaults`).
 9. `Optimization.sampler` is one of `{tpe, random, grid}`; `Optimization.pruner` is one of `{median, none}`. (Plugins may register additional samplers/pruners; the pre-production release caps to this set.)
 10. `Optimization.n_jobs` is absent or `1` (the pre-production release forbids parallel trials per QR-3).
@@ -224,7 +224,7 @@ Verify a recipe's correctness without running the pipeline. Covers schema correc
 13. `Evaluation.comparison.baseline_model_id` (when present) is resolvable by the plugin at materialize time (recipe-time check is a name-format check; resolution happens at materialize).
 14. `OutputExpectations` reference metrics that `Evaluation.metrics` produces on the declared split.
 15. `Visualizations` operations each declare an output mode (`exploration` or `reporting`).
-16. `variants` reference only declared sections and override only declared keys.
+16. `overlays` reference only declared sections and override only declared keys.
 17. Plugin-specific operation parameters validate against the plugin's declared `OperationSpec`.
 18. `Data:` binding cross-check — the bound DataRefinery instance exposes every split referenced by the recipe (`Training` implicitly requires `train`; `Evaluation.splits` must be a subset of the instance's splits); the instance's label schema is compatible with `Architecture`'s declared `num_classes`; the instance's record schema is compatible with the plugin's expected input shape.
 19. Schema-version coordination — if the bound DataRefinery instance's manifest declares a recipe `schema_version` higher than ModelFoundry's highest supported DataRefinery `SUPPORTED_SCHEMA_VERSIONS`, hard error per the vendor-dependency-spec coordination policy.
@@ -263,7 +263,7 @@ Execute the recipe end-to-end and produce a materialized ModelInstance.
 **Edge Cases:**
 - Cache hit on identical inputs -> no work performed; return existing instance path with `cache=hit` in the summary.
 - Failure mid-stage -> temp directory left in place with `FAILED` marker; cache untouched (FR-5).
-- Variant selected via `--variant` -> cache identity reflects the variant overlay; different variants of the same recipe produce different ModelInstances.
+- Overlays selected via `--overlay` -> cache identity reflects the applied overlays; different overlay selections of the same recipe produce different ModelInstances.
 - Recipe declares no `Optimization` section -> stage 4.2 is skipped; the manifest records `optimization: null`.
 - Recipe declares `Evaluation.splits: []` -> stage 4.4 is skipped; downstream visualizations / expectations referencing evaluation metrics fail at `validate` time (FR-2 checks 12, 14).
 - `--overwrite` set -> existing instance directory is removed before re-materialization; cache hit is suppressed.
@@ -273,7 +273,7 @@ Execute the recipe end-to-end and produce a materialized ModelInstance.
 Compute a stable identity for a (recipe, data_instance, seed) triple that is invariant to cosmetic edits.
 
 **Behavior:**
-1. Parse the recipe; apply variant overlay; strip comments. **Segmented identity (Phase I):** partition the recipe into `core` / `plugin` / `overlays` / `extensions` segments, canonicalize each segment's sub-document via `model_dump(mode="json")` + `json.dumps(sort_keys=True, separators=(",", ":"), ensure_ascii=False)`, and combine them with **`join_stable`** — a labeled, length-framed concatenation of per-segment SHA-256 digests (empty segments sparse-omitted; prefix-capable for the deferred vertical axis). The recipe stays flat on disk; segmentation lives only in the hashing. The `join_stable` byte format is the DataRefinery-coordinated family standard (governed shared contract).
+1. Parse the recipe; apply overlays; strip comments. **Segmented identity (Phase I):** partition the recipe into `core` / `plugin` / `overlays` / `extensions` segments, canonicalize each segment's sub-document via `model_dump(mode="json")` + `json.dumps(sort_keys=True, separators=(",", ":"), ensure_ascii=False)`, and combine them with **`join_stable`** — a labeled, length-framed concatenation of per-segment SHA-256 digests (empty segments sparse-omitted; prefix-capable for the deferred vertical axis). The recipe stays flat on disk; segmentation lives only in the hashing. The `join_stable` byte format is the DataRefinery-coordinated family standard (governed shared contract).
 2. `recipe_hash` = SHA-256 of the combiner pre-image (`canonical_bytes`); full digest, truncated to 16 hex chars for the directory component.
 3. Resolve the bound DataRefinery instance and take its `manifest.recipe_hash ⊕ manifest.input_hash ⊕ manifest.seed` triple's truncated 16-hex digest as `data_instance_hash16`.
 4. Combine recipe hash + data_instance_hash + seed into the cache key (`<recipe-hash16>/<data-instance-hash16>/<seed>`).
@@ -281,7 +281,7 @@ Compute a stable identity for a (recipe, data_instance, seed) triple that is inv
 **Edge Cases:**
 - Whitespace-only or comment-only edit -> identical hash; cache hit.
 - Key reordering -> identical hash; cache hit.
-- Semantic edit (changed value, added/removed operation, variant overlay change) -> different hash; cache miss.
+- Semantic edit (changed value, added/removed operation, overlay-selection change) -> different hash; cache miss.
 - Bound DataRefinery instance re-materialized at a different seed or with a different recipe -> different `data_instance_hash16`; cache miss.
 - **Loose-coupling rule (CR-15):** the bound DataRefinery instance's `recipe_hash` does NOT participate in this recipe's cache identity. Re-materializing upstream does NOT auto-invalidate downstream; the user re-materializes ModelFoundry when ready. Tight coupling is a deferred upgrade (FR-26) and requires a `schema_version` bump.
 - **No implicit defaults (Phase I / FR-4a):** behavior-affecting fields carry no value-`default=` — the recipe authors them (the `init` scaffolder emits them), the interpreting code supplies none. This removes the old silent default-shift hazard (a default change no longer perturbs omitting recipes, because there are none). The remaining invalidation levers are the `join_stable` combiner, the segment partition, and authored values; a change to any is a versioning event with a documented CHANGELOG callout. Mode-selecting optionals (absence is meaningful) and the `Optimization.n_jobs=1` invariant are the sanctioned exceptions.
@@ -306,13 +306,13 @@ Guarantee the cache contains only complete, valid ModelInstances.
 Resolve the `Data:` block to a materialized `DataRefineryInstance` and cross-validate against the recipe.
 
 **Behavior:**
-1. Read `Data.recipe`, `Data.variant`, `Data.seed`.
+1. Read `Data.recipe`, `Data.overlays`, `Data.seed`.
 2. Resolve the bound instance via DataRefinery's library API: compute the canonical DataRefinery recipe hash + input hash + seed, locate the promoted instance under DataRefinery's cache root (or a configured override), and load its manifest.
 3. Cross-check (covered by FR-2 checks 18, 19): the instance exposes every split the ModelFoundry recipe references; the label schema is compatible with `Architecture.num_classes`; the record schema is compatible with the plugin's expected input shape; the instance's recipe `schema_version` is within ModelFoundry's known DataRefinery `SUPPORTED_SCHEMA_VERSIONS`.
 4. Expose the resolved instance path in `manifest.bound_data_instance` so `inspect()` / `status()` can show the lineage.
 
 **Edge Cases:**
-- Bound DataRefinery instance does not exist on disk (never materialized, or `clean`-ed) -> hard error at `validate` time pointing at the expected DataRefinery cache path with the recipe-side fix ("re-materialize the DataRefinery recipe at the bound variant/seed").
+- Bound DataRefinery instance does not exist on disk (never materialized, or `clean`-ed) -> hard error at `validate` time pointing at the expected DataRefinery cache path with the recipe-side fix ("re-materialize the DataRefinery recipe at the bound overlays/seed").
 - Bound instance is partial (was loaded from a `FAILED` temp directory) -> hard error refusing to consume.
 - Bound instance's manifest is missing required fields (`plugin`, `plugin_version`, `recipe_hash`, `record_counts`, `seed`) -> hard error per vendor-dependency-spec § "Failure modes ModelFoundry SHOULD detect" (stale fitted statistics, missing required fields, schema-version mismatch, aggressive variant sidecar missing, plugin missing).
 - Bound instance declares an aggressive `Augmentations` op whose sidecar PNG (`image_path`) is missing -> hard error refusing to consume per vendor-dependency-spec.
@@ -484,19 +484,19 @@ Render standard or bespoke views over the materialized model and metrics.
 - `optimization_history` rendered with no `Optimization` stage -> renders an empty-placeholder PNG (or skipped per recipe); the manifest records the placeholder.
 - `predictions_grid` declared on a split where the DataRefinery instance does not expose per-record images -> renders without thumbnails (labels-only table).
 
-### FR-14: Variants
+### FR-14: Overlays
 
 Allow a recipe to declare named overlays selected at materialize time.
 
 **Behavior:**
-1. The `variants` block declares a mapping of `name -> partial recipe overlay`.
-2. `--variant <name>` (CLI) or `variant=<name>` (library) selects an overlay.
+1. The `overlays` block declares a mapping of `name -> partial recipe overlay`.
+2. `--overlay <name>` (CLI, repeatable) or `overlays=[<name>, ...]` (library) selects an ordered list of overlays.
 3. The overlay is deep-merged onto the base recipe before canonicalization; the merged form is the cache-identity input.
-4. Different variants produce different ModelInstances by construction.
+4. Different overlay selections produce different ModelInstances by construction.
 
 **Edge Cases:**
-- Variant references a section or key not declared in the base recipe -> caught by FR-2 check 16.
-- Multiple variants selected (CLI passed twice) -> last-write-wins behavior is forbidden; the CLI rejects multiple `--variant` flags.
+- An overlay references a section or key not declared in the base recipe -> caught by FR-2 check 16.
+- Multiple overlays selected via repeated `--overlay` flags -> applied in order with last-writer-wins per section (the family `overlays` standard).
 
 ### FR-15: Output Expectations
 
@@ -521,7 +521,7 @@ Summarize a ModelInstance's lifecycle, configuration, and cache state.
 **Behavior:**
 1. Resolve a cache path (explicit, or computed from the recipe).
 2. Load the manifest.
-3. Return a `StatusReport` (library) / render a `rich` table (CLI) with: plugin, plugin version, schema version, recipe hash, bound data instance, seed, variant, cache hit/miss, materialize timestamp, elapsed seconds, primary metric, OutputExpectations status (passed/failed counts).
+3. Return a `StatusReport` (library) / render a `rich` table (CLI) with: plugin, plugin version, schema version, recipe hash, bound data instance, seed, overlays, cache hit/miss, materialize timestamp, elapsed seconds, primary metric, OutputExpectations status (passed/failed counts).
 
 **Edge Cases:**
 - Cache path does not exist -> report "not materialized" with the expected path.
@@ -637,7 +637,7 @@ Expose the materialized ModelInstance through a substrate-neutral, notebook-shap
 Persist the trained model so `ModelInstance.load(path).predict(X)` rebuilds the model from disk alone without any external config object.
 
 **Behavior:**
-1. At the end of Training, the plugin serializes the canonical `Architecture` block (post-variant-overlay, post-Optimization merge) as JSON to `model/architecture.json`.
+1. At the end of Training, the plugin serializes the canonical `Architecture` block (post-overlay, post-Optimization merge) as JSON to `model/architecture.json`.
 2. The plugin writes weights in its preferred format to `model/weights/`:
    - PyTorch plugin: `state_dict.pt`.
    - sklearn stub: `model.joblib`.
@@ -690,7 +690,7 @@ Codify the determinism guarantee and the conditions under which it holds.
    - Dropout RNG (frame-stamped from master seed).
    - Augmentation realization (consumes DataRefinery's `<AugmentationOp.name>_seed` per-record stamps from the vendor-dependency-spec for aggressive-mode variants; the plugin's framework-side augmentation seed for lazy-mode augmentations declared in the DataRefinery recipe).
    - Optuna sampler (sampler seed derived from master seed; sample sequence is deterministic).
-2. Same `(recipe, data_instance, seed, variant)` tuple produces a byte-identical `ModelInstance` directory excluding `manifest.created_at` and `manifest.elapsed_seconds`.
+2. Same `(recipe, data_instance, seed, overlays)` tuple produces a byte-identical `ModelInstance` directory excluding `manifest.created_at` and `manifest.elapsed_seconds`.
 3. Determinism caveats per QR-3 apply: the plugin's deterministic-algorithm mode is on by default; `n_jobs=1` for Optimization; AMP off by default. Recipes that enable AMP relax to metric-equivalent within a documented tolerance.
 
 **Edge Cases:**
@@ -745,7 +745,7 @@ Generate a human- and machine-readable summary of the materialized model as a re
 | `--log-level` | `MODELFOUNDRY_LOG_LEVEL` | `INFO` | Operational log level |
 | `--log-target` | `MODELFOUNDRY_LOG_TARGET` | `stderr` | JSON-lines log sink (file path or `stderr` / `stdout`) |
 | `--plugin-path` | `MODELFOUNDRY_PLUGIN_PATH` | (empty) | Extra plugin discovery paths |
-| `--variant` | (none) | (none) | Variant overlay name |
+| `--overlay` | (none) | (none) | Overlay name (repeatable; applied in order) |
 | `--seed` | (none) | (recipe) | Ad-hoc seed override; changes cache identity |
 | `--overwrite` | (none) | `false` | Re-materialize even on cache hit |
 
@@ -755,8 +755,8 @@ Generate a human- and machine-readable summary of the materialized model as a re
 
 ## Testing Requirements
 
-- **TR-1: Recipe loader unit tests.** Coverage on schema-version gating, plugin resolution, variant overlay merge, canonicalization byte-stability.
-- **TR-2: Cache identity unit tests.** Cosmetic edits (whitespace, key reorder, comment changes) produce identical hashes; semantic edits (value change, op add/remove, variant switch) produce different hashes; seed change perturbs the hash; bound DataRefinery instance change perturbs the `data_instance_hash16` but does NOT perturb the consuming recipe's hash (CR-15 loose-coupling check).
+- **TR-1: Recipe loader unit tests.** Coverage on schema-version gating, plugin resolution, overlay merge, canonicalization byte-stability.
+- **TR-2: Cache identity unit tests.** Cosmetic edits (whitespace, key reorder, comment changes) produce identical hashes; semantic edits (value change, op add/remove, overlay switch) produce different hashes; seed change perturbs the hash; bound DataRefinery instance change perturbs the `data_instance_hash16` but does NOT perturb the consuming recipe's hash (CR-15 loose-coupling check).
 - **TR-3: Validate unit tests.** Every static logical check (FR-2 checks 1..22) has a dedicated test that asserts both the rejection and the human-readable error message.
 - **TR-4: Atomic promote integration tests.** Forced failure at every materialize stage leaves a `FAILED`-marked temp directory; the cache never sees partials; `--overwrite` correctly trashes the existing instance before promoting.
 - **TR-5: Determinism integration tests.** Run a fixture recipe twice with the PyTorch plugin and assert byte-identical instance contents (excluding wall-clock fields). One worker, two workers, four workers — all three configurations produce identical bytes (mirrors DataRefinery's H.o spike pattern).
@@ -803,7 +803,7 @@ The project is "done" for the pre-production release when **all** of the followi
 3. **AC-3: PyTorch plugin ships end-to-end.** All pre-production PyTorch-plugin Architecture / Loss / Optimizer / Schedule / Training / Optimization / Evaluation / Visualization ops are implemented and exercised by integration tests against the bound DataRefinery image-classification plugin.
 4. **AC-4: sklearn plugin stub ships.** The sklearn plugin registers the full `OperationSpec` set and the shared metric implementations; `materialize()` against a `plugin: sklearn` recipe raises the pre-production redirect message; the stub validates the plugin interface is honest.
 5. **AC-5: Round-trip guarantee.** `ModelInstance.load(path).predict(X)` succeeds from disk alone without any external config object (TR-6).
-6. **AC-6: Determinism guarantee.** Same `(recipe, data_instance, seed, variant)` tuple produces byte-identical instance contents excluding wall-clock fields, under QR-3 plugin-declared caveats (TR-5).
+6. **AC-6: Determinism guarantee.** Same `(recipe, data_instance, seed, overlays)` tuple produces byte-identical instance contents excluding wall-clock fields, under QR-3 plugin-declared caveats (TR-5).
 7. **AC-7: Loose-coupling guarantee.** Re-materializing DataRefinery upstream does not invalidate or alter the cached ModelFoundry instance (TR-7).
 8. **AC-8: CLI is usable.** `init`, `validate`, `check`, `status`, `materialize`, `report`, `inspect`, `clean` all run successfully against the CIFAR-10 fixture, with concise `rich` stdout output and structured JSON-lines operational logs on the configured `--log-target`.
 9. **AC-9: Notebook-substrate-neutral.** The `ModelInstance` accessor surface returns identical values when consumed from Jupyter, Marimo, IPython, and a plain `.py` script (TR-8 sanity check).
