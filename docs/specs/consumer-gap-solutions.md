@@ -460,15 +460,31 @@ longer just a brief proposal).
 1. **Float-array path** — both *solutions docs* commit to `npy_per_record` and DR
    demoted its PNG option 3 to "do not build." Good — but until that lands in the
    *vendor-spec* (above), it's intent, not contract.
-2. **`feature_path` shape-binding surface → vendor-dependency-spec discrepancy.** DR
-   flags the future `feature_path` field as needing an MF `vendor-dependency-spec.md`
-   update. **The two repos disagree on whether that spec exists:** this MF repo has
-   only DR's vendored copy ([`datarefinery/vendor-dependency-spec.md`](datarefinery/vendor-dependency-spec.md));
-   MF's *own* consumer spec is forward-declared at a `docs/specs/modelfoundry/…`
-   path with no directory here, while DR reports a ~68 KB copy on its side. Settle
-   which copy is authoritative (+ the `docs/specs/` vs `docs/specs/modelfoundry/`
-   layout) before Gap-3 work edits it. MF consumes read-only (loose-coupling
-   invariants hold — MF never re-hashes DR's instance).
+2. **`feature_path` shape-binding surface → vendor-dependency-spec
+   (authority RESOLVED 2026-06-23; one nicety left).** The DR vendor-spec's new
+   `DR:`/`MF:` Revision-Log path convention + its link evidence resolve the earlier
+   "does the spec exist?" confusion — it was a **directory-convention mix-up**, not a
+   missing doc. The convention: each repo files DR-pushed/shared docs under a subdir
+   named for the *other* tool.
+   - **The DR↔MF shared contract** (`vendor-dependency-spec.md`) — authored
+     **canonically in DataRefinery** (`DR:docs/specs/modelfoundry/…`, the ~68 KB copy)
+     and vendored into MF at **`MF:docs/specs/datarefinery/vendor-dependency-spec.md`**
+     ([the mirror](datarefinery/vendor-dependency-spec.md)). Proof it's DR-canonical:
+     this MF copy's relative links are DR-relative (they resolve to *swapped* targets
+     in the MF tree). It **exists** — there was never a missing shared contract.
+   - **MF's own downstream contract** (how *future* consumers — modelmetrics/modelmachine
+     — bind against MF) is a **separate, not-yet-authored** doc forward-declared in
+     `MF:docs/specs/stories.md` Future. (Its eventual home should follow the same
+     "subdir named for the other tool" convention; the literal `docs/specs/modelfoundry/`
+     path in that forward-declaration is a maintainer call, not this seam's concern.)
+
+   So there is no real "missing contract." **Remaining nicety (not blocking):** no
+   written rule that the DR↔MF contract is *edited in DR and vendored into MF* — so
+   when Gap-3 `plan_features` needs a change, MF **proposes it to DR** (attributed
+   `MF:` in the Revision Log) to absorb and re-vendor, rather than editing the MF
+   mirror in isolation (which would drift). The MF mirror's relative links are also
+   DR-relative (broken in the MF tree) — cosmetic. MF consumes the instance
+   read-only regardless (loose-coupling invariants hold — MF never re-hashes it).
 3. **Versioning-scheme divergence (governance).** The vendor-spec states DR uses
    **per-segment versions with *no* global umbrella counter** (line 404) and asserts
    "MF adopts the horizontal mechanism wholesale." But MF's segmented identity
