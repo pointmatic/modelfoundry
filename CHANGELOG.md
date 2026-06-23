@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.1] - 2026-06-22
+
+Patch — **DR→MF persisted-image hand-off fix** (Story I.k; consumer gap-analysis Gap 1).
+DataRefinery's `png_per_record` sink rewrites each record's `path` to an instance-relative string
+(`images/<split>/<Class>/<id>.png`), but the PyTorch loader resolved a bare `path` relative to the
+**current working directory**. MF `validate` and DR `materialize` both passed; training then failed
+mid-run with `FileNotFoundError` — a silent-failure class. The loader now anchors an instance-relative
+bare `path` to the **instance root** (absolute paths and `image_path` sidecars are unchanged), and a
+bind-time gate refuses an instance-relative `path` whose file is absent so the error surfaces before a
+(potentially long) training run rather than mid-run.
+
+**Not cache-invalidating** — path *resolution* only; recipe hash, canonical bytes, and materialized
+output bytes are unchanged for any run that already succeeded. No re-materialize required.
+
 ## [0.17.0] - 2026-06-22
 
 Minor — **DataRefinery v0.23.0 adoption + the family `overlays` standard** (a single phase-bundled

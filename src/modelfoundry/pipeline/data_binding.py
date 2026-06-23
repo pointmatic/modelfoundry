@@ -121,7 +121,7 @@ def resolve_data_instance(
     _refuse_partial(instance_path)
     dr_instance = _load_via_library(instance_path)
     _gate_dr_schema_version(dr_instance.recipe, recipe_path)
-    _verify_aggressive_sidecars(instance_path)
+    _verify_record_images_resolvable(instance_path)
 
     return DataRefineryInstance(
         path=instance_path,
@@ -208,7 +208,17 @@ def _load_via_library(instance_path: Path) -> Any:
     return instance
 
 
-def _verify_aggressive_sidecars(instance_path: Path) -> None:
+def _verify_record_images_resolvable(instance_path: Path) -> None:
+    """Fail fast at bind time if a record's image can't be resolved from the instance.
+
+    Mirrors the loader's resolution precedence (`plugins/pytorch/data.py::_decode`):
+    an `image_path` sidecar resolves under `dataset/`; a bare `path` is either an
+    absolute source path (normal flow, used as-is) or an instance-relative string
+    written by DataRefinery's `png_per_record` sink. Catching an unresolvable image
+    here surfaces the error before a (potentially long) training run rather than
+    mid-run — the silent-failure class behind Gap 1 (both `validate`s pass, training
+    dies pulling pixels). Absolute bare paths are left to the loader (external source).
+    """
     dataset_dir = instance_path / "dataset"
     if not dataset_dir.is_dir():
         return
@@ -218,15 +228,29 @@ def _verify_aggressive_sidecars(instance_path: Path) -> None:
                 continue
             record = json.loads(line)
             relative = record.get("image_path")
-            if not relative:
+            if relative:
+                sidecar = dataset_dir / str(relative)
+                if not sidecar.is_file():
+                    raise DataBindingError(
+                        f"aggressive variant sidecar missing: {sidecar} "
+                        f"(referenced by {jsonl_path.name})",
+                        detail={
+                            "sidecar": str(sidecar),
+                            "record_id": record.get("record_id"),
+                        },
+                    )
                 continue
-            sidecar = dataset_dir / relative
-            if not sidecar.is_file():
+            bare = record.get("path")
+            if bare is None:
+                continue
+            bare_path = Path(str(bare))
+            if bare_path.is_absolute():
+                continue  # external source path (normal flow); loader uses it as-is
+            target = instance_path / bare_path
+            if not target.is_file():
                 raise DataBindingError(
-                    f"aggressive variant sidecar missing: {sidecar} "
-                    f"(referenced by {jsonl_path.name})",
-                    detail={
-                        "sidecar": str(sidecar),
-                        "record_id": record.get("record_id"),
-                    },
+                    f"record image not resolvable from instance: {target} "
+                    f"(instance-relative `path` in {jsonl_path.name}; expected under "
+                    f"{instance_path})",
+                    detail={"path": str(target), "record_id": record.get("record_id")},
                 )

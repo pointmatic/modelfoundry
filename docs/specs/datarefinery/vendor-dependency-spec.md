@@ -11,6 +11,8 @@
 > **Round 3 additions 2026-06-12 (Story J.k).** Absorbs four documentation-only clarifications surfaced by the [J.d MF integration spike](../phase-j-mf-integration-friction.md) (no code or shape change): **F8** — the consumer-side runtime deps a downstream tool needs beyond stdlib (`numpy` / `Pillow` / `pyarrow`), added to § Overview; **F6** — every top-level recipe section persists in `recipe.json` as its model default whether declared or not, added to § Recipe-side contract; **F3** — the non-aggressive `path` field is host-bound, with the two portability workarounds (`Sinks` rewrite / ship the source), added to § Source-resolution path; **F5** — `recipe.schema_version` (`2`) and `manifest.schema_version` (`1`) are independent counters, disambiguated in § Schema-version coordination policy. Each absorption site carries an inline "*(Fn, pinned in Round 3)*" provenance marker. *(F4 — the disk-loader vs. library-records Featurization asymmetry — lands in the NbF spec, which owns the library-records path.)*
 >
 > **2026-06-13 (Story J.l).** Added § "Resolving a materialized instance": names `datarefinery.resolve_instance(...)` / `DataRefinery.status()` as the **one** blessed way to locate an instance, documents the `StatusReport` shape + hit/miss/corrupt contract, and **forbids** consumers recomputing the cache key / instance path themselves (a hand-rolled key silently breaks after any canonical-bytes change). Closes the gap that led a consumer to reimplement the instance-ID math. Additive library facade (`resolve_instance` composes `status()`); no recipe/manifest/on-disk shape change, no `schema_version` bump.
+>
+> **Phase J audio-seam additions 2026-06-22 (Stories J.n.8, J.q, J.s, J.t, J.u).** The `audio_classification` cross-repo surfaces were pinned across five same-day commits; each additive (pre-prod doc-evolution, no `schema_version` bump). **J.n.8** — § Segment-scoped recipe shape + per-segment versioning (J.n.7): recipe model partitioned into independently-versioned identity segments (`core` / `plugin:<name>` / `overlays` / `extensions`). **J.q** — new § Audio window records: the `window` Generation op (`replace_input_records: true`) replaces each clip with fixed-length window records carrying `source_record_id` (parent clip) + `window_index`; `__w####` vs FR-11 `__v###` disambiguation. **J.s** — in-pipeline `feature` (log-mel spectrogram) field, `(n_mels, n_frames)` librosa-native orientation, NOT serialized to JSONL. **J.t** — `audio_normalize` fit-on-train Featurization + new § `audio_normalize` statistics: per-mel-bin `mean`/`std` under `fitted_statistics/<op_id>/`, same parquet shape / zero-variance guard / `stats_from_instance` parity as image `normalize`, axis = mel (axis 0). **J.u** — § Aggregation contract (R7): `source_record_id` is DR's clip↔window grouping key (DR owns the key, consumer owns the aggregation math; no DR aggregation op) + dangling-grouping-key failure mode.
 
 ## Overview
 
@@ -26,7 +28,22 @@ Out of scope here: ModelFoundry's training-time APIs (those live in ModelFoundry
 
 A recipe is a YAML document validated by `Recipe.model_validate(...)` in `src/datarefinery/recipe/models.py`. The full schema is documented in `tech-spec.md` § Data Models; this section calls out the augmentation surface (Story H.p–H.r.2) that ModelFoundry consumes directly.
 
-**Every top-level recipe section persists in `recipe.json`, declared or not.** The persisted `recipe.json` is the canonical `model_dump(mode="json")` of the full `Recipe` model, so **all** top-level sections are present whether or not the author wrote them — an undeclared section materializes as its model default: `[]` for list sections (`InputContracts`, `Filters`, `Generation`, `Transformations`, `Augmentations`, `Featurizations`, `OutputExpectations`, `Visualizations`, `Sinks`), `null` for optional object sections (`SampleData`), and the section's own default object where one exists. Consumers SHOULD treat an empty-list / `null` section as "not declared" rather than inferring a special meaning. This is the same mechanism that makes every field default part of the cache identity — see [`project-essentials.md`](../project-essentials.md) § "Cache identity is the reproducibility contract". *(F6, pinned in Round 3 — see header.)*
+**Every top-level recipe section persists in `recipe.json`, declared or not.** The persisted `recipe.json` is the canonical `model_dump(mode="json")` of the full `Recipe` model, so **all** top-level sections are present whether or not the author wrote them — an undeclared section materializes as its model default: `[]` for list sections (`InputContracts`, `Filters`, `Generation`, `Transformations`, `Augmentations`, `Featurizations`, `OutputExpectations`, `Visualizations`, `Sinks`), `null` for optional object sections (`SampleData`), and the section's own default object where one exists. Consumers SHOULD treat an empty-list / `null` section as "not declared" rather than inferring a special meaning. *(F6, pinned in Round 3 — see header.)*
+
+### Segment-scoped recipe shape (Phase J Recipe Architecture bundle, v0.22.0)
+
+The recipe stays **flat on disk** — the v0.22.0 bundle did **not** reshape `recipe.json` (Option 1: segmentation is an *internal* partition that drives hashing, per-segment versioning, and validation dispatch, not author-facing nesting). Consumers binding to recipe-model fields need no structural change. But the bundle binds every field to exactly one of **four identity segments**, and that mapping is now a cross-repo contract surface (it governs which changes invalidate which caches — see § Cache-identity contract):
+
+| Segment | Fields | Notes |
+|---|---|---|
+| `core` | `schema_version`, `plugin`, `seed`, `Input`, `Output`, `Labels`, `SampleData`, `InputContracts`, `Splits`, `OutputExpectations` | The structural sections + identity/version stamps. |
+| `plugin` | `Filters`, `Generation`, `Transformations`, `Augmentations`, `Featurizations`, `Visualizations`, `Sinks` | The op-list sections whose op vocabulary the plugin defines. Versioned per plugin family (`plugin:image` / `plugin:audio`) so an audio-surface change never moves an image recipe's identity (Finding A). |
+| `overlays` | `overlays` | Overlay *definitions*; always stripped to `{}` before hashing, so they never enter identity (see § Cache-identity contract). |
+| `extensions` | `extensions` | The J.n.6 experimental-parameter namespace (below). |
+
+**`extensions` namespace (Story J.n.6).** A new optional top-level `extensions: {<namespace>: {<key>: <value>}}` block carries experimental, plugin-consumed parameters; pydantic's `extra="forbid"` is relaxed *only inside* a namespace. It enters cache identity only when non-empty (an empty/absent block hashes to the empty-segment marker — additive, no invalidation). Plugins declare which keys they consume; DataRefinery's validator refuses any undeclared namespace/key. Extensions are **declarative parameters only** — they do not activate code. ModelFoundry consumers generally ignore `extensions` unless a shared plugin defines keys MF also reads.
+
+**No implicit defaults (Story J.n.4).** Op `ParameterSpec`s no longer carry code-supplied defaults: a parameter is either `required` (the author/scaffolder writes a value) or a **mode-selecting optional** (absence is itself the documented behavior, e.g. `normalize` with no `mean`/`std` ⇒ fit-from-train). The canonical `recipe.json` therefore contains *exactly what the author wrote* for op params — there is no longer a "code-supplied default silently in the bytes" layer for op parameters. Recommended starting values live in the scaffolder (`Plugin.recommended_params`), emitted into recipe text. (Structural section defaults — empty-list sections, `SampleData: null` — are unchanged; the no-defaults rule is about op `params`.)
 
 ### `Augmentations` section
 
@@ -78,7 +95,7 @@ A materialized instance lives under `<cache-root>/instances/<recipe-hash16>/<inp
 ```text
 <instance>/
 ├── manifest.json
-├── recipe.json                  # canonical v2-shape recipe (loader-migrated if authored as v1)
+├── recipe.json                  # canonical v3-shape recipe (loader-migrated from v1/v2)
 ├── dataset/
 │   ├── train.jsonl              # one record per line
 │   ├── val.jsonl
@@ -93,7 +110,7 @@ A materialized instance lives under `<cache-root>/instances/<recipe-hash16>/<inp
 └── report/                      # see § Report subsections
 ```
 
-`recipe.json` is the canonical-form recipe — the same bytes hashed for the cache key (see § Cache-identity contract). DataRefinery's loader applies any v1→v2 migration before persisting, so consumers reading `recipe.json` always see the v2-shape regardless of the recipe's authored version.
+`recipe.json` is the canonical-form recipe — the full `model_dump` of the model whose segments are hashed for the cache key (see § Cache-identity contract). DataRefinery's loader applies any v1→v2→v3 migration before persisting, so consumers reading `recipe.json` always see the latest (v3) shape regardless of the recipe's authored version. The v3 shape is field-identical to v2 (the v2→v3 bootstrap stamps the version only); v3's substantive change is the segmented `recipe_hash`.
 
 **The original authored YAML is NOT persisted in the instance.** The instance holds only the canonical JSON form (for reproducibility and cache identity). The authored YAML is the user's source artifact and lives in the user's repo, referenced by path. Consumers that need to display "what the user wrote" must retain the source path separately — pretty-printing `recipe.json` gives "what was materialized," which is post-migration and key-sorted and may diverge from the YAML the user actually authored.
 
@@ -138,6 +155,29 @@ A recipe declaring `expansion=N` aggressive op against the train split produces 
 
 Variant `record_id`s are derived as `f"{source_record_id}__v{variant_index:03d}"` — unique, zero-padded for lex-order = numeric-order under standard sort. The `source_record_id` is the loader-stamped id verbatim, so an ImageFolder source contributes `/`-separated ids (`<source>/<class>/<file>`) and the variant id inherits them (e.g. `imgs/c0/img_0001.png__v000`). DataRefinery does **not** sanitize `record_id`; the sidecar path-writer creates the nested directories the separators imply (Story J.h).
 
+#### Audio window records (Story J.q)
+
+`source_record_id` is now used by **two** record-multiplying mechanisms — note the distinction when binding:
+
+| Field | FR-11 aggressive image variants | Audio windowing (`window` Generation op) |
+|---|---|---|
+| `record_id` | `f"{source_record_id}__v{variant_index:03d}"` | `f"{source_record_id}__w{window_index:04d}"` |
+| index field | `variant_index: int` (`[0, expansion)`) | `window_index: int` (`[0, n_windows)`) |
+| `source_record_id` | the original image's id | the original **clip's** id |
+
+The `audio_classification` plugin's `window` op runs at the **Generation** stage with `replace_input_records: true`, so each decoded clip is replaced by its fixed-length window records — `manifest.record_counts` reflects the post-windowing count, not the clip count (exactly as aggressive augmentation already does). Each window record carries `source_record_id` (the parent clip) and `window_index`; the trailing remainder is zero-padded or dropped per the recipe's `remainder` param. The `__w` vs `__v` suffix disambiguates the two; a record is never both (no aggressive audio augmentation in v1). Pre-prod doc-evolution addition — no `schema_version` bump.
+
+**Aggregation contract (R7 — DR owns the key, the consumer owns the math).** `source_record_id` is DataRefinery's documented **clip↔window grouping key** for test-time window aggregation. The producer guarantee: every window record's `source_record_id` is the **verbatim `record_id` of the clip it was cut from** — every window of a clip shares one `source_record_id`, and (by the clip-level split discipline, R6/Story J.r) every window of a clip lands in exactly one split, so no clip's group straddles splits. The consumer obligation: group window-level outputs by `source_record_id` and apply its own aggregation policy (mean / max / logit-average / majority vote, etc.) to produce a clip-level result. **DataRefinery emits no aggregation policy and ships no aggregation op** — aggregation is purely a consumer concern, and `window_index` is available if the consumer needs window order within a clip. A window whose `source_record_id` resolves to no clip in the instance is a corruption signal (see § Failure modes ModelFoundry SHOULD detect).
+
+**Audio spectral features `mel` / `feature` (Stories J.s + J.t).** Audio featurization is a two-op chain at the **Featurizations** stage (run in recipe-declared order):
+
+- `log_mel_spectrogram` (no fit, deterministic) writes a **raw** log-mel spectrogram `np.ndarray` of shape `(n_mels, n_frames)` in **librosa-native orientation** (mel bins on axis 0, time frames on axis 1). Convention: `output_field: mel`. One feature per input window; the stage does not change `record_counts`.
+- `audio_normalize` (**fit-on-train**) reads `mel` and writes the **normalized** model-input feature. Convention: `output_field: feature`.
+
+`audio_normalize` is a fit-on-train **Featurization**, *not* a Transformation: normalizing a derived feature must run after the feature exists, and DataRefinery runs `Transformations` before `Featurizations` (see the DataRefinery `tech-spec.md` § `pipeline.runner` stage-order rationale). Its per-mel-bin statistics **are persisted** under `fitted_statistics/<op_id>/` (see § `audio_normalize` statistics).
+
+**Like `sample_array`, both `mel` and `feature` are array-valued in-pipeline representations and are NOT serialized into the dataset `<split>.jsonl`** (the JSONL writer drops non-JSON-native fields). Consumers do not read the feature arrays from the JSONL in v1; what crosses the boundary is the persisted `audio_normalize` statistics. The mel-axis orientation `(n_mels, n_frames)` is the cross-repo contract for any consumer that re-derives or re-normalizes features. Pre-prod doc-evolution addition — no `schema_version` bump.
+
 ### Sidecar PNG encoding
 
 Pillow `Image.save(path, format="PNG", optimize=False)`. Defaults verbatim — no quality/compression knobs. Determinism check: two runs of the same recipe + seed + inputs produce byte-identical sidecar files (validated by `tests/integration/test_runner.py` :: `test_aggressive_materialize_is_deterministic_across_runs`).
@@ -148,13 +188,13 @@ The `manifest.json` at the instance root is the authoritative metadata document.
 
 | Field                  | Type                       | Meaning |
 |------------------------|----------------------------|---------|
-| `schema_version`       | `int`                      | Manifest schema version; separate from recipe `schema_version`. Currently `1`. |
+| `schema_version`       | `int`                      | Manifest schema version; separate from recipe `schema_version`. Currently `2` (v2, Story J.n.5, renamed `variant` → `overlays`). |
 | `plugin`               | `str`                      | Plugin name (e.g., `"image_classification"`). |
 | `plugin_version`       | `str`                      | Plugin schema version, as string. |
 | `recipe_hash`          | `str` (64-hex)             | Canonical recipe bytes' SHA-256 (full digest). |
 | `input_hash`           | `str` (64-hex)             | Per-source input content hash. |
 | `seed`                 | `int`                      | The seed used by this materialization (CLI `--seed` overrides the recipe's `seed`). |
-| `variant`              | `str | null`               | Selected variant name (FR-14), or `null`. |
+| `overlays`             | `list[str]`                | Ordered list of applied overlay names (FR-14); empty `[]` when none selected. **Renamed from `variant: str \| null` in manifest v2 (Story J.n.5)** — overlays are now a repeatable, ordered selection. |
 | `record_counts`        | `dict[str, int]`           | Per-split post-pipeline record count. **For aggressive splits, this is the post-augmentation count** (i.e. includes variant multiplication). |
 | `created_at`           | `datetime` (UTC ISO 8601)  | Wall-clock timestamp of the run. |
 | `elapsed_seconds`      | `float`                    | Total run wall time. |
@@ -228,7 +268,7 @@ Shipped Phase J Story J.f, v0.20.0. The field enumerates the canonical class set
 
 ## Fitted statistics ModelFoundry binds against
 
-Fit-on-train Transformations (v1: `normalize`, `mean_subtract`) persist the statistics they fit on the train split under `fitted_statistics/<op_id>/`, where `<op_id>` is the op's `name` in the recipe's `Transformations` section. This is a **downstream binding surface**: a training consumer reads these statistics to apply the same transform its training data was prepared with, so that train/inference parity holds. It is distinct from the recipe-to-recipe `stats_from_instance` import (§ Recipe-side contract) — that mechanism is for *other DataRefinery recipes*; this section is for *downstream training consumers* such as ModelFoundry.
+Fit-on-train operations persist the statistics they fit on the train split under `fitted_statistics/<op_id>/`, where `<op_id>` is the op's `name` in its recipe section. Both fit-on-train **Transformations** (image `normalize`, `mean_subtract`) and fit-on-train **Featurizations** (image `categorical_encode` vocabularies; audio `audio_normalize` per-mel-bin stats) use the same `fitted_statistics/<op_id>/` mechanism. This is a **downstream binding surface**: a training consumer reads these statistics to apply the same transform its training data was prepared with, so that train/inference parity holds. It is distinct from the recipe-to-recipe `stats_from_instance` import (§ Recipe-side contract) — that mechanism is for *other DataRefinery recipes*; this section is for *downstream training consumers* such as ModelFoundry.
 
 ### On-disk layout
 
@@ -259,6 +299,17 @@ For the `normalize` op the fitted statistics are **per-channel vectors**:
 ### `mean_subtract` statistics
 
 For consumers that may encounter the related fit-on-train op `mean_subtract`: the `<op_id>/` directory contains **only** a `mean.parquet` vector (no `std.parquet`). The apply behavior is `x - mean`. A consumer that finds `mean_subtract` in the recipe should not look for `std`.
+
+### `audio_normalize` statistics (Story J.t)
+
+The `audio_classification` plugin's fit-on-train `audio_normalize` op (a **Featurization**, not a Transformation — see § Audio spectral features) persists the same `mean` / `std` vector pair as image `normalize`, with the **same parquet shape** (single `value` column, one row per element, axis-0 order), the **same zero-variance guard** (`std == 0 → 1.0` at apply, persisted `std` unmodified), and the **same `stats_from_instance` import** support. The only difference is the **statistics axis**:
+
+| Op | Vector length | Axis the stat is per | Apply broadcast |
+|---|---|---|---|
+| image `normalize` | `C` (RGB channels) | last axis of `(H, W, C)` | over `H, W` |
+| `audio_normalize` | `n_mels` | **mel axis (axis 0)** of `(n_mels, n_frames)` | over time frames |
+
+So `mean`/`std` each have **`n_mels` rows** (not `C`), and a consumer re-applying them standardizes each mel bin across its time frames: `(feature - mean[:, None]) / std[:, None]`. The vectors correspond to the `mel` feature (`log_mel_spectrogram` output); the normalized result is the `feature` field. There is no channel-order concern (audio is mono in v1); the only alignment requirement is that the consumer's feature is in librosa-native `(n_mels, n_frames)` orientation.
 
 ### Read path
 
@@ -333,7 +384,7 @@ The `report/` directory holds the human-readable summary:
 
 The cache key (instance directory path) is `SHA-256(canonical_recipe_bytes) ⊕ SHA-256(raw_input_bytes) ⊕ seed`, truncated to 16 hex chars per component for the path (`<recipe-hash16>/<input-hash16>/<seed>`). The **full** digests live in `manifest.json` for audit.
 
-The canonical bytes are produced by `pydantic_model.model_dump(mode="json")` followed by `json.dumps(sort_keys=True, separators=(",", ":"), ensure_ascii=False)`. **Every pydantic field default participates in canonical bytes** — adding a field with a default value, changing a default value, or reordering a field all perturb the canonical hash for recipes that overlap the change.
+**`recipe_hash` is the *segmented* identity hash as of schema v3 (Story J.n.3).** It is no longer the flat `sha256(model_dump → json.dumps)`. The recipe is partitioned into four identity segments (`core`/`plugin`/`overlays`/`extensions`); each segment's sorted-compact-JSON is SHA-256'd, the digests are joined in fixed order (`b"\x1f".join`), and `recipe_hash = SHA-256(join)`. Per-segment digests are independent — a change to one segment cannot move another's digest (scoped invalidation). Every pydantic field default still participates *within its segment*; the takeaway for consumers is unchanged and strengthened: **`recipe_hash` is DataRefinery's to compute — never replicate it.** (The flat `to_canonical_bytes` still exists as the full-recipe dump but no longer defines identity.)
 
 Bumping `schema_version` (in `src/datarefinery/recipe/loader.py`'s `SUPPORTED_SCHEMA_VERSIONS`) is the deliberate invalidation lever. Non-bumped DataRefinery releases preserve cache identity. Releases that DO invalidate carry a prominent CHANGELOG callout (see v0.15.0 for the H.p–H.r.2 example: adding `AugmentationOp.materialization` and `expansion` defaults perturbed canonical bytes for any recipe with `Augmentations`).
 
@@ -342,6 +393,23 @@ Bumping `schema_version` (in `src/datarefinery/recipe/loader.py`'s `SUPPORTED_SC
 - **`FilterOp`** (Story I.x.1 / G15): v1 nested `predicate: {op, ...rest, seed?}`; v2 lifts to top-level `{op, params, seed?}` (matches every other section). The migration is one-way; ModelFoundry should bind against the v2 shape and rely on the loader to migrate v1 recipes on read.
 - **`GenerationOp`** (Story I.x.2 / G12): v1 left `op` implicit (the recipe's `name` doubled as the op lookup key), called the splits field `applies_at`, and required `output_schema` to be an explicit `dict[str, FieldSpec]`. v2 has explicit `op: str` at top level, renames `applies_at` → `splits`, and widens `output_schema` to accept the literal `"matches_input"` shorthand (resolved at materialize time to `Output.record_schema` plus declared tag fields). The migration handles all three reshapes and the documented v1 workaround pattern of stashing `op:` inside `params:`; ModelFoundry should bind against the v2 names and treat `output_schema: "matches_input"` as a possible value.
 - **Assertion `kind` naming** (Story I.x.3 / G16a): three v1 bare-verb names rename to predicate-sentence form — `dtype` → `dtype_equals`, `range` → `value_range`, `record_count` → `record_count_in_range`. The mapping applies to both `InputContracts[*].assertion` and `OutputExpectations[*].assertion`. `required_field` and `distributional` are unchanged. v1 names are removed (not aliased) post-migration; ModelFoundry consumers reading the cached `recipe.json` will see the v2 names exclusively. The seven additional v2 kinds added in Story I.o (`split_record_counts`, `per_class_count_per_split`, `count_by_field`, `count_by_fields`, `shape_equals`, `value_in_set`, `per_class_count_equals`) were already predicate-sentence and are unaffected.
+
+**Schema v2 → v3 (Phase J Recipe Architecture bundle, v0.22.0 — Story J.n.3).** The bump is a **canonical-form algorithm change**: identity moved to the segmented hash above. It is a **one-time pre-1.0 cache invalidation** — every existing instance re-materializes once. Two consumer-relevant points:
+
+- **The recipe shape on disk is UNCHANGED.** Segmentation is an internal partition (Option 1), not an author-facing reshape — `recipe.json` stays flat with the same top-level sections and field names. Consumers binding to recipe-model fields need **no** changes for v3; the loader migrates v1/v2 recipes to v3 by stamping `schema_version: 3` (no field redistribution). Only `recipe_hash` (and therefore the instance path) changes — and consumers must not bind to that directly anyway (use the resolver).
+- **`AudioSource` discriminated-union member (forward-looking).** `InputSource` is now the open base of a narrow union; an audio source carries `target_sample_rate: int` (selected presence-based; `type` stays a free `str`). Image sources are unaffected and structurally cannot carry audio-only fields. The audio plugin proper lands in a later Subphase-J-1 story; consumers binding only to image recipes see no change.
+
+### Per-segment versioning + migration registry (Story J.n.7)
+
+The segmented identity above is governed by **per-segment versions — there is no global umbrella counter.** Each segment evolves on its own version axis (`core`, `plugin:image`, `plugin:audio`, `overlays`, `extensions`); a bump to one segment invalidates only that segment's scope. The architectural rationale is the DataRefinery Phase-J recipe-architecture spike memo (`docs/specs/phase-j-recipe-architecture-spike.md` in the DR repo) — the **cross-tool-family standard** ModelFoundry adopts wholesale.
+
+Mechanics relevant to consumers:
+
+- **The flat `recipe.schema_version` stays the on-disk era marker.** DataRefinery keeps the recipe flat (Option 1), so there is **no on-disk `segment_versions` block** — per-segment versions live as DataRefinery build constants plus a structural era-detection table (`recipe.segments.SCHEMA_ERA_SEGMENT_VERSIONS`) keyed by the flat `schema_version`. Consumers continue to read the single flat `recipe.schema_version` (currently `3`); they do **not** need to parse a per-segment version block.
+- **Per-segment migrations run on DataRefinery's read path.** A `(segment, from, to)`-keyed registry (`recipe.segments.SEGMENT_MIGRATIONS`) brings each segment up to the current build version when a recipe is loaded; the cached `recipe.json` always reflects the latest segmented shape. Today the registry is empty (no segment has bumped past v1) and the dispatch is an exact pass-through. When a segment first bumps, DataRefinery ships the migration with it.
+- **Pin-test discipline guarantees scoped invalidation.** DataRefinery pins each segment's digest in CI (`tests/unit/test_segment_pin_hashes.py`); an unexpected move of any single segment's digest is a blocking failure forcing a conscious per-segment bump + migration. This is the enforcement behind the cross-repo promise that an audio-plugin change cannot silently invalidate an image recipe's cache (and vice-versa).
+
+The consumer takeaway is unchanged and reinforced: **`recipe_hash` is DataRefinery's to compute — never replicate it**; bind to the resolver's `instance_path` / `cache_key`.
 
 ## Resolving a materialized instance
 
@@ -371,7 +439,7 @@ report = DataRefinery.from_recipe("recipe.yaml", config=cfg, variant=v, seed=s).
 | `manifest` | `Manifest \| None` | Parsed manifest on `hit`; `None` otherwise. |
 | `note` | `str \| None` | Human-readable detail on `corrupt`. |
 
-**Do NOT recompute the cache key or instance path yourself.** Cache identity is DataRefinery's contract, not a consumer-replicable formula. Per § Cache-identity contract, `recipe_hash` is `SHA-256` over `model_dump(mode="json")` + canonical `json.dumps`, and **every pydantic field default participates** — so a DataRefinery release that adds a field, changes a default, or refines the canonical algorithm shifts `recipe_hash` for overlapping recipes. A consumer that hand-rolls the key (or builds the `<recipe-hash16>/<input-hash16>/<seed>` path directly) will, after any such change, **silently resolve to the wrong or a stale directory with no error** — exactly the brittleness this resolver exists to absorb. Bind to `report.instance_path` and `report.cache_key`; never to a locally-computed equivalent. *(Pinned 2026-06-13, Story J.l — see header.)*
+**Do NOT recompute the cache key or instance path yourself.** Cache identity is DataRefinery's contract, not a consumer-replicable formula. Per § Cache-identity contract, `recipe_hash` is the **segmented** hash (per-segment SHA-256 digests joined and re-hashed, as of v3), and **every pydantic field default participates within its segment** — so a DataRefinery release that adds a field, changes a default, or refines the canonical algorithm (as v3 itself did) shifts `recipe_hash` for overlapping recipes. A consumer that hand-rolls the key (or builds the `<recipe-hash16>/<input-hash16>/<seed>` path directly) will, after any such change, **silently resolve to the wrong or a stale directory with no error** — exactly the brittleness this resolver exists to absorb. Bind to `report.instance_path` and `report.cache_key`; never to a locally-computed equivalent. *(Pinned 2026-06-13, Story J.l — see header.)*
 
 ## Schema-version coordination policy
 
@@ -379,12 +447,12 @@ report = DataRefinery.from_recipe("recipe.yaml", config=cfg, variant=v, seed=s).
 
 | Field | Where | Current value | Source of truth |
 |---|---|---|---|
-| `recipe.schema_version` | `recipe.json` (top-level) | `2` | `datarefinery.recipe.loader.SUPPORTED_SCHEMA_VERSIONS` / `LATEST_SCHEMA_VERSION` |
-| `manifest.schema_version` | `manifest.json` (top-level) | `1` | `datarefinery.pipeline.manifest.MANIFEST_SCHEMA_VERSION` |
+| `recipe.schema_version` | `recipe.json` (top-level) | `3` | `datarefinery.recipe.loader.SUPPORTED_SCHEMA_VERSIONS` / `LATEST_SCHEMA_VERSION` |
+| `manifest.schema_version` | `manifest.json` (top-level) | `2` | `datarefinery.pipeline.manifest.MANIFEST_SCHEMA_VERSION` |
 
-`recipe.schema_version` versions the **recipe shape** (the loader migrates v1→v2 on read); `manifest.schema_version` versions the **manifest document format** and advances on its own, unrelated cadence. A consumer binding against the recipe-schema coordination logic below MUST read `recipe.schema_version` — reading `manifest.schema_version` (currently `1`) where the recipe version (currently `2`) is meant is a silent off-by-one that will mis-route the migration check. *(F5, pinned in Round 3 — see header.)*
+`recipe.schema_version` versions the **recipe shape** (the loader migrates v1→v2→v3 on read); `manifest.schema_version` versions the **manifest document format** and advances on its own, unrelated cadence (now `2` after the Story J.n.5 `variant`→`overlays` rename). A consumer binding against the recipe-schema coordination logic below MUST read `recipe.schema_version` — reading `manifest.schema_version` (currently `2`) where the recipe version (currently `3`) is meant is a silent off-by-one that will mis-route the migration check. *(F5, pinned in Round 3 — see header.)*
 
-As of the current DataRefinery release the supported set is **`{1, 2}`** with **`LATEST_SCHEMA_VERSION = 2`** (importable as `datarefinery.recipe.loader.SUPPORTED_SCHEMA_VERSIONS` / `LATEST_SCHEMA_VERSION`). DataRefinery's loader applies the registered `(1, 2)` migration chain before validation, so a consumer using `Instance.load` always sees the **v2-shaped** recipe regardless of the on-disk recipe's authored version. A consumer that still pins its tracked set to `{1}` MUST update to include `2` before binding v2 instances, or it will hard-error per the rule below.
+As of the current DataRefinery release the supported set is **`{1, 2, 3}`** with **`LATEST_SCHEMA_VERSION = 3`** (importable as `datarefinery.recipe.loader.SUPPORTED_SCHEMA_VERSIONS` / `LATEST_SCHEMA_VERSION`). DataRefinery's loader applies the registered `(1, 2)` then `(2, 3)` migration chain before validation, so a consumer using `Instance.load` always sees the **v3-shaped** recipe regardless of the on-disk recipe's authored version. The v3 bootstrap is version-stamp-only (no field reshape — see § Cache-identity contract "Schema v2 → v3"), so the v3 recipe shape is field-identical to v2; the substantive v3 change is the segmented `recipe_hash`. A consumer that still pins its tracked set to `{1, 2}` MUST update to include `3` before binding v3 instances, or it will hard-error per the rule below.
 
 ModelFoundry SHOULD track DataRefinery's current `SUPPORTED_SCHEMA_VERSIONS` set. When consuming a recipe whose `schema_version` is **outside** ModelFoundry's known support range:
 
@@ -392,6 +460,8 @@ ModelFoundry SHOULD track DataRefinery's current `SUPPORTED_SCHEMA_VERSIONS` set
 - If the recipe's `schema_version` is **lower** than ModelFoundry's lowest known → ModelFoundry's choice (typically a forward-migration in DataRefinery's `recipe.loader.migrations` already handled the shape; ModelFoundry can rely on the loader-emitted shape).
 
 ModelFoundry adopting a newer DataRefinery `schema_version` requires updating ModelFoundry's tracked set and re-running its own contract tests against the new manifest/recipe shapes.
+
+**Per-segment coordination (Story J.n.7).** Under the segmented architecture the *finer-grained* unit of evolution is the **per-segment version** (`core`, `plugin:image`, `plugin:audio`, `overlays`, `extensions`), not the flat counter. Because DataRefinery keeps the recipe flat (no on-disk segment-version block), the flat `recipe.schema_version` remains the **consumer-facing coordination counter** — a consumer tracks the flat `SUPPORTED_SCHEMA_VERSIONS` set exactly as above, and any per-segment bump that changes the recipe shape DataRefinery surfaces by also advancing the flat era marker. A consumer that wants segment-level granularity (e.g. "I only care about `plugin:audio` changes") MAY read DataRefinery's `recipe.segments.current_segment_versions()` / `SCHEMA_ERA_SEGMENT_VERSIONS`, but the **binding contract is still the flat `recipe.schema_version`**: track it, hard-error on an unknown-higher version, and re-run contract tests on adoption. The same per-segment standard applies symmetrically to ModelFoundry's own recipe model (MF adopts the horizontal mechanism wholesale; its vertical stage-reuse axis stays MF-owned).
 
 ## Forward-compatibility expectations
 
@@ -408,6 +478,7 @@ A trained-but-broken handoff is worse than a refusal. ModelFoundry's adapter sho
 - **Missing required fitted statistics**: a consumer that must apply a fit-on-train transform (e.g., `normalize`) but finds no `fitted_statistics/<op_id>/` for that op — or finds the directory but is missing a required vector such as `mean` or `std` — should refuse to train rather than silently skip normalization, naming the missing op_id / statistic in the error.
 - **Schema-version mismatch**: see § Schema-version coordination policy.
 - **Aggressive variant sidecar missing**: a JSONL line declares `image_path: "<rel>"` but the sidecar at `<rel>` doesn't exist on disk → instance is corrupt; refuse to consume.
+- **Dangling audio window grouping key**: a window record's `source_record_id` (see § Audio window records) does not resolve to any clip-level identifier present in the instance → the clip↔window grouping is broken; refuse to consume rather than aggregate against a phantom clip. DataRefinery guarantees every window's `source_record_id` is the verbatim `record_id` of the clip it was cut from, so a non-resolving value signals a corrupt or mis-assembled instance.
 - **Plugin missing**: `manifest.plugin` is not an installed plugin in ModelFoundry's environment → cannot resolve the plugin's runtime schema; refuse to consume.
 
 ## Versioning and adoption

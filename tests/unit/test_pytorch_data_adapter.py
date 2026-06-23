@@ -70,6 +70,7 @@ def _build_instance(
     std: tuple[float, float, float] = (63.0, 62.0, 67.0),
     extra_transform: str = "",
     image_factory: Callable[[str], Image.Image] | None = None,
+    relative_paths: bool = False,
 ) -> Path:
     recipe_path = tmp_path / "dr_recipe.yml"
     recipe_path.write_text(_recipe_yaml(extra_transform), encoding="utf-8")
@@ -101,8 +102,12 @@ def _build_instance(
                     else Image.new("RGB", (4, 4), _COLORS[cls])
                 )
                 img.save(png)
+                # `relative_paths` mimics DataRefinery's `png_per_record` sink, which
+                # rewrites `path` to an INSTANCE-relative string (`images/<file>.png`);
+                # otherwise the fixture writes an absolute source path.
+                rec_path = f"images/{split}_{cls}_{i}.png" if relative_paths else str(png)
                 records.append(
-                    {"record_id": f"{split}/{cls}/img_{i}", "label": cls, "path": str(png)}
+                    {"record_id": f"{split}/{cls}/img_{i}", "label": cls, "path": rec_path}
                 )
         (dataset_dir / f"{split}.jsonl").write_text(
             "\n".join(json.dumps(r) for r in records), encoding="utf-8"
@@ -162,6 +167,22 @@ def test_decode_produces_normalized_rgb_float32(tmp_path: Path) -> None:
     expected = (raw - np.array(mean)) / np.array(std)
     # Solid colour -> every spatial position equals the per-channel value; RGB-ordered.
     assert image[:, 0, 0].tolist() == pytest.approx(expected.tolist(), abs=1e-5)
+
+
+def test_decode_resolves_instance_relative_path_from_other_cwd(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Gap 1 regression: DataRefinery's `png_per_record` sink rewrites each record's
+    # `path` to an INSTANCE-relative string (e.g. `images/train_c0_0.png`). MF must
+    # resolve it against the instance root, NOT the process CWD. Run from a directory
+    # that is not the instance so a CWD-relative resolve raises FileNotFoundError.
+    inst = _build_instance(tmp_path, relative_paths=True)
+    workdir = tmp_path / "elsewhere"
+    workdir.mkdir()
+    monkeypatch.chdir(workdir)
+    ds = DataRefineryDataset(_wrap(inst), "train")
+    image, _ = ds[0]
+    assert tuple(image.shape) == (3, 4, 4)
 
 
 def test_zero_variance_guard_substitutes_one(tmp_path: Path) -> None:

@@ -208,16 +208,27 @@ class DataRefineryDataset(Dataset[tuple[torch.Tensor, int]]):
         return image, label
 
     def _decode(self, record: dict[str, object]) -> torch.Tensor:
-        # Pixel-resolution precedence: aggressive sidecar (`image_path`, relative to
-        # `dataset/`) wins over the source `path` (A.c spike).
-        relative = record.get("image_path")
-        path = self._dataset_dir / str(relative) if relative else Path(str(record["path"]))
+        path = self._resolve_image_path(record)
         with Image.open(path) as handle:
             # Keep raw 0-255 pixels — the units DataRefinery fit normalize/mean_subtract
             # stats in. `__getitem__` standardizes (or, with no fit-on-train op, scales
             # to [0,1]). HWC float32.
             array = np.asarray(handle.convert("RGB"), dtype=np.float32)
         return torch.from_numpy(array).permute(2, 0, 1).contiguous()  # -> CHW, 0-255
+
+    def _resolve_image_path(self, record: dict[str, object]) -> Path:
+        # Pixel-resolution precedence: an aggressive sidecar (`image_path`, relative
+        # to `dataset/`) wins over the source `path` (A.c spike). A bare `path` is
+        # either an ABSOLUTE source path (normal flow — used as-is) or an
+        # INSTANCE-relative string written by DataRefinery's `png_per_record` sink
+        # (e.g. `images/<split>/<Class>/<id>.png`). The instance-relative case MUST
+        # anchor to the instance root, never the process CWD (Gap 1) — a bare
+        # `Path(...)` would silently resolve against CWD and die mid-training.
+        relative = record.get("image_path")
+        if relative:
+            return self._dataset_dir / str(relative)
+        bare = Path(str(record["path"]))
+        return bare if bare.is_absolute() else self.instance.path / bare
 
 
 def build_dataloader(

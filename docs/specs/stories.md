@@ -267,6 +267,30 @@ Record the family-contract status surfaced by the upgrade. **Not an MF code chan
 
 ---
 
+### Story I.k: DR→MF persisted-image hand-off — resolve an instance-relative `path` against the instance (Gap 1) [Done]
+
+Bug fix (debug cycle). Surfaced by the consumer happy-path run logged in
+[`consumer-gap-analysis.md`](consumer-gap-analysis.md) Gap 1 (verdict in
+[`consumer-gap-solutions.md`](consumer-gap-solutions.md)): DataRefinery's
+`png_per_record` sink rewrites each record's `path` to an **instance-relative**
+string (`images/<split>/<Class>/<id>.png`), but MF's loader resolved a bare `path`
+with `Path(str(record["path"]))` — **CWD-relative**. Both MF `validate` (22 checks)
+and DR `materialize` pass; training then dies pulling pixels (`FileNotFoundError`)
+— a silent-failure class. The next consumer would hit the same wall, so the fix is
+on MF's side (no DR change, no per-instance sidecar patch needed).
+
+- [x] **Reproduce (test-first).** `test_decode_resolves_instance_relative_path_from_other_cwd` in [test_pytorch_data_adapter.py](../../tests/unit/test_pytorch_data_adapter.py): a record with only an instance-relative bare `path`, decoded from a CWD that is not the instance, raised `FileNotFoundError` before the fix. Added a `relative_paths` flag to the fixture builder to mimic the sink's `path` rewrite.
+- [x] **Fix the resolution.** Extracted [`_resolve_image_path`](../../src/modelfoundry/plugins/pytorch/data.py#L210): an `image_path` sidecar still resolves under `dataset/`; a bare `path` is used as-is when **absolute** (normal external-source flow) and anchored to **`self.instance.path`** when **relative** (the sink case) — never CWD.
+- [x] **Cheap fail-fast gate.** Renamed `_verify_aggressive_sidecars` → [`_verify_record_images_resolvable`](../../src/modelfoundry/pipeline/data_binding.py#L211) (called at bind time, [data_binding.py:124](../../src/modelfoundry/pipeline/data_binding.py#L124)): keeps the `image_path`-sidecar "sidecar missing" check **and** now refuses an instance-relative bare `path` whose file is absent (surfaces at bind, before the long run); absolute source paths are skipped (loader uses them as-is). Tests `test_instance_relative_path_missing_refused` / `test_instance_relative_path_present_binds` in [test_data_binding.py](../../tests/unit/test_data_binding.py).
+- [x] **Full CI gate green.** ruff check + ruff format --check (162 files) + mypy (typecheck env, 162 files) + light (571 passed / 47 skipped / 1 xfailed) + smoke-pytorch (773 passed / 15 skipped / 1 xfailed).
+- [x] **Prevention scan.** `_decode`/`_resolve_image_path` is the only image-path resolution site (sklearn/random plugins have no image loader); the bind-time verifier was the only sidecar gate. No other CWD-relative `Path(record[...])` construction found.
+- [ ] **Housekeeping — stale doc citations.** `consumer-gap-analysis.md` cites the workaround script and audio brief at paths that don't match where the consumer-copied files landed (`scripts/examples/add_mf_image_path_sidecar.py`, `docs/specs/modelfoundry-audio-feature-consumption.md`); and the copied seam docs reference a `docs/specs/modelfoundry/` subdir that doesn't exist here. Settle the directory convention and fix the links (developer call — see solutions doc "Doc-hygiene findings").
+- [ ] **Housekeeping — cross-repo.** Optionally raise with the family whether DR's `png_per_record` should also emit an `image_path` sidecar relative to `dataset/` (aligning both tools on MF's preferred branch). Not required — the MF-side fix stands alone.
+
+**Version:** **patch → v0.17.1** (bug fix). **Not cache-invalidating** — this is path *resolution* logic only; the recipe hash, canonical bytes, and materialized output bytes are unchanged for any run that already succeeded (it only makes previously-failing instance-relative paths resolve). No ceremony.
+
+---
+
 ## Future
 
 <!--

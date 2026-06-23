@@ -229,6 +229,33 @@ def test_aggressive_variant_with_sidecar_succeeds(tmp_path: Path) -> None:
     assert inst.splits
 
 
+def test_instance_relative_path_missing_refused(tmp_path: Path) -> None:
+    # Gap 1 gate: a bare, INSTANCE-relative `path` (as DR's png_per_record sink writes)
+    # whose file is absent must be refused at bind time — not silently pass `validate`
+    # and die mid-training. Absolute source paths are unaffected (loader uses them as-is).
+    recipe_yaml, cache_root, instance_dir = _materialize(tmp_path)
+    train_jsonl = instance_dir / "dataset" / "train.jsonl"
+    record = {"record_id": "imgs/c0/sink_0", "label": "c0", "path": "images/c0/sink_0.png"}
+    train_jsonl.write_text(train_jsonl.read_text() + "\n" + json.dumps(record), encoding="utf-8")
+    with pytest.raises(DataBindingError, match="not resolvable from instance"):
+        resolve_data_instance(DataSpec(recipe=recipe_yaml), _config(cache_root))
+
+
+def test_instance_relative_path_present_binds(tmp_path: Path) -> None:
+    # The same instance-relative `path`, with the file present under the instance root,
+    # binds cleanly — confirming the gate anchors to the instance, not the CWD.
+    recipe_yaml, cache_root, instance_dir = _materialize(tmp_path)
+    train_jsonl = instance_dir / "dataset" / "train.jsonl"
+    rel = "images/c0/sink_0.png"
+    record = {"record_id": "imgs/c0/sink_0", "label": "c0", "path": rel}
+    train_jsonl.write_text(train_jsonl.read_text() + "\n" + json.dumps(record), encoding="utf-8")
+    target = instance_dir / rel
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(b"\x89PNG\r\n\x1a\n")  # sentinel; the gate only checks existence
+    inst = resolve_data_instance(DataSpec(recipe=recipe_yaml), _config(cache_root))
+    assert inst.splits
+
+
 def test_schema_version_too_high_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # Materialize normally (instance recipe is v2), then shrink ModelFoundry's
     # tracked DR support set so the v2 instance reads as "too high".
