@@ -8,21 +8,23 @@ For a high-level concept (why), see [`concept.md`](concept.md). For implementati
 
 ## Project Goal
 
-DataRefinery compiles a single YAML **recipe** — declaring data category, raw inputs, output contract, splits, contracts, filters, generation, transformations, augmentations, featurizations, and visualizations — into a materialized **instance**: the recipe itself, the prepared dataset, the fitted statistics produced during preparation, and a report describing both. Re-running an unchanged recipe over unchanged inputs returns the cached instance unchanged; any semantic edit invalidates and rebuilds. A category-specific **plugin** contributes the operations relevant to that data shape; v1 ships an Image (classification) plugin, with tabular and text plugins stubbed to validate that category-agnostic abstractions are honest. DataRefinery is exposed as co-equal Python library and CLI surfaces, runs fully offline by default, and treats reproducibility as a first-class concern: every stochastic operation is seeded, fitted statistics are persisted with the instance, and cache identity is computed from the recipe's normalized semantic form so cosmetic edits never trigger rebuilds.
+DataRefinery compiles a single YAML **recipe** — declaring data category, raw inputs, output contract, splits, contracts, filters, generation, transformations, augmentations, featurizations, and visualizations — into a materialized **instance**: the recipe itself, the prepared dataset, the fitted statistics produced during preparation, and a report describing both. Re-running an unchanged recipe over unchanged inputs returns the cached instance unchanged; any semantic edit invalidates and rebuilds. A category-specific **plugin** contributes the operations relevant to that data shape; v1 ships a fully real **image classification** plugin and a fully real **audio classification** plugin (Phase J Subphase J-1), with tabular and text plugins stubbed to validate that category-agnostic abstractions are honest. DataRefinery is exposed as co-equal Python library and CLI surfaces, runs fully offline by default, and treats reproducibility as a first-class concern: every stochastic operation is seeded, fitted statistics are persisted with the instance, and cache identity is computed from the recipe's normalized semantic form — partitioned into independently-versioned segments (core / plugin / overlays / extensions) so a change scoped to one segment invalidates only that segment — so cosmetic edits never trigger rebuilds.
 
 ### Core Requirements
 
 - **Production release.** Production release marks a transition in requirements as noted below, where pre-production requirements are relaxed. Production release is a declared event, not a version number.
 - **Recipe-driven pipeline.** A single YAML recipe declares the entire preparation pipeline; the recipe is the only canonical artifact describing what the pipeline does.
 - **Materialized instance.** Each successful pipeline run produces an instance composed of (recipe, prepared dataset, fitted statistics, report). All four are required for the instance to be considered complete.
-- **Schema-versioned recipes.** Each recipe declares a schema version. DataRefinery refuses to load a recipe whose version it does not recognize. Prior to production release, schema version 1 itself may be redefined as the design evolves and there is no migration path between versioned recipes. After production release, schema versions are immutable and a documented migration path between versions ships with the tool.
+- **Schema-versioned recipes.** Each recipe declares a flat on-disk `schema_version` (currently **3**; supported versions 1–3, with documented v1→v2→v3 migrations on the loader read path). The recipe stays flat on disk, but its identity is computed over independently-versioned **segments** (`core`, `plugin:<name>`, `overlays`, `extensions`): a change scoped to one segment invalidates only that segment, and each segment migrates on its own `(segment, from, to)` axis. DataRefinery refuses to load a recipe whose version it does not recognize. Prior to production release, schema versions may be redefined as the design evolves. After production release, schema versions are immutable and a documented migration path between versions ships with the tool.
 - **Determinism.** Same recipe + same inputs + same seed must produce a byte-identical instance. Every stochastic operation is seeded.
-- **Semantic cache identity.** Cache identity is derived from the recipe's normalized semantic form (parsed, key-sorted, comments stripped) plus raw-input hash plus seed. Whitespace or key-order edits do not trigger rebuilds; semantic edits do.
+- **Semantic cache identity.** Cache identity is derived from the recipe's normalized semantic form (parsed, key-sorted, comments stripped) — computed per segment (`core` / `plugin` / `overlays` / `extensions`) and joined into one digest — plus raw-input hash plus seed. Whitespace or key-order edits do not trigger rebuilds; semantic edits do, scoped to the affected segment (an empty `overlays` / `extensions` segment contributes nothing, so the mechanism is additive).
 - **Atomic materialization.** Pipeline runs write to a temp location and atomically promote on success. On failure, the temp directory is left in place with a marker for inspection. Partial instances never appear in the cache.
 - **Train/inference parity.** Fitted statistics produced from the training split are persisted with the instance so downstream tools (ModelMachine) can replay the same transformations at inference without re-implementation.
-- **Plugin model.** A plugin specializes DataRefinery for a single data category and contributes the operations that make sense for that shape. v1 ships Image (classification) implementation plus tabular and text stubs (recipe section list and operation outline only).
+- **Plugin model.** A plugin specializes DataRefinery for a single data category and contributes the operations that make sense for that shape. v1 ships **image classification** and **audio classification** implementations plus tabular and text stubs (recipe section list and operation outline only).
+- **No implicit defaults.** The interpreting code supplies no behavior-affecting value. Each operation parameter is either `required` (the author writes it; the `init` scaffolder emits a recommended starting value into the recipe text) or *mode-selecting* optional (absence is itself the documented behavior — e.g. `normalize`/`audio_normalize` with no `mean`/`std` ⇒ "fit from train"). There is no `ParameterSpec.default`, so an op's outcome cannot shift without a visible change to the recipe text.
 - **Co-equal surfaces.** Python library API and CLI cover the same capabilities; neither grows operations the other lacks.
-- **Variants.** A recipe may declare named variants on any section (including `Filters` and `Splits`); a new instance is materialized per variant. Recipe inheritance is out of scope for v1.
+- **Overlays.** A recipe may declare named overlays on any section (including `Filters` and `Splits`); overlays are applied as an ordered, multi-select list (last-writer-wins per section) before canonicalization, and the applied set participates in cache identity. Recipe inheritance is out of scope for v1. (Renamed from `variants` in schema v3 / Story J.n.5.)
+- **Extensions namespace.** A top-level `extensions: {<namespace>: {<key>: <value>}}` block lets a plugin prototype new recipe keys before committing them to the schema. The bound plugin declares which keys it reads (enforced by check 28); the block contributes to cache identity (empty ⇒ no contribution).
 - **Offline operability.** The deterministic path (scaffolder, validation, materialization, reporting) works with no network access. LLM enhancement is strictly opt-in.
 
 ### Operational Requirements
@@ -41,7 +43,7 @@ DataRefinery compiles a single YAML **recipe** — declaring data category, raw 
 ### Quality Requirements
 
 - **Reproducibility guarantee.** A successful run is byte-identical when re-executed against unchanged inputs and seed. Any deviation is a defect.
-- **Minimal runtime dependencies.** v1 depends on the standard scientific Python stack (NumPy, Pandas, SciPy, Scikit-learn), `rich`, `pyyaml`, and `pyarrow`. The Image plugin adds image-handling dependencies (Pillow at minimum). Optional extras: `[llm]` (`lmentry`) for the `init` scaffolder's LLM-enhancement layer; `[corruptions]` (`scikit-image`, `opencv-python-headless`) for the `imagecorruptions_apply` robustness-evaluation Generation op (the corruption *vocabulary* is in-tree so recipe validation works without the extras; only execution requires them).
+- **Minimal runtime dependencies.** v1 depends on the standard scientific Python stack (NumPy, Pandas, SciPy, Scikit-learn), `rich`, `pyyaml`, and `pyarrow`. The Image plugin adds image-handling dependencies (Pillow at minimum). Optional extras: `[llm]` (`lmentry`) for the `init` scaffolder's LLM-enhancement layer; `[corruptions]` (`scikit-image`, `opencv-python-headless`) for the `imagecorruptions_apply` robustness-evaluation Generation op (the corruption *vocabulary* is in-tree so recipe validation works without the extras; only execution requires them); `[audio]` (`librosa`, which pulls `soundfile`/`numba`/`scipy` transitively) for the `audio_classification` plugin's decode and spectral ops. Audio ops import `librosa` lazily inside `apply`, so plugin discovery and recipe validation work without the extra installed; only execution requires it.
 - **Cross-platform.** Prior to production release, macOS is the only first-class platform; Linux is best-effort. After production release, Linux and macOS are both first-class. Native Windows is best-effort in any release (CI smoke only); Windows users are not left behind because WSL2 (Microsoft-supported Linux on Windows) provides the full Linux path on the same hardware, and the project documents WSL2 as the recommended Windows experience.
 - **Hardware acceleration.** GPU acceleration is a bonus, not a requirement, in any release; pipelines must function correctly on CPU. Metal (Apple Silicon) compatibility is top-priority where acceleration is exercised; CUDA is supported as available. `check` reports acceleration availability without requiring it.
 - **Type discipline.** `mypy --strict` clean across the package and plugin sources.
@@ -50,7 +52,7 @@ DataRefinery compiles a single YAML **recipe** — declaring data category, raw 
 
 ### Usability Requirements
 
-- **Primary user — deep-learning curriculum.** A student or instructor can take raw image data and produce a training-ready instance for an image-classification dataset (CIFAR-10-scale) using the deterministic `init` scaffolder followed by `validate` and `materialize`, without manual workarounds.
+- **Primary user — image-classification practitioner.** A practitioner can take raw image data and produce a training-ready instance for an image-classification dataset (CIFAR-10-scale) using the deterministic `init` scaffolder followed by `validate` and `materialize`, without manual workarounds.
 - **Secondary user — ML practitioner.** A practitioner familiar with the standard scientific Python stack can read a recipe and understand the pipeline without reading DataRefinery source.
 - **Co-equal surfaces.** Library users compose `DataRefinery` objects programmatically; CLI users invoke verbs against a recipe path. Both produce identical instances given the same inputs.
 - **Discoverable installation.** End users install DataRefinery via `pip install ml-datarefinery` from a clean Python 3.12 venv with no extra configuration. The distribution name (`ml-datarefinery`) diverges from the import name and console script (both `datarefinery`); the install command is the only place users see the prefixed name.
@@ -127,16 +129,40 @@ DataRefinery compiles a single YAML **recipe** — declaring data category, raw 
         unlabeled: true
   ```
   Records loaded from the `test_data` source land without a `label` field; the partition flows through label-independent transformations (resize, normalize) and lands in the materialized instance for downstream inference. Label-dependent stages (`stratify_by`, `filter_by_label`, label-reading featurizations) are rejected at validate time when they target an unlabeled split (check 21).
+- Example (audio classification — class-subdirectory layout):
+  ```yaml
+  Input:
+    sources:
+      - name: clips
+        type: audio_folder
+        path: data/raw/speech/train
+        target_sample_rate: 16000
+  ```
+- Example (audio classification — flat directory + sidecar manifest):
+  ```yaml
+  Input:
+    sources:
+      - name: clips
+        type: audio_flat
+        path: data/raw/myset/clips
+        target_sample_rate: 16000
+        label_from:
+          path: data/raw/myset/labels.csv
+          join: by_id
+          id_field: filename
+          label_field: class
+  ```
+  Audio sources (`audio_folder`, `audio_flat`) carry a **required** `target_sample_rate: int` (the canonical rate the loader resamples every clip to). The loader decodes each file to mono `float32` at that rate via `librosa.load(..., mono=True)` and stamps `sample_array` (in-pipeline, not serialized), `sample_rate`, `path`, and (when labeled) `label`. `target_sample_rate` lives on the `plugin` identity segment, so adding or changing it never perturbs an image recipe's cache. `audio_folder` derives labels from class subdirectories (so `label_from` and `unlabeled` are rejected); `audio_flat` supplies labels via a `label_from` sidecar manifest (`by_id` or `by_row_order`) or declares `unlabeled: true` for inference-only clips.
 
 **Recipe file** (single YAML file):
 
 - Schema version declaration (top-level `schema_version`).
 - Plugin declaration (top-level `plugin`).
 - Section declarations matching the recipe section set.
-- Optional `variants` block declaring named overrides.
+- Optional `overlays` block (ordered, multi-select named overrides) and optional `extensions` block (plugin-prototyping namespace).
 - Example skeleton:
   ```yaml
-  schema_version: 1
+  schema_version: 3
   plugin: image_classification
   Input: { ... }
   Output: { ... }
@@ -151,9 +177,12 @@ DataRefinery compiles a single YAML **recipe** — declaring data category, raw 
   Featurizations: [ ... ]
   OutputExpectations: [ ... ]
   Visualizations: [ ... ]
-  variants:
+  overlays:
     no_augment:
       Augmentations: []
+  extensions:
+    my_plugin_ns:
+      experimental_key: value
   ```
 
 **Seed** (CLI flag `--seed` or recipe field; recipe wins on conflict; CLI flag overrides for ad-hoc runs and changes the cache identity).
@@ -163,7 +192,7 @@ DataRefinery compiles a single YAML **recipe** — declaring data category, raw 
 - `--cache-root` / `DATAREFINERY_CACHE_ROOT` — root directory for cache (default `data/`).
 - `--log-level` / `DATAREFINERY_LOG_LEVEL` — operational log level.
 - `--plugin-path` / `DATAREFINERY_PLUGIN_PATH` — extra plugin discovery paths (development).
-- `--variant` — selects a named variant from the recipe at materialize time.
+- `--overlay` — selects a named overlay from the recipe at materialize time; repeatable, applied in declared order (last-writer-wins per section). (Renamed from `--variant` in schema v3.)
 
 ## Outputs
 
@@ -171,15 +200,17 @@ DataRefinery compiles a single YAML **recipe** — declaring data category, raw 
 
 ```
 data/instances/<recipe-hash>/<input-hash>/<seed>/
-├── recipe.json                  # canonical post-loader recipe (v2-shape, key-sorted, the bytes hashed for the cache key)
-├── dataset/                     # the prepared dataset (parquet for tabular; plugin-defined layout for image/text)
+├── recipe.json                  # canonical post-loader recipe (schema v3, key-sorted; segment digests join to the cache key)
+├── dataset/                     # the prepared dataset (parquet for tabular; plugin-defined layout for image/audio/text)
 ├── fitted_statistics/           # statistics fitted on the training split (persisted, not pickled sidecars)
 ├── report/
 │   ├── report.md                # human-readable summary
-│   ├── drift.json               # drift-relevant subsection (stable contract; v1 placeholder schema)
+│   ├── drift.json               # drift-relevant subsection (stable contract; v1 placeholder schema; carries recipe_hash)
 │   └── visualizations/          # rendered reporting-mode visualizations
-└── manifest.json                # instance metadata (hashes, seed, plugin, schema version, timestamps)
+└── manifest.json                # instance metadata (MANIFEST_SCHEMA_VERSION 2)
 ```
+
+**`manifest.json` fields** (selected; `MANIFEST_SCHEMA_VERSION = 2`): `datarefinery_version`, `plugin` / `plugin_version`, full `recipe_hash` / `input_hash`, `seed`, `created_at` / `elapsed_seconds`, `record_counts`, `warnings`, `is_partial` / `failed_stage` / `completed_through`, `class_balance` (training-time hint), `sinks` / `sinks_skipped`. Phase J additions: **`overlays: list[str]`** (ordered applied-overlay names; replaced the v1 `variant: str | None` — schema bump 1→2, Story J.n.5), **`sample: SampleManifestEntry | None`** (present only when the recipe declares a `SampleData:` section — Story J.a), and **`label_classes: list[Any] | None`** (the canonical class set across labeled records, sorted ascending; `None` when no labeled records exist — Story J.f).
 
 **Console output** (CLI):
 
@@ -201,15 +232,17 @@ Load a YAML recipe, validate its schema version, and produce an in-memory recipe
 
 **Behavior:**
 1. Parse the YAML file.
-2. Read `schema_version`; refuse to load if absent or unrecognized.
-3. Apply schema-version migrations if a documented migration exists for the declared version.
-4. Construct the recipe object with all declared sections.
+2. Read `schema_version`; refuse to load if absent or unrecognized (supported: 1, 2, 3; latest: 3).
+3. Apply whole-recipe migrations for the flat on-disk `schema_version` (v1→v2→v3 chain), then replay any per-segment migrations registered in `SEGMENT_MIGRATIONS` for segments that lag the recipe's era (the era → per-segment-version map lives in `SCHEMA_ERA_SEGMENT_VERSIONS`).
+4. Construct the recipe object with all declared sections, including the optional `overlays` and `extensions` blocks.
+
+**Segmented identity.** The recipe is flat on disk but its cache identity is computed over four independently-versioned segments — `core`, `plugin` (per family: `plugin:image`, `plugin:audio`), `overlays`, `extensions`. Each segment's canonical bytes are SHA-256'd; the per-segment digests are joined in fixed order and re-hashed into `recipe_hash` (see FR-4). A change confined to one segment moves only that segment's digest, so it invalidates only that segment's scope. This is internal — the binding-facing version counter remains the flat `schema_version`.
 
 **Edge Cases:**
 - Missing `schema_version` -> hard error naming the missing field.
 - Unrecognized `schema_version` -> hard error listing supported versions and the documented migration path.
 - Malformed YAML -> structured error pointing to the offending line.
-- Unknown top-level keys -> warning (forward-compatible recipes are not valid; readers should fail loudly).
+- Unknown top-level keys -> warning (forward-compatible recipes are not valid; readers should fail loudly). Unknown keys *inside* an `extensions` namespace are allowed (the namespace relaxes `extra="forbid"`); undeclared namespaces/keys are rejected by check 28.
 
 ### FR-2: Recipe Validation (`validate`)
 
@@ -232,8 +265,8 @@ Verify a recipe's correctness without running the pipeline. Covers schema correc
 8. `Splits` ratios sum to ≤ 1.0 (ratio-based splits) or partition the data exactly once (key-based splits); split names are unique.
 9. Stratification keys referenced in `Splits` exist in the data declaration.
 10. Class-imbalance strategy is declared in exactly one of `Filters` (removal) or `Splits` (weighting/resampling) per imbalance concern.
-11. `Visualizations` operations each declare an output mode (`exploration` or `reporting`).
-12. `variants` reference only declared sections and override only declared keys.
+11. `Visualizations` operations are well-formed: each declares an output mode (`exploration` or `reporting`) and its required sections are non-empty.
+12. `overlays` reference only declared sections and override only declared keys.
 13. `Labels` source is declared and resolvable from the declared inputs.
 14. `Generation` operations produce records whose schema is consistent with `Output`.
 15. No operation references a split name that is not defined in `Splits`.
@@ -245,6 +278,12 @@ Verify a recipe's correctness without running the pipeline. Covers schema correc
 21. `unlabeled_consistency` — `InputSource.unlabeled` cross-section consistency. `unlabeled: true` requires `type: image_flat` (v1 restriction; `image_folder` derives labels from class subdirectories so the combination is contradictory). Model-level validation already enforces that `unlabeled: true` requires `partition` and forbids `label_from`. `Splits.stratify_by` is rejected when `Splits.applies_to` names an unlabeled partition (no label field to stratify by). Filters using `filter_by_label` and Featurizations using `label_from_path` (or whose `inputs` reference the recipe's label field) are rejected when they target unlabeled splits. Plugin-specific: only applies to plugins whose loader honors `unlabeled` (initially `image_classification`).
 22. `stats_from_instance_mutually_exclusive_with_fit_source` — a `Transformations` op's `params["stats_from_instance"]` (FR-TRANS-1) and the op's `fit_source` field are mutually exclusive; declaring both is contradictory (the former imports fitted statistics from a sibling instance, the latter triggers a local fit), and check 6 short-circuits the fit-on-train requirement when `stats_from_instance` is set. The check additionally parses the spec against `StatsFromInstanceSpec` (`recipe: str`, `op_id: str`) so a misshapen spec surfaces at validate time rather than at materialize time.
 23. `featurization_output_field_loader_collision` — a `Featurizations` op's `output_field` must not collide with a field the input loader stamps on every record (the runtime's `pipeline.stages.featurizations` collision check is the authoritative second-line defense; this check shifts the failure left to validate time). The image_classification loader stamps `record_id`, `image`, and `path` always; `label` when `Labels.source.kind == "direct"` and a label source exists (parent directory for `image_folder`; `label_from` sidecar for `image_flat`); `partition` when any `InputSource.partition` is declared. Plugin-specific: only applies to plugins whose loader stamps these fields (initially `image_classification`).
+24. `sinks` — sink names are unique within the recipe; path templates parse cleanly without escaping the dataset root; each sink's referenced field is in the recipe's known-field universe; `splits` entries name defined splits.
+25. `visualization_group_by_resolvable` — a `Visualizations` op's `group_by` parameter names a field the recipe is known to produce.
+26. `pixel_altering_transform_requires_sink` — a pixel-altering `Transformations` op (one that rewrites the image bytes, e.g. `resize`) must be paired with a `png_per_record` sink that writes the image field at a post-transform stage covering every lazy split the transform touches, so the materialized `path` resolves to the transformed pixels (Story J.g).
+27. `dtype_altering_transform_incompatible_with_aggressive` — a dtype-altering `Transformations` op cannot share a split with an aggressive `Augmentations` op (Story J.i).
+28. `extension_keys_declared` — every `extensions.<namespace>.<key>` must be declared by the bound plugin's `extension_keys()`; undeclared namespaces or keys are rejected (Story J.n.6).
+29. `splits_operate_at_clip_level` — a recipe with a record-fanning `Generation` op (e.g. audio `window`) must stratify at the clip level, never on a fan-out child field (`source_record_id` / `window_index`) (Story J.r).
 
 **Edge Cases:**
 - Plugin not installed -> hard error pointing at the plugin name and discovery path.
@@ -256,7 +295,7 @@ Verify a recipe's correctness without running the pipeline. Covers schema correc
 
 Execute the recipe end-to-end and produce a materialized instance.
 
-**Cross-repo contract — interaction-binding surfaces.** The library API (`DataRefinery.from_recipe`, `.materialize`, `.validate`, `.status`, `.inspect`, the top-level `materialize()` convenience, the `Instance` accessor) and the CLI surface (verb names, global + verb-specific flags, exit codes, error-message panel-title contracts, stdout/stderr discipline) are documented as cross-repo contract surfaces in [`nbfoundry/vendor-dependency-spec.md`](nbfoundry/vendor-dependency-spec.md). Changes to either follow the cross-repo coordination rule in [`project-essentials.md`](project-essentials.md) § "Recipe / manifest / report shape changes need a cross-repo coordination check."
+**Cross-repo contract — interaction-binding surfaces.** The library API (`DataRefinery.from_recipe`, `.materialize`, `.validate`, `.status`, `.inspect`, the top-level `materialize()` / `resolve_instance()` / `resolve_status()` convenience functions, the `Instance` accessor) and the CLI surface (verb names, global + verb-specific flags, exit codes, error-message panel-title contracts, stdout/stderr discipline) are documented as cross-repo contract surfaces in [`nbfoundry/vendor-dependency-spec.md`](nbfoundry/vendor-dependency-spec.md). Changes to either follow the cross-repo coordination rule in [`project-essentials.md`](project-essentials.md) § "Recipe / manifest / report shape changes need a cross-repo coordination check."
 
 **Behavior:**
 1. Run `validate` (FR-2); fail fast on any failure.
@@ -272,7 +311,7 @@ Execute the recipe end-to-end and produce a materialized instance.
 **Edge Cases:**
 - Cache hit on identical inputs -> no work performed; return existing instance path with `cache=hit` in the summary.
 - Failure mid-stage -> temp directory left in place with `FAILED` marker; cache untouched (FR-5).
-- Variant selected via `--variant` -> cache identity reflects the variant's normalized recipe form; different variants of the same recipe produce different instances.
+- Overlays selected via `--overlay` -> cache identity reflects the applied overlays' normalized recipe form; different overlay sets of the same recipe produce different instances.
 - Stage flag (e.g., `--stage=raw`) -> partial run that materializes only up to and including the named stage; result is not promoted as a full instance and is marked partial in the manifest.
 
 ### FR-4: Semantic Cache Identity
@@ -280,17 +319,18 @@ Execute the recipe end-to-end and produce a materialized instance.
 Compute a stable identity for a (recipe, inputs, seed) triple that is invariant to cosmetic edits.
 
 **Behavior:**
-1. Parse the recipe; strip comments; canonicalize key order and value representations.
-2. Hash the canonicalized form.
+1. Parse the recipe; strip comments; apply any selected overlays; canonicalize key order and value representations.
+2. Partition the canonical form into segments (`core` / `plugin` / `overlays` / `extensions`), SHA-256 each segment, join the per-segment digests in fixed order, and re-hash into `recipe_hash` (`recipe.segments.recipe_identity_hash`). An empty `overlays` / `extensions` segment hashes to a fixed empty-marker, contributing nothing.
 3. Hash the declared raw inputs (content hash for files; declared identifier hash for external sources where direct hashing is not feasible).
-4. Combine the recipe hash, input hash, and seed into the cache key.
+4. Combine the recipe hash, input hash, and seed into the cache key (cache-directory paths use the first 16 hex chars of each hash; the full hash is recorded in `manifest.json`).
 
 **Edge Cases:**
 - Whitespace-only or comment-only edit -> identical hash; cache hit.
 - Key reordering -> identical hash; cache hit.
-- Semantic edit (changed value, added/removed operation) -> different hash; cache miss.
+- Semantic edit (changed value, added/removed operation) -> different hash; cache miss, scoped to the segment that changed.
 - Raw input file content changes -> different input hash; cache miss.
-- Variant selection -> the normalized form includes the variant overlay; different variants produce different recipe hashes.
+- Overlay selection -> the canonical form includes the applied overlays (ordered, last-writer-wins); different overlay sets produce different recipe hashes via the `overlays` segment.
+- A plugin-segment-only change (e.g. an audio field) leaves the `core` digest untouched, so image recipes' identities are unaffected.
 - Sibling-instance references (FR-TRANS-1 `stats_from_instance`) are **loose-coupled in v1**: the sibling recipe's `recipe_hash` does NOT participate in this recipe's cache identity. Re-materializing upstream does NOT auto-invalidate downstream — when upstream changes (e.g., the train recipe is re-fit and re-materialized), the user is responsible for re-materializing any downstream eval recipes that import its statistics. Tight coupling (sibling `recipe_hash` participates in cache identity, so upstream changes auto-invalidate downstream) is a documented Future upgrade tracked under FR-ARCH-1; it will be a `schema_version` bump.
 
 ### FR-5: Atomic Temp-then-Promote Materialization
@@ -335,9 +375,11 @@ Define train/validation/test partitioning, including stratification, class-balan
 4. Class-imbalance handled by *weighting or resampling at training time* lives in `Splits` as a sampling strategy ModelFoundry honors. Class-imbalance handled by *removing data* lives in `Filters` (FR-8).
 5. When `Input.sources[*].partition` is declared on every source, the materialized splits honor those declarations (each partition becomes a split). Setting `Splits.applies_to: <partition-name>` together with `ratios: {...}` sub-partitions just that partition; sibling partitions are preserved verbatim (so `test` can stay heldout while `train` is carved into train/val). When `applies_to` is unset, `Splits.ratios` must be empty (or omitted) — declared partitions are the final partitioning.
 6. When a source declares `unlabeled: true`, the resulting split (or sub-splits, if `applies_to` selects the unlabeled partition) materializes without a `label` field. `Splits.stratify_by` is rejected when `applies_to` names an unlabeled partition (check 21); sub-partitioning an unlabeled partition is allowed and produces unlabeled sub-splits.
+7. When a `Generation` op multiplies records (e.g. audio `window` splitting one clip into N windows), splitting operates at the **clip** level. `Splits` runs before `Generation`, so a clip's split assignment and `label` propagate to all of its child window records, and every window of a clip lands in the same split. `Splits.stratify_by` may not name a fan-out child field (`source_record_id`, `window_index`) — rejected by check 29.
 
 **Edge Cases:**
 - Ratio-based splits summing to less than 1.0 -> remainder is unassigned; recorded in the manifest.
+- `Splits.stratify_by` names a fan-out-derived field on a record-multiplying recipe -> caught by `validate` (check 29).
 - Stratification key with sparse classes -> reported as a warning during materialization with class counts per split.
 - Key-based splits with unmapped records -> hard error during materialization.
 - Some sources declare `partition` and some do not -> caught by `validate` (check 20).
@@ -381,8 +423,13 @@ Produce new records added to the dataset (e.g., SMOTE, oversampling, externally 
 
 `imagecorruptions_apply` applies Hendrycks-Dietterich (ICLR 2019, "Benchmarking Neural Network Robustness to Common Corruptions and Perturbations") image corruptions to each input record. For each input the op emits one output record per `(corruption_type, severity)` pair, optionally including an untouched copy tagged `corruption="none"`. Parameters: `corruption_types: list[str]` (non-empty; names drawn from the canonical 19-corruption vocabulary), `severities: list[int]` (each in `[1, 5]`, non-empty), `preserve_original: bool = False`, `tag_fields: list[str] = ["corruption", "severity", "source_path"]`. Output count per input record = `len(corruption_types) × len(severities)`, plus 1 untouched copy when `preserve_original=True`. Per-record corruption seeds are derived from the recipe master seed via the `pipeline.workers.per_record_seed` contract, so output bytes are reproducible across runs and worker counts. The implementation is vendored from upstream `imagecorruptions==1.1.2` (Apache-2.0; full attribution preserved) and patched for NumPy 2.x, scikit-image 0.21+, and deterministic seeding compatibility; the canonical corruption vocabulary is enumerable at recipe-validate time without the extras installed.
 
+**Plugin-contributed ops (audio_classification, FR-GEN-2):**
+
+`window` slices each decoded audio clip into fixed-length **window records** — the audio analogue of aggressive image variants (record-multiplying). Parameters: exactly one of `window_length_samples: int` or `window_length_seconds: float` (positive) sets the window length; `hop_samples: int` (positive, required) sets the stride; `remainder: "pad_zero" | "drop"` (required) decides whether a trailing partial window is zero-padded to full length or dropped. The op is deterministic (a pure function of the clip and params — no seed). Each emitted window record carries `record_id` (formatted `f"{source_record_id}__w{window_index:04d}"`), `source_record_id` (the parent clip's `record_id` — the documented clip↔window aggregation key, R7), `window_index` (0-based int), the windowed `sample_array` (in-pipeline, not serialized), and the parent's inherited `sample_rate` / `path` / `label` / `partition`. Because windowing multiplies records, splits must operate at the clip level (FR-7; check 29). The clip↔window grouping fields are a shape-binding cross-repo surface (see [`modelfoundry/vendor-dependency-spec.md`](modelfoundry/vendor-dependency-spec.md) § Audio window records).
+
 **Edge Cases:**
 - Generated records that fail `OutputExpectations` -> hard error during materialization.
+- `window` with both — or neither — of `window_length_samples` / `window_length_seconds` set -> rejected by the `WindowParams` model-level validator (surfaced through the loader as `RecipeError`).
 - Generation declared on validation or test splits -> not blocked by default (atypical but legitimate); flagged in the report.
 - `imagecorruptions_apply` referenced in a recipe but the `[corruptions]` extras (`scikit-image`, `opencv-python-headless`) are not installed -> recipe-time validation still verifies the corruption names against the in-tree vocabulary; materialization fails at the corruption call site with a clear `ImportError` pointing at `pip install 'ml-datarefinery[corruptions]'`.
 
@@ -467,6 +514,12 @@ Derive new features from one or more existing inputs.
 4. The same machinery produces derived labels (see `Labels` declaration in FR-19).
 5. **Fit-on-train normalization of a derived feature is a staple, cross-modality capability and lives here, not in `Transformations`.** Standardizing a feature that an earlier stage *derived* (audio log-mel spectra per-mel-bin now; tabular column scaling and text embedding normalization as those plugins mature) requires the fit to run *after* the feature exists. The pipeline runs `Transformations` **before** `Featurizations` (a Transformation normalizes *raw* inputs — e.g. the image `normalize` op on pixels), so a Transformation cannot see a derived feature. The `Featurizations` stage is the only stage that runs after derivation *and* supports fit-on-train + statistics persistence (FR-6) + sibling import (FR-TRANS-1). Such an op reads a prior featurization's output field and writes the scaled result to a new field (e.g. audio `log_mel_spectrogram` → `mel`, then fit-on-train `audio_normalize` → `feature`), keeping the raw and scaled features both present and the no-overwrite collision guard (check 23 / FR-12 edge case) satisfied.
 
+**Registered ops (audio_classification plugin):**
+- `log_mel_spectrogram` (FR-FEAT-1) — converts a windowed `sample_array` into a log-scaled mel spectrogram. Params: `n_fft: int`, `hop_length: int`, `n_mels: int`, `f_min: float` (all required), `f_max: float | None` (mode-selecting — absent ⇒ Nyquist, `sample_rate / 2`), `power: float` (required). Reads `inputs[0]` (conventionally `sample_array`); writes `output_field` (conventionally `mel`) as a `float32` array of shape `(n_mels, n_frames)` in librosa-native orientation (mel bins on axis 0). Deterministic; not fit-on-train.
+- `audio_normalize` (FR-FEAT-2) — fit-on-train per-mel-bin standardization of a derived feature. Params: `mean: float | None`, `std: float | None` (both mode-selecting — when both are pinned they are used as-is; when absent, statistics are fit on the **training split only**, per mel bin, and persisted per FR-6). Reads `inputs[0]` (conventionally `mel`); writes `output_field` (conventionally `feature`). Normalization is per-mel-bin (z-score reducing over examples and frames, leaving the mel axis), so the raw `mel` and scaled `feature` both remain and check 23 is satisfied.
+
+**In-pipeline vs persisted (audio).** The audio `sample_array`, `mel`, and `feature` arrays are **in-pipeline only** — they are not serialized into `dataset/<split>.jsonl`. The per-record JSONL carries the metadata consumers bind against: `record_id`, `source_record_id`, `window_index`, `label`, `path`, `sample_rate`.
+
 **Edge Cases:**
 - Featurization referencing a field not in `Input` or upstream output -> caught by `validate` (check 7).
 - Featurization producing a name that collides with an existing field -> hard error during materialization.
@@ -503,18 +556,18 @@ Render standard or bespoke views over any pipeline stage.
 - `severity_ladder` against a train split smaller than `n_examples` -> hard error during materialization.
 - `severity_ladder` invoked without the `[corruptions]` extras -> same friendly `ImportError`.
 
-### FR-14: Variants
+### FR-14: Overlays
 
-Allow a single recipe to declare named overrides on any section.
+Allow a single recipe to declare named overrides on any section, composed as an ordered list.
 
 **Behavior:**
-1. Variants are declared under a top-level `variants` block; each variant supplies overrides keyed by section name.
-2. At materialize time, the user selects a variant via `--variant` (CLI) or argument (library). Default is the un-overridden recipe.
-3. The variant overlay is applied before normalization and hashing; cache identity reflects the selected variant.
+1. Overlays are declared under a top-level `overlays` block (renamed from `variants` in schema v3 / Story J.n.5); each overlay supplies overrides keyed by section name.
+2. At materialize time, the user selects zero or more overlays via the repeatable `--overlay` flag (CLI) or the `overlays=` argument (library). Default is the un-overridden recipe.
+3. Overlays apply in the given order with **last-writer-wins per section** (a later overlay's section replaces an earlier one's wholesale) before canonicalization and hashing. The applied set is recorded in `manifest.overlays: list[str]` and participates in cache identity via the `overlays` segment.
 
 **Edge Cases:**
-- Variant referencing an undeclared section or key -> caught by `validate` (check 12).
-- Variant selecting a section to clear (empty list/object) -> allowed; for example, `Augmentations: []` disables augmentation.
+- Overlay referencing an undeclared section or key -> caught by `validate` (check 12).
+- Overlay selecting a section to clear (empty list/object) -> allowed; for example, `Augmentations: []` disables augmentation.
 
 ### FR-15: Reporting
 
@@ -525,6 +578,7 @@ Emit a report describing the materialized instance and its preparation.
 2. `report.md` summarizes the recipe, inputs, splits, operations applied, fitted statistics, key counts, and any warnings raised during materialization.
 3. `drift.json` is the contract DataMachine consumes against. Prior to production release, the schema is a placeholder documented in the tech spec and may change at any time; it is structured (typed JSON, not free-form) so callers can begin coding against it. The schema is finalized and frozen as a precondition for production release.
 4. The `report` CLI verb re-renders the report from a materialized instance without rerunning the pipeline.
+5. `drift.json` carries `recipe_hash` (full 64-hex SHA-256, echoed from the cache key; Story J.j) so a consumer can detect a stale fitted-statistics block by comparing it against `manifest.recipe_hash` without cross-reading the manifest. The field is optional for pre-J.j instances and always populated on fresh ones.
 
 **Edge Cases:**
 - Reporting visualization fails to render -> materialization fails (FR-13).
@@ -539,9 +593,10 @@ Specialize DataRefinery for a single data category.
 **Behavior:**
 1. A plugin contributes operation implementations for the recipe sections that apply to its category.
 2. Plugins are discovered via `pyproject.toml` entry points; an additional plugin search path may be configured.
-3. The plugin declares its name, the recipe sections it supports, and the operations it ships.
+3. The plugin declares its name, the recipe sections it supports, and the operations it ships. It also supplies recommended starting values for op params via `recommended_params(section, op)` (the `init` scaffolder writes them into the recipe text — there is no `ParameterSpec.default`; see Core Requirements § No implicit defaults) and declares which `extensions` keys it reads via `extension_keys()` (enforced by check 28).
 4. v1 ships:
    - **`image_classification`** — fully implemented Image plugin scoped to classification.
+   - **`audio_classification`** — fully implemented Audio plugin scoped to classification: audio input sources (`audio_folder` / `audio_flat` with `target_sample_rate`), the `window` Generation op, and the `log_mel_spectrogram` + fit-on-train `audio_normalize` Featurizations. Requires the `[audio]` extra at execution time; importable for discovery and validation without it.
    - **`tabular`** — stub: declares supported sections and operation outline, no operation implementations.
    - **`text`** — stub: declares supported sections and operation outline, no operation implementations.
 5. Stub plugins fail at materialize time with a clear "stub plugin; not implemented" error; they validate cleanly so a recipe can be authored against them.
@@ -585,7 +640,7 @@ Verify the runtime environment.
 Summarize a materialized instance.
 
 **Behavior:**
-1. Given an instance path or recipe + inputs (resolved via FR-4), report: recipe hash, input hash, seed, schema version, plugin, variant (if any), creation time, key counts (records per split), and warnings emitted at materialization time.
+1. Given an instance path or recipe + inputs (resolved via FR-4), report: recipe hash, input hash, seed, schema version, plugin, overlays (if any), creation time, key counts (records per split), and warnings emitted at materialization time.
 2. CLI renders a `rich` table; library returns a structured object.
 
 **Edge Cases:**
@@ -628,6 +683,7 @@ Declare what the label is and how it is obtained: present in the raw input, or d
 3. A derived label is produced by the same machinery as featurizations (FR-12) and may draw on any declared input source, including filenames and metadata.
 4. For `image_classification`, the `image_flat` source type accepts a `label_from` spec (see `Input` examples) that populates labels at load time from a sidecar CSV manifest. From `Labels`'s perspective this is `kind: direct` — the labels arrive intrinsically; no Featurization is involved.
 5. An `image_flat` source may also declare `unlabeled: true` to indicate the partition has no labels (typical for Kaggle-style heldout test sets). `Labels.source.kind` remains `direct` — labels exist on partitions that aren't unlabeled. `OutputExpectations` whose `field` equals `Labels.field` treat records lacking the field as "skipped" when any source declares `unlabeled: true` (so `required_field: <label>` no longer fails on the unlabeled partition); records where the field is present but `None` still fail.
+6. For `audio_classification`, a clip's `label` is assigned at the source/Splits level and **inherited by every window** the `window` Generation op produces from it (FR-9). Windows are never labeled independently; this keeps all windows of a clip in one split under one label (FR-7; check 29).
 
 **Edge Cases:**
 - Label source unresolvable from declared inputs -> caught by `validate` (check 13).
@@ -646,19 +702,33 @@ Declare assertions on the inputs and the materialized outputs.
 - Contract referencing a non-existent field -> caught by `validate` (check 17).
 - Distributional expectation that is statistically reasonable but legitimately violated by a small input -> reported with the observed and expected distributions; configurable as warning vs. failure per assertion.
 
+### FR-24: Extensions Namespace
+
+Provide a forward-compatible space for a plugin to prototype new recipe keys before committing them to the schema (Story J.n.6).
+
+**Behavior:**
+1. A top-level `extensions` block has the shape `{<namespace>: {<key>: <value>}}`, where `namespace` is the consuming plugin/owner.
+2. `extra="forbid"` is relaxed *only inside* a namespace (the inner mapping is a free `dict[str, Any]`); the rest of the recipe remains strict.
+3. The bound plugin enumerates the namespaces and keys it reads via `extension_keys() -> dict[str, set[str]]`; `validate` rejects any undeclared namespace or key (check 28).
+4. `extensions` is one of the four cache-identity segments: a non-empty block contributes its mapping to the `extensions` digest; an empty block hashes to the fixed empty-marker (additive — unused extensions never change identity), and the segment versions independently (`EXTENSIONS_SCHEMA_VERSION`).
+
+**Edge Cases:**
+- `extensions` namespace or key not declared by the bound plugin -> caught by `validate` (check 28).
+- Empty `extensions` block -> no effect on cache identity.
+
 ---
 
 ## Configuration
 
 **Recipe file** (single YAML, schema-versioned):
 
-- Top-level keys: `schema_version` (required), `plugin` (required), the recipe sections (most required, plugin-dependent), `variants` (optional).
-- Recipe sections per FR-1 through FR-23.
+- Top-level keys: `schema_version` (required), `plugin` (required), the recipe sections (most required, plugin-dependent), `overlays` (optional), `extensions` (optional).
+- Recipe sections per FR-1 through FR-24.
 
 **Configuration precedence** (highest wins):
 
 1. **Recipe file** — authoritative for data-pipeline semantics (sections, operations, splits, seed).
-2. **CLI flags** — execution context and ad-hoc overrides (cache root, log level, seed override, plugin path, variant selection, stage flag).
+2. **CLI flags** — execution context and ad-hoc overrides (cache root, log level, seed override, plugin path, overlay selection, stage flag).
 3. **Environment variables** — same execution-context surface as CLI flags, lower precedence.
 
 The recipe never reads from CLI flags or environment variables for its data-pipeline semantics; only execution context flows from the outer environment inward.
@@ -688,11 +758,11 @@ data/
 - **Test categories.**
   - **Unit** — pure functions, schema validation, cache identity computation, individual operations.
   - **Plugin contract** — every plugin (including stubs) is exercised against a contract test that asserts it declares the sections and operation schemas it claims.
-  - **Integration** — end-to-end materialization on a small fixture dataset (image classification with a CIFAR-10-shaped fixture); asserts byte-identical re-runs and cache reuse.
+  - **Integration** — end-to-end materialization on small fixture datasets (image classification with a CIFAR-10-shaped fixture; audio classification with a windowed-clip fixture, Story J.v); asserts byte-identical re-runs and cache reuse.
   - **CLI smoke** — every verb runs against a fixture recipe and produces the expected exit code and output structure.
 - **Determinism tests.** Re-run a fixture pipeline twice with the same seed; assert the resulting instance is byte-identical.
 - **Cache identity tests.** Whitespace/comment edits → cache hit; semantic edits → cache miss.
-- **Variant tests.** Each declared variant produces a distinct instance; default produces the un-overridden instance.
+- **Overlay tests.** Each declared overlay (and ordered combination) produces a distinct instance; default produces the un-overridden instance.
 - **Failure mode tests.** Forced failures at every pipeline stage leave a `FAILED`-marked temp directory and never touch the cache.
 
 ---
@@ -728,7 +798,7 @@ DataRefinery v1 is complete when:
 3. Cosmetic recipe edits (whitespace, comments, key reordering) result in a cache hit; semantic edits result in a cache miss.
 4. A failed materialization leaves a `FAILED`-marked temp directory and never produces a partial cached instance.
 5. `validate` correctly reports every check in the enumerated v1 list against fixture recipes designed to violate each one.
-6. The Image classification plugin ships fully implemented; tabular and text plugins ship as stubs that validate cleanly and fail at materialize time with a clear "not implemented" message.
+6. The image classification and audio classification plugins ship fully implemented; tabular and text plugins ship as stubs that validate cleanly and fail at materialize time with a clear "not implemented" message.
 7. CLI verbs `init`, `validate`, `check`, `status`, `materialize`, `report`, `inspect`, `clean` are present, exercised by smoke tests, and have library equivalents.
 8. The library API and CLI both materialize the same instance from the same recipe + inputs + seed.
 9. The deterministic path runs offline; LLM enhancement during `init` is exercised only when `lmentry` is installed and explicitly configured.

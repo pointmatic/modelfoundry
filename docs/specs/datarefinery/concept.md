@@ -5,19 +5,19 @@ This document defines why the `DataRefinery` project exists.
 - **Solution space**: solution statement, goals, scope, constraints
 - **Value mapping**: Pain point to solution mapping
 
-For requirements and behavior (what), see [`features.md`](features.md). For implementation details (how), see [`tech-spec.md`](tech-spec.md). For a breakdown of the implementation plan (step-by-step tasks), see [`stories.md`](stories.md). For an authoring-side walk-through of the recipe surface (section-by-section, fit-on-train discipline, variants, contracts, Filters-vs-Splits for class imbalance), see [`docs/guides/recipe-authoring.md`](../guides/recipe-authoring.md). For writing a third-party plugin (the `Plugin` protocol, `OperationSpec`, discovery), see [`docs/guides/plugin-authoring.md`](../guides/plugin-authoring.md). For project-specific must-know facts (workflow rules, hidden coupling, tool-wrapper conventions that the LLM would otherwise random-walk on), see [`project-essentials.md`](project-essentials.md). For the workflow steps tailored to the current mode (cycle steps, approval gates, conventions), see [`docs/project-guide/go.md`](../project-guide/go.md) — re-read it whenever the mode changes or after context compaction.
+For requirements and behavior (what), see [`features.md`](features.md). For implementation details (how), see [`tech-spec.md`](tech-spec.md). For a breakdown of the implementation plan (step-by-step tasks), see [`stories.md`](stories.md). For an authoring-side walk-through of the recipe surface (section-by-section, fit-on-train discipline, overlays, contracts, Filters-vs-Splits for class imbalance), see [`docs/guides/recipe-authoring.md`](../guides/recipe-authoring.md). For writing a third-party plugin (the `Plugin` protocol, `OperationSpec`, discovery), see [`docs/guides/plugin-authoring.md`](../guides/plugin-authoring.md). For project-specific must-know facts (workflow rules, hidden coupling, tool-wrapper conventions that the LLM would otherwise random-walk on), see [`project-essentials.md`](project-essentials.md). For the workflow steps tailored to the current mode (cycle steps, approval gates, conventions), see [`docs/project-guide/go.md`](../project-guide/go.md) — re-read it whenever the mode changes or after context compaction.
 
 ## Problem Space
 
 ### Problem Statement
-Preparing data for ML training is a recurring, specialized chore: setting up environments and accelerator drivers, exploring raw data, cleaning and transforming it, splitting train/val/test, generating features, and keeping all of that both reproducible across experiments and consistent between training and inference. The work is typically done in throwaway notebooks and scripts, the steps decay between projects, and the resulting artifacts are hard to hand off, replay, or audit. In coursework and research settings — where the focus is modeling, not data prep — each cohort and each project rediscovers the same gotchas.
+Preparing data for ML training is a recurring, specialized chore: setting up environments and accelerator drivers, exploring raw data, cleaning and transforming it, splitting train/val/test, generating features, and keeping all of that both reproducible across experiments and consistent between training and inference. The work is typically done in throwaway notebooks and scripts, the steps decay between projects, and the resulting artifacts are hard to hand off, replay, or audit. In experimentation and research settings — where the focus is modeling, not data prep — each new project rediscovers the same gotchas.
 
 **Why this problem exists:**
 The problem persists because data prep sits at the intersection of three forces that resist commoditization:
 
 - **Project-specific shape.** Every dataset has its own quirks (label encoding, metadata layout, class balance), so practitioners reach for a general-purpose stack (NumPy/Pandas/SciPy/Scikit-learn) and wire it together by hand each time. The stack is powerful but composable in many incompatible ways, so two practitioners solve the same problem differently.
 - **Reproducibility requires discipline that's easy to skip.** Seeding every stochastic operation, persisting fitted statistics on the training split, replaying the same transformation chain at inference — none of it is hard individually, but under deadline pressure it gets shortcut, and the resulting train/inference skew shows up later as silent quality regressions.
-- **Knowledge doesn't accumulate.** Notebook-based prep produces narrative artifacts, not declarative ones. There is no single object that says "this is what was done"; the truth is scattered across cells, files, and the practitioner's memory. Six months later — or for the next student in the curriculum — the steps have to be reconstructed.
+- **Knowledge doesn't accumulate.** Notebook-based prep produces narrative artifacts, not declarative ones. There is no single object that says "this is what was done"; the truth is scattered across cells, files, and the practitioner's memory. Six months later — or for the next practitioner picking up the project — the steps have to be reconstructed.
 
 ### Pain Points
 - **Tooling friction**: getting Python, accelerator drivers, and the scientific stack to cooperate consumes time that should go to modeling.
@@ -28,12 +28,12 @@ The problem persists because data prep sits at the intersection of three forces 
 - **Augmentation discipline**: stochastic augmentation accidentally applied to validation/test inflates reported metrics.
 - **Class-imbalance ad-hockery**: filtering, oversampling, and weighting strategies live in scattered code with no clear distinction between "remove data" and "weight at training time."
 - **Cache invalidation by hand**: practitioners re-run pipelines to be safe, or skip re-running and trust stale outputs.
-- **Knowledge decay**: between projects (and between cohorts), the prep playbook has to be reconstructed; specialized gotchas are relearned.
+- **Knowledge decay**: between projects (and between practitioners), the prep playbook has to be reconstructed; specialized gotchas are relearned.
 - **Hand-off friction**: downstream tools (training, evaluation, inference, drift detection) need a stable contract, but notebook outputs don't provide one.
 
 ### Target Users
-- **Primary — deep-learning curriculum** (students and instructors) doing image classification. They need a reproducible, low-friction path from raw images to a training-ready dataset so the course can focus on modeling.
-- **Secondary — ML practitioners on tabular and text problems** who want the same recipe-driven discipline outside imagery; served first via plugin stubs, later via full plugins.
+- **Primary — ML practitioners doing image classification.** They need a reproducible, low-friction path from raw images to a training-ready dataset so the work can focus on modeling rather than data prep.
+- **Secondary — ML practitioners on other modalities.** Audio classification is served by a *full* plugin (shipped in Phase J Subphase J-1), proving the abstractions extend beyond imagery; tabular and text remain plugin stubs slated for full plugins later.
 - **Indirect beneficiaries — downstream tools** (ModelFoundry, ModelMetrics, ModelMachine, DataMachine) and their users, who consume DataRefinery instances and reports against a stable contract rather than hand-rolled outputs. The shape-binding contract is pinned in [`modelfoundry/vendor-dependency-spec.md`](modelfoundry/vendor-dependency-spec.md).
 - **Indirect beneficiaries — notebook framework** (NbFoundry) and its users, who drive DataRefinery as a library + CLI inside Marimo cells. The interaction-binding contract (library entry points, CLI verbs, notebook-output ergonomics) is pinned in [`nbfoundry/vendor-dependency-spec.md`](nbfoundry/vendor-dependency-spec.md).
 - **Adjacent — occasional data-prep practitioners** (data scientists, researchers) who don't do this daily and need the playbook captured in a tool rather than in muscle memory.
@@ -54,7 +54,7 @@ The problem persists because data prep sits at the intersection of three forces 
 `datarefinery` is a Python project to refine raw data into reproducible, training-ready datasets from a single recipe.
 
 ### Solution Statement
-DataRefinery is a Python tool — usable as a library or a CLI — that compiles a single YAML **recipe** into a materialized **instance**: the recipe itself, the prepared dataset, the fitted statistics produced during preparation, and a report describing both. The recipe declares the data category, raw inputs, output contract, splits, contracts, filters, generation, transformations, augmentations, featurizations, and visualizations; each operation declares the stages and splits it applies to, so train-only behavior is explicit. DataRefinery executes the recipe deterministically, seeds every stochastic step, persists training-split statistics so the same preparation can be replayed at inference, and caches the result by the recipe's normalized semantic form plus raw-input hash plus seed. Re-running an unchanged recipe over unchanged inputs returns the cached instance unchanged; any semantic edit invalidates and rebuilds. A category-specific **plugin** contributes the operations that make sense for that data shape — Image (classification) ships first, with at least one additional category (tabular, ideally also text) sketched as a stub to keep the abstractions honest. An `init` command bootstraps a starter recipe from raw inputs deterministically, with an optional LLM enhancement layer for interpretive judgments.
+DataRefinery is a Python tool — usable as a library or a CLI — that compiles a single YAML **recipe** into a materialized **instance**: the recipe itself, the prepared dataset, the fitted statistics produced during preparation, and a report describing both. The recipe declares the data category, raw inputs, output contract, splits, contracts, filters, generation, transformations, augmentations, featurizations, and visualizations; each operation declares the stages and splits it applies to, so train-only behavior is explicit. DataRefinery executes the recipe deterministically, seeds every stochastic step, persists training-split statistics so the same preparation can be replayed at inference, and caches the result by the recipe's normalized semantic form plus raw-input hash plus seed. The semantic form is computed over independent **segments** (core / plugin / overlays / extensions): a change to one segment invalidates only that segment's cache scope and versions independently, so adding a new modality's fields never invalidates other modalities' instances. The interpreting code supplies no hidden defaults — every behavior-affecting value is written into the recipe (the scaffolder emits recommended starting values), so the recipe text is the whole truth. Re-running an unchanged recipe over unchanged inputs returns the cached instance unchanged; any semantic edit invalidates and rebuilds. A category-specific **plugin** contributes the operations that make sense for that data shape — image classification ships first, and **audio classification** follows as a second *fully real* plugin (windowing as a `Generation` op, log-mel `Featurization`, fit-on-train per-mel-bin normalization), proving the abstractions are category-agnostic rather than "image with extra steps"; tabular and text remain stubs. Experiment knobs are expressed as composable **overlays** and prototyped through an **extensions** namespace rather than forked recipes. An `init` command bootstraps a starter recipe from raw inputs deterministically, with an optional LLM enhancement layer for interpretive judgments.
 
 ### Goals
 Mapped to the value criteria above:
@@ -67,7 +67,7 @@ Mapped to the value criteria above:
 - **Cut ad-hoc code** by absorbing common prep work (splits, normalization, augmentation policy, class-imbalance handling) into recipe sections rather than scattered scripts.
 - **Make failures inspectable** through atomic temp-then-promote materialization: partial instances never appear in the cache; failed runs leave a marked temp directory for diagnosis.
 - **Stay operable offline** by keeping the deterministic scaffolder and full pipeline path free of network or LLM dependencies; LLM enhancement is strictly opt-in via `lmentry`.
-- **Validate plugin-interface honesty** by sketching a second (and ideally third) category as a stub so category-agnostic abstractions are exercised, not just asserted.
+- **Validate plugin-interface honesty** by delivering a second *full* category (audio classification) alongside lightweight stubs, so the category-agnostic abstractions are exercised, not just asserted.
 - **Provide a stable downstream contract** via the report's drift-relevant subsection, which DataMachine consumes against a defined shape.
 
 ### Scope
@@ -76,12 +76,14 @@ Mapped to the value criteria above:
 - Recipe-driven pipeline with the section set above; explicit per-operation stage/split applicability.
 - Schema-versioned YAML recipes; load-time refusal of unknown versions; documented migration path between versions.
 - Materialized instance = recipe + dataset + fitted statistics + report. No statistical artifacts persisted outside the report.
-- Cache identity from normalized semantic recipe form + raw-input hash + seed. Whitespace/key-order edits do not trigger rebuilds.
+- Cache identity from the normalized semantic recipe form (computed per **segment** — core / plugin / overlays / extensions) + raw-input hash + seed; a change to one segment invalidates only that segment's scope, and each segment versions independently. Whitespace/key-order edits do not trigger rebuilds.
+- No implicit defaults: the interpreting code supplies no behavior-affecting value; every such value is written into the recipe and the `init` scaffolder emits recommended starting values.
 - Atomic temp-then-promote materialization; no partial instances in cache.
-- Named **variants** within a recipe (any section, including `Filters`); experiment knobs are variants, not separate recipes.
+- Composable **overlays** within a recipe (ordered, multi-select, any section); experiment knobs are overlays, not separate recipes. An **extensions** namespace lets a plugin prototype new recipe keys before committing them to the schema.
 - Class-imbalance handling split cleanly: removal lives in `Filters`; weighting/resampling-during-training lives in `Splits` as a strategy ModelFoundry honors.
 - Image plugin scoped to **classification**.
-- Tabular stub at minimum (recipe section list and operation outline); text stub strongly preferred.
+- **Audio classification** plugin (full): audio input sources, decode/resample, windowing as a `Generation` op (window records carry `source_record_id` / `window_index`), log-mel `Featurization`, and fit-on-train per-mel-bin normalization.
+- Tabular and text stubs (recipe section list and operation outline) to keep the abstractions honest; full plugins later.
 - Python library API and CLI as co-equal surfaces.
 - CLI verbs: `init`, `validate`, `check`, `status`, plus pipeline-driving verbs (names to be settled in features spec).
 - `validate`: schema correctness plus an enumerated set of static logical checks (defined in features/tech spec).
@@ -96,7 +98,7 @@ Mapped to the value criteria above:
 - Model framework abstraction, training, evaluation, inference — owned by ModelFoundry, ModelMetrics, ModelMachine.
 - Production streaming and drift-detection logic — owned by DataMachine.
 - Persisted statistical artifacts beyond the report (no sidecar pickles, no separate stats files).
-- Recipe inheritance and multi-file recipe composition — variants suffice for v1.
+- Recipe inheritance and multi-file recipe composition — overlays suffice for v1.
 - Resume-from-stage during materialization — atomic temp-then-promote is the v1 failure model.
 - Hard LLM dependency — DataRefinery must work fully offline.
 
@@ -120,8 +122,8 @@ Mapped to the value criteria above:
 
 **Project / context:**
 
-- Purpose alignment: the v1 path must support a deep-learning curriculum for image classification end-to-end, without manual workarounds.
-- Integrates with `LearningFoundry` (curriculum presentation) and the related-tools chain (ModelFoundry, ModelMetrics, ModelMachine, DataMachine) — DataRefinery's outputs are inputs to those tools.
+- Purpose alignment: the v1 path must support image-classification ML workflows end-to-end, without manual workarounds.
+- Integrates directly with `NbFoundry` (notebook-driven experimentation) and the related-tools chain (ModelFoundry, ModelMetrics, ModelMachine, DataMachine) — DataRefinery's outputs are inputs to those tools. By association it reaches `LearningFoundry`, into which NbFoundry is directly integrated.
 - Author working preferences: plan-first with moderate-sized review chunks; strong recommendations over option menus; concise, verified, citation-bearing prose; document chain concept → features → tech-spec → stories with revisions scoped to the active document.
 
 **Open items carried into this concept (to be closed downstream):**
@@ -129,7 +131,7 @@ Mapped to the value criteria above:
 - Names for pipeline-driving CLI verbs (materialize, report, etc.).
 - Exact contents of the report's drift-relevant subsection (placeholder acceptable here; finalized before DataMachine work).
 - Enumerated list of static logical checks for `validate` (deferred to features or tech spec).
-- Whether the second plugin stub is tabular only or tabular + text (author leaning toward both; final scope set in features spec).
+- ~~Whether the second plugin stub is tabular only or tabular + text~~ — **resolved**: the second category became a *full* **audio classification** plugin (Phase J Subphase J-1); tabular and text remain stubs.
 
 ## Value Mapping
 **Tooling friction**:
@@ -151,6 +153,8 @@ Mapped to the value criteria above:
   - Every stochastic operation is seeded; same recipe + same inputs + same seed produces a byte-identical instance.
   - Fitted statistics are persisted with the instance — not in sidecar files — so the replay contract is structural rather than conventional.
   - Cache identity uses the recipe's normalized semantic form (parsed, key-sorted, comments stripped) plus raw-input hash plus seed, so meaningful edits invalidate the cache and cosmetic edits do not, removing both stale-result risk and spurious rebuild churn.
+  - Identity is computed per segment (core / plugin / overlays / extensions), so a change scoped to one segment — e.g. a new modality's plugin fields — invalidates only that segment's instances, and each segment carries its own version axis with a per-segment migration path.
+  - No implicit defaults: because the interpreting code supplies no behavior-affecting value, an operation's outcome cannot silently shift without a visible change to the recipe text it was computed from.
   - Schema-versioned recipes with documented migrations prevent silent semantic drift across DataRefinery versions.
 
 **Implicit splits and leakage**:
@@ -171,7 +175,7 @@ Mapped to the value criteria above:
   - Failed runs leave a marked temp directory for inspection rather than corrupting the cache or requiring manual cleanup.
 
 **Knowledge decay**:
-  - The recipe captures the data-prep playbook in a portable, declarative artifact that survives between projects and cohorts; students inherit a working recipe rather than reconstructing one.
+  - The recipe captures the data-prep playbook in a portable, declarative artifact that survives between projects and practitioners; the next person inherits a working recipe rather than reconstructing one.
   - The plugin model concentrates category-specific knowledge (image-classification operations) in a reusable place, so practitioners write recipes against curated operations rather than rediscovering the relevant scientific-stack idioms each time.
   - Schema versioning and documented migrations let recipes age gracefully across DataRefinery releases.
 

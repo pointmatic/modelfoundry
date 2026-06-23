@@ -55,6 +55,7 @@ pyve env run mypy src tests
 |---|---|---|
 | `[llm]` | `lmentry` | Optional LLM-enhancement layer in the `init` scaffolder (FR-17). DataRefinery never imports `lmentry` from the deterministic path. |
 | `[corruptions]` | `scikit-image`, `opencv-python-headless` | Runtime backends for the vendored Hendrycks-Dietterich corruption module (`plugins.image_classification._corruptions`), consumed by the `imagecorruptions_apply` Generation op (FR-GEN-1). The corruption *vocabulary* is in-tree so recipe-time validation works without the extras; only execution requires them. |
+| `[audio]` | `librosa` (pulls `soundfile`, `numba`, `scipy` transitively) | Decode/resample and spectral featurization for the `audio_classification` plugin (loader decode path, `window`, `log_mel_spectrogram`, `audio_normalize`). Imported lazily inside each op's `apply`, so plugin discovery and recipe validation work without the extra; only execution requires it. |
 
 ### Development (`requirements-dev.txt`)
 
@@ -78,7 +79,7 @@ None beyond Python 3.12.x and a POSIX-compatible filesystem (macOS first-class p
 
 ```
 src/datarefinery/
-  __init__.py                # public API: DataRefinery, Instance, materialize, __version__
+  __init__.py                # public API: DataRefinery, Instance, materialize, resolve_instance, resolve_status, __version__
   __main__.py                # `python -m datarefinery` -> cli.app:app
   py.typed                   # PEP 561 marker (ships in wheel)
   logging.py                 # JSON formatter + get_logger() helper
@@ -105,7 +106,7 @@ src/datarefinery/
     __init__.py
     models.py                # pydantic v2 Recipe model + per-section models
     loader.py                # FR-1 load + schema-version gate
-    validator.py             # FR-2 enumerated checks 1–23
+    validator.py             # FR-2 enumerated checks 1–29
     canonical.py             # JSON-canonical bytes for cache identity (FR-4)
     overlays.py              # FR-14 recipe overlays (J.n.5; was variants.py)
   cache/
@@ -117,7 +118,7 @@ src/datarefinery/
   pipeline/
     __init__.py
     runner.py                # PipelineRunner: stage sequencing
-    inputs.py                # disk-backed input loader (FR-3): image_folder + image_flat with label_from join
+    inputs.py                # disk-backed input loader (FR-3): image_folder + image_flat with label_from join (audio loaders live in the audio_classification plugin)
     fitted_stats.py          # FR-6 persistence (JSON for scalars, parquet for vectors)
     contracts.py             # FR-23 InputContracts / OutputExpectations evaluation
     workers.py               # opt-in ProcessPoolExecutor wrapper with deterministic seeding (per-record + per-record-variant)
@@ -137,8 +138,9 @@ src/datarefinery/
     visualizations.py        # reporting-mode rendering (writes to report/visualizations/)
   plugins/
     __init__.py
-    base.py                  # Plugin protocol/ABC + OperationSpec
+    base.py                  # Plugin protocol/ABC + OperationSpec; recommended_params + extension_keys hooks (J.n.4/J.n.6)
     discovery.py             # entry-point + plugin-path discovery
+    normalize_stats.py       # shared fit-on-train normalize helpers (fit_mean_std, zscore, std==0 → 1.0 guard); axis-parameterized for image (channel) + audio (mel-axis-0)
     image_classification/
       __init__.py
       plugin.py              # full v1 implementation
@@ -165,6 +167,14 @@ src/datarefinery/
         augmented_sample_grid.py    # FR-VIZ-2 `augmented_sample_grid` op + AugmentedSampleGridParams (Story H.u)
         corruption_severity_grid.py # FR-VIZ-3 `corruption_severity_grid` op + CorruptionSeverityGridParams (Story H.v); lazy-imports [corruptions] backend
         severity_ladder.py          # FR-VIZ-4 `severity_ladder` op + SeverityLadderParams (Story H.w); single-corruption complement to FR-VIZ-3
+    audio_classification/             # Subphase J-1 (Stories J.o–J.w): fully real second plugin
+      __init__.py
+      plugin.py                       # full v1 implementation; recommended_params for window / log_mel_spectrogram
+      inputs.py                       # audio_folder + audio_flat loaders; librosa decode/resample to mono float32 (lazy import)
+      operations/
+        __init__.py
+        generation.py                 # FR-GEN-2 `window` op (clip → fixed-length window records; source_record_id / window_index)
+        featurizations.py             # FR-FEAT-1 `log_mel_spectrogram` + FR-FEAT-2 fit-on-train `audio_normalize`
     tabular/
       __init__.py
       plugin.py              # stub: section list + operation outline only
@@ -273,19 +283,19 @@ class Instance:
 
     @classmethod
     def load(cls, path: pathlib.Path) -> "Instance": ...
-    def render_report(self) -> None: ...
+    def render_report(self, *, plugin: object | None = None) -> None: ...
 ```
 
 ### `recipe.loader` (FR-1)
 
 ```python
-SUPPORTED_SCHEMA_VERSIONS: frozenset[int] = frozenset({1, 2})
-LATEST_SCHEMA_VERSION: int = 2
+SUPPORTED_SCHEMA_VERSIONS: frozenset[int] = frozenset({1, 2, 3})
+LATEST_SCHEMA_VERSION: int = 3
 
 def load(path: pathlib.Path) -> Recipe:
-    """Parse YAML, gate on schema_version, apply registered migrations
-    from the loaded version to LATEST_SCHEMA_VERSION, return validated
-    pydantic Recipe (v2 shape)."""
+    """Parse YAML, gate on schema_version, apply registered flat migrations
+    from the loaded version to LATEST_SCHEMA_VERSION, then replay any
+    per-segment migrations, return validated pydantic Recipe (v3 shape)."""
 ```
 
 Edge cases mapped to features.md FR-1:
@@ -299,14 +309,15 @@ Edge cases mapped to features.md FR-1:
 ```python
 migrations: dict[tuple[int, int], Callable[[dict[str, Any]], dict[str, Any]]] = {
     (1, 2): v1_to_v2,   # composed chain
+    (2, 3): v2_to_v3,   # segmented-canonical era bootstrap + `variants` → `overlays` rename (Story J.n.5)
 }
 ```
 
-Each callable rewrites a recipe dict from one `schema_version` to the next, executed by the loader before pydantic validation. The chain for `(1, 2)` is the composition of `filters_reshape_v1_to_v2` (G15 / Story I.x.1 — lifts `FilterOp.predicate.op` and `FilterOp.predicate.seed` to top-level fields, renames the remaining keys to `params`), `generation_reshape_v1_to_v2` (G12 / Story I.x.2 — lifts `op` to top level from `name` (or from `params.op` if a recipe used that workaround), renames `applies_at` → `splits`, lifts the `output_schema_matches_input: true` workaround to `output_schema: "matches_input"`), and `assertion_naming_v1_to_v2` (G16a / Story I.x.3 — rewrites `InputContracts`/`OutputExpectations` assertion `kind` per `{dtype → dtype_equals, range → value_range, record_count → record_count_in_range}`; `required_field` and `distributional` unchanged). Each step is idempotent on already-v2 input so the chain remains robust under partial application.
+Each callable rewrites a recipe dict from one `schema_version` to the next, executed by the loader before pydantic validation. The chain for `(1, 2)` is the composition of `filters_reshape_v1_to_v2` (G15 / Story I.x.1 — lifts `FilterOp.predicate.op` and `FilterOp.predicate.seed` to top-level fields, renames the remaining keys to `params`), `generation_reshape_v1_to_v2` (G12 / Story I.x.2 — lifts `op` to top level from `name` (or from `params.op` if a recipe used that workaround), renames `applies_at` → `splits`, lifts the `output_schema_matches_input: true` workaround to `output_schema: "matches_input"`), and `assertion_naming_v1_to_v2` (G16a / Story I.x.3 — rewrites `InputContracts`/`OutputExpectations` assertion `kind` per `{dtype → dtype_equals, range → value_range, record_count → record_count_in_range}`; `required_field` and `distributional` unchanged). Each step is idempotent on already-v2 input so the chain remains robust under partial application. The `(2, 3)` step (`v2_to_v3`, Story J.n.5) renames the top-level `variants:` block to `overlays:` and marks the recipe as the segmented-canonical era (v3); see [`recipe.segments`](#recipesegments-story-jn2-infra--jn3-authoritative) for why the combiner switch rode this bump.
 
 ### `recipe.validator` (FR-2)
 
-Each of the 22 enumerated checks from features.md becomes a function in `validator.py` named `check_NN_<descriptor>`, returning a `CheckResult`. `validate()` runs them all and returns a `ValidationReport` listing every result; never short-circuits.
+Each of the 29 enumerated checks from features.md becomes a function in `validator.py` named `check_NN_<descriptor>`, returning a `CheckResult`. `validate()` runs them all and returns a `ValidationReport` listing every result; never short-circuits.
 
 ```python
 def validate(recipe: Recipe, plugin: Plugin) -> ValidationReport: ...
@@ -412,7 +423,7 @@ def compute_cache_key(
 
 Algorithm:
 
-1. `recipe_hash = sha256(to_canonical_bytes(recipe))`.
+1. `recipe_hash = recipe.segments.recipe_identity_hash(recipe)` — the segmented join (per-segment digests of `core` / `plugin` / `overlays` / `extensions`, joined in fixed order and re-hashed; Story J.n.3). The flat `to_canonical_bytes` still exists as the full-recipe dump but no longer defines identity.
 2. `input_hash = sha256(b"\n".join(sha256(content_of(src)) for src in sorted(raw_inputs)))` — sources sorted by declared name to stabilize order.
 3. `CacheKey(recipe_hash, input_hash, seed)`.
 
@@ -625,6 +636,22 @@ def discover_plugins(extra_paths: list[pathlib.Path] | None = None) -> dict[str,
 
 In-tree plugins register through the same entry-point group declared in `pyproject.toml`; there is one code path. The `--plugin-path` CLI flag and `DATAREFINERY_PLUGIN_PATH` env var append to the discovery search path for development.
 
+### `plugins.audio_classification` (Subphase J-1; Stories J.o–J.w)
+
+The second *fully real* plugin — the one that proves the category-agnostic abstractions are not "image with extra steps." Requires the `[audio]` extra at execution time; importable for discovery and validation without it (ops lazy-import `librosa`).
+
+**Input sources & decode (`inputs.py`).** Two source types: `audio_folder` (labels from class subdirectories; `label_from` / `unlabeled` rejected) and `audio_flat` (labels via a `label_from` sidecar manifest — `by_id` or `by_row_order` — or `unlabeled: true`). Both carry a **required** `target_sample_rate: int` on the `AudioSource(InputSource)` subclass (selected presence-based; see the `InputSection` data model). The loader decodes each clip to mono `float32` at `target_sample_rate` via `librosa.load(..., mono=True)` and stamps `record_id`, `sample_array` (in-pipeline), `sample_rate`, `path`, and `label` (when labeled).
+
+**`window` Generation op (`operations/generation.py`, FR-GEN-2).** Slices each clip into fixed-length window records. Params (`WindowParams`): exactly one of `window_length_samples: int` / `window_length_seconds: float`, plus `hop_samples: int` and `remainder: Literal["pad_zero", "drop"]` (all positive; the one-of constraint is a model validator). Deterministic (no seed). Each window's `record_id` is `f"{source_record_id}__w{window_index:04d}"`; it carries `source_record_id` (the parent clip's `record_id`), `window_index` (0-based), the windowed `sample_array`, and inherits `sample_rate` / `path` / `label` / `partition`. This is the audio analogue of FR-11 aggressive variants — record-multiplying — so splits operate at the clip level (FR-7; check 29 forbids stratifying on `source_record_id` / `window_index`).
+
+**Featurization ops (`operations/featurizations.py`).**
+- `log_mel_spectrogram` (FR-FEAT-1) — `LogMelParams`: `n_fft`, `hop_length`, `n_mels`, `f_min` (required), `f_max: float | None` (absent ⇒ Nyquist, `sample_rate / 2`), `power` (required). Reads `inputs[0]` (conventionally `sample_array`); writes `output_field` (conventionally `mel`) via `librosa.feature.melspectrogram` + `librosa.power_to_db`, a `float32` array of shape `(n_mels, n_frames)` in librosa-native orientation (mel bins on axis 0). Deterministic; not fit-on-train.
+- `audio_normalize` (FR-FEAT-2) — fit-on-train per-mel-bin standardization. `mean` / `std` are mode-selecting optionals (both pinned ⇒ used as-is; absent ⇒ fit on the **train** split only, per mel bin, persisted via `pipeline.fitted_stats`). Reads `inputs[0]` (conventionally `mel`); writes `output_field` (conventionally `feature`). Per-mel-bin z-score reducing over examples and frames (mel axis = 0) via the shared `plugins.normalize_stats` helper — the same machinery the image `normalize` uses, parameterized by axis. Because it reads a *derived* feature, it lives in the Featurizations stage, not Transformations (see the `pipeline.runner` stage-order rationale above).
+
+**In-pipeline vs persisted.** The audio `sample_array`, `mel`, and `feature` arrays are in-pipeline only — never serialized to `dataset/<split>.jsonl`. The JSONL carries the metadata consumers bind against: `record_id`, `source_record_id`, `window_index`, `label`, `path`, `sample_rate`.
+
+**Aggregation contract (R7 / Story J.u).** `source_record_id` is the clip↔window grouping key: DataRefinery owns the key (and keeps every window of a clip in one split under one inherited label), the consumer owns any window→clip aggregation math. The field set is a shape-binding cross-repo surface — see [`modelfoundry/vendor-dependency-spec.md`](modelfoundry/vendor-dependency-spec.md) § Audio window records.
+
 ### `scaffolder.init` (FR-17)
 
 ```python
@@ -679,7 +706,8 @@ class Recipe(pydantic.BaseModel):
     OutputExpectations: list[Expectation] = []
     Visualizations: list[VisualizationOp] = []
     Sinks: list[SinkOp] = []                       # Story I.d (disk-output declarations)
-    variants: dict[str, dict[str, Any]] = {}       # FR-14
+    overlays: dict[str, dict[str, Any]] = {}       # FR-14 (renamed from `variants` in v3 / Story J.n.5)
+    extensions: dict[str, dict[str, Any]] = {}     # FR-24 plugin-prototyping namespace (Story J.n.6)
 ```
 
 Per-section models (sketch; full field definitions land alongside the FR-1 implementation):
@@ -693,11 +721,11 @@ Per-section models (sketch; full field definitions land alongside the FR-1 imple
 | `SampleDataSection` | `selector: SampleSelector` (declarative subset of `Input`) |
 | `Contract` / `Expectation` | `field: str | None`, `assertion: AssertionExpr`, `severity: Severity` |
 | `FilterOp` | `name`, `op`, `params: dict[str, Any] = {}`, `stages`, `splits`, `seed: int \| SeedDerivationSpec \| None` (top-level; G15 / Story I.x.1 reshape — v1 nested all of these inside `predicate` and is auto-migrated by `recipe.migrations.filters_reshape_v1_to_v2`). Plugin-contributed sampling ops declare their own pydantic param model alongside the `OperationSpec` schema — `SamplePerClassParams` (`n_per_class: int > 0`, `label: str \| None`, `exclude_already_labeled: list[str] \| None`), `SamplePerClassFractionalParams` (`n_per_class_base: int > 0`, `fractions: dict[str, float]` each in `[0.0, 1.0]`, plus inherited `label` / `exclude_already_labeled`), and `DropByLabelParams` (`labels: list[str]`, non-empty) are validated inside the op via `model_validate(params)`; recipe-level validation still goes through the plugin's `OperationSpec` (check 18). |
-| `GenerationOp` | `name`, `op`, `inputs`, `output_schema: dict[str, FieldSpec] \| Literal["matches_input"]`, `seed: int \| SeedDerivationSpec`, `splits: list[str] = ["train"]`, `params: dict[str, Any] = {}`, `replace_input_records: bool = False` (G12 / Story I.x.2 reshape — v1 left `op` implicit in `name`, called the splits field `applies_at`, and required an explicit dict for `output_schema`; auto-migrated by `recipe.migrations.generation_reshape_v1_to_v2`). The `"matches_input"` shorthand is expanded at materialize time by `pipeline.stages.generation._resolve_output_schema` to `Output.record_schema` plus any fields named in `params.tag_fields` (list or dict form). Plugin-contributed parameterized ops declare a pydantic param model — e.g., `ImageCorruptionsApplyParams` (`corruption_types: list[str]` non-empty, `severities: list[int]` each in `[1,5]`, `preserve_original: bool = False`, `tag_fields: list[str] \| dict[str, str]`) — validated inside the op via `model_validate(params)`. Recipe-level validation runs through the plugin's `OperationSpec` (check 18 covers Generation as well as Filters / Transformations / etc). |
+| `GenerationOp` | `name`, `op`, `inputs`, `output_schema: dict[str, FieldSpec] \| Literal["matches_input"]`, `seed: int \| SeedDerivationSpec`, `splits: list[str] = ["train"]`, `params: dict[str, Any] = {}`, `replace_input_records: bool = False` (G12 / Story I.x.2 reshape — v1 left `op` implicit in `name`, called the splits field `applies_at`, and required an explicit dict for `output_schema`; auto-migrated by `recipe.migrations.generation_reshape_v1_to_v2`). The `"matches_input"` shorthand is expanded at materialize time by `pipeline.stages.generation._resolve_output_schema` to `Output.record_schema` plus any fields named in `params.tag_fields` (list or dict form). Plugin-contributed parameterized ops declare a pydantic param model — e.g., `ImageCorruptionsApplyParams` (`corruption_types: list[str]` non-empty, `severities: list[int]` each in `[1,5]`, `preserve_original: bool = False`, `tag_fields: list[str] \| dict[str, str]`) — validated inside the op via `model_validate(params)`. Recipe-level validation runs through the plugin's `OperationSpec` (check 18 covers Generation as well as Filters / Transformations / etc). The `audio_classification` plugin contributes `WindowParams` (one of `window_length_samples` / `window_length_seconds`, plus `hop_samples`, `remainder`) for its record-multiplying `window` op (FR-GEN-2). |
 | `SplitsSection` | `ratios: dict[str, float]` or `key_assignment: KeyAssignment`, `stratify_by: str | None`, `seed: int | None`, `class_balance: ClassBalanceStrategy | None`, `applies_to: str | None`. When `applies_to` is set, it names a single source-declared partition to sub-partition via `ratios`; sibling partitions are preserved verbatim. |
 | `TransformationOp` | `name`, `op`, `params`, `fit_source: str | None`, `splits`. A fit-on-train op may set `params["stats_from_instance"]` (validated as `StatsFromInstanceSpec` with `recipe: str` + `op_id: str`) to import fitted statistics from a sibling materialized instance instead of fitting locally; `fit_source` and `stats_from_instance` are mutually exclusive (validator check 22). Resolution lives in `cache.sibling_stats.resolve_sibling_stats`; the apply path is wired into `pipeline.stages.transformations.apply_transformations` (the stage dispatcher), so any future fit-on-train op picks up sibling-import support by declaring `stats_from_instance` in its `OperationSpec`. |
 | `AugmentationOp` | `name`, `op`, `params`, `splits` (validator rejects non-train), `seed`, `materialization: Literal["lazy", "aggressive"] = "lazy"`, `expansion: int = 1`. Model-level validator rejects `expansion < 1` and `expansion > 1 + materialization=lazy` — surfaced as `RecipeError` through the loader. Aggressive ops dispatch through a plugin-registered `Realizer` (see `plugins/image_classification/augmentations/_realizer.py`); per-variant seeding extends the FR-3 determinism contract with an `(op_id, variant_index)` coordinate. The `image_classification` plugin registers per-op pydantic param models — `RandomCropParams` (`size: int \| tuple[int, int]`, `padding: int = 0`, `padding_mode: Literal["reflect", "replicate", "zero", "constant"] = "reflect"`; Story H.q FR-AUG-1), `HorizontalFlipParams` (`p: float = 0.5` in `[0.0, 1.0]`; Story H.q FR-AUG-2), `ColorJitterParams` (`brightness`/`contrast`/`saturation` in `[0.0, 1.0]`, `hue` in `[0.0, 0.5]`; Story H.r FR-AUG-3), and `RandomErasingParams` (`p` in `[0.0, 1.0]`, `scale` and `ratio` as ordered float tuples; Story H.r FR-AUG-4) — validated inside each realizer via `model_validate(params)`. Recipe-level validation continues through the plugin's `OperationSpec` (check 18). |
-| `FeaturizationOp` | `name`, `inputs`, `output_field`, `op`, `params`, `splits`, `fit_source: str | None` |
+| `FeaturizationOp` | `name`, `inputs`, `output_field`, `op`, `params`, `splits`, `fit_source: str | None`. The `audio_classification` plugin contributes `LogMelParams` (`n_fft`, `hop_length`, `n_mels`, `f_min`, `f_max: float \| None` ⇒ Nyquist when absent, `power`) for `log_mel_spectrogram` (FR-FEAT-1), and the mode-selecting `mean` / `std` optionals for fit-on-train `audio_normalize` (FR-FEAT-2; per-mel-bin via `plugins.normalize_stats`). |
 | `VisualizationOp` | `name`, `op`, `params`, `stage`, `mode: Literal["exploration", "reporting"]`. The plugin op handle's `render(...)` returns either `bytes` (single PNG, persisted as `<op.name>.png`) or `Mapping[str, bytes]` (one PNG per key, persisted as `<op.name>_<key>.png`); the runner / exploration renderer also pass an optional `recipe: Recipe \| None = None` kwarg consumed by policy-aware ops (introduced Stories H.t / H.u). The `image_classification` plugin registers per-op pydantic param models — `PixelDistributionParams` (`bins: int = 64`, `splits: list[str]`; Story H.t FR-VIZ-1), `AugmentedSampleGridParams` (`n_base: int`, `n_variants: int`, `seed: int \| None = None`; Story H.u FR-VIZ-2), `CorruptionSeverityGridParams` (`n_images: int`, `corruption_types: list[str]`, `severities: list[int]` each in `1..5`; Story H.v FR-VIZ-3), and `SeverityLadderParams` (`n_examples: int`, `corruption_type: str`; Story H.w FR-VIZ-4). Recipe-time vocabulary validation for the two corruption-aware ops uses the in-tree `_corruption_names.CORRUPTION_NAMES_ALL` (no `[corruptions]` extras required for validation; only for execution). |
 | `SinkOp` | `name`, `stage: Literal["post_InputContracts", "post_Filters", "post_Splits", "post_Generation", "post_Transformations", "post_Featurizations", "post_Augmentations", "post_OutputExpectations", "post_Visualizations"]`, `splits: list[str] \| None`, `field: str`, `format: Literal["png_per_record"]`, `path_template: str`. Story I.d disk-output declaration. The path-template grammar (`{field}`, `{field\|stem/lower/upper/str}`, `{split}`) is parsed at validate time; templates that escape the instance directory (absolute or `..` traversal) are rejected. v1 ships one writer — `png_per_record` requires uint8 H×W×C (or H×W) on the named field and writes via `PIL.Image.fromarray`. Sink output participates in canonical recipe bytes (cache identity) and the existing temp-then-promote atomic write (FR-5); per-sink summaries land in `manifest.sinks[<name>]`. |
 
@@ -732,12 +760,13 @@ class Manifest(pydantic.BaseModel):
 class DriftSchema(pydantic.BaseModel):
     schema_version: int = 0            # placeholder; bumped to 1 at production release
     plugin: str
+    recipe_hash: str | None = None     # Story J.j: full SHA-256 echoed from the cache key; None for pre-J.j instances
     splits: dict[str, SplitDriftRecord]
     feature_summary: dict[str, FeatureDriftRecord]
     notes: list[str] = []
 ```
 
-`SplitDriftRecord` and `FeatureDriftRecord` are typed JSON shapes (record count, mean/std for numeric, top-N value frequencies for categorical) — concrete enough for DataMachine to begin coding against, documented as unstable until production release.
+`SplitDriftRecord` and `FeatureDriftRecord` are typed JSON shapes (record count, mean/std for numeric, top-N value frequencies for categorical) — concrete enough for DataMachine to begin coding against, documented as unstable until production release. `recipe_hash` (Story J.j) lets a consumer detect a stale fitted-statistics block by comparing `drift.json.recipe_hash` against `manifest.recipe_hash` without cross-reading the manifest; it is always populated on fresh instances.
 
 ### RuntimeConfig
 
@@ -758,7 +787,7 @@ CLI flags / env vars populate this object before `DataRefinery.from_recipe(...)`
 
 ### Recipe sections recap
 
-Required for every recipe: `schema_version`, `plugin`, `Input`, `Output`, `Labels`, `Splits`, `OutputExpectations`. Optional but commonly present: `InputContracts`, `Filters`, `Generation`, `Transformations`, `Augmentations`, `Featurizations`, `Visualizations`, `Sinks`, `SampleData`, `variants`.
+Required for every recipe: `schema_version`, `plugin`, `Input`, `Output`, `Labels`, `Splits`, `OutputExpectations`. Optional but commonly present: `InputContracts`, `Filters`, `Generation`, `Transformations`, `Augmentations`, `Featurizations`, `Visualizations`, `Sinks`, `SampleData`, `overlays`, `extensions`.
 
 Plugin-specific operation parameters live inside each operation's `params` field and are validated against the plugin's `OperationSpec` schemas (validator check 18).
 
@@ -767,7 +796,7 @@ Plugin-specific operation parameters live inside each operation's `params` field
 Highest wins:
 
 1. **Recipe file** — authoritative for data-pipeline semantics.
-2. **CLI flags** — execution context only (`--cache-root`, `--log-level`, `--plugin-path`, `--variant`, `--seed`, `--workers`).
+2. **CLI flags** — execution context only (`--cache-root`, `--log-level`, `--plugin-path`, `--overlay`, `--seed`, `--workers`).
 3. **Environment variables** — same execution-context surface, lower precedence.
 
 Recipe semantics never read from CLI/env. The only field where CLI flag overrides recipe is `--seed`, which is the documented ad-hoc-run case (and the override changes the cache identity, so a different instance is produced).
@@ -842,7 +871,7 @@ Single console script `datarefinery`, defined as a typer `Typer` instance at `da
 --plugin-path PATH      (env: DATAREFINERY_PLUGIN_PATH, repeatable)
 --workers N             (env: DATAREFINERY_WORKERS, default: 1)
 --seed INT              (recipe wins for non-ad-hoc; overrides per-run otherwise)
---variant NAME          (FR-14)
+--overlay NAME          (FR-14; repeatable, ordered, last-writer-wins per section)
 --no-color              (force non-rich output)
 --quiet / --verbose     (level shortcuts)
 --version               (datarefinery package version)
