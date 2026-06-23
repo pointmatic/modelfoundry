@@ -61,6 +61,19 @@ without special-casing — an omitted segment and an empty one are identical byt
 > the all-empty constant, sort collation). A divergence here is a cross-repo
 > event, not an in-tree decision. DataRefinery's repo was not importable in this
 > session, so this confirmation is an explicit I.b precondition.
+>
+> **Resolved at Story I.j.5 (v0.17.0 / DR v0.23.0):** DataRefinery has now
+> implemented its `join_stable` and **the two byte formats diverge** — DR's
+> `datarefinery.recipe.segments.join_stable` is `b"\x1f".join(digests)` (an
+> unframed unit-separator join of the raw per-segment digests), whereas MF keeps
+> the labeled, length-framed, label-sorted, prefix-capable form above. This does
+> **not** functionally break MF: MF consumes the DR instance as an opaque hashed
+> unit (reads DR's `manifest.recipe_hash`, XORs it into `data_instance_hash16`)
+> and never recomputes DR's hash with MF's combiner. Both sides kept the combiner
+> prefix-capable (DR exposes `prefix_hash`), so the divergence is load-bearing
+> only if/when the deferred vertical / cross-tool hash-chain axis ships.
+> **Aligning the formats is a cross-repo coordination event for the family — do
+> not change MF's combiner unilaterally.**
 
 ---
 

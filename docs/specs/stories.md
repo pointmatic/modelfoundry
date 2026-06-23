@@ -255,13 +255,13 @@ Reconcile MF's spec docs to the shipped `overlays` surface (alignment, not net-n
 
 ---
 
-### Story I.j.5: Cross-repo governance — `join_stable` byte-format divergence [Planned]
+### Story I.j.5: Cross-repo governance — `join_stable` byte-format divergence [Done]
 
 Record the family-contract status surfaced by the upgrade. **Not an MF code change** — a governance/coordination action.
 
-- [ ] **Finding.** DR v0.23 has now *implemented* its `join_stable` — closing the open item in `project-essentials.md` / `docs/spikes/I.a-segmented-recipe-identity.md`. **The byte formats diverge:** DR uses `b"\x1f".join(digests)` (unframed unit-separator join of raw per-segment digests); MF uses a **labeled, length-framed, prefix-capable** concatenation ([canonical.py:103-124](../../src/modelfoundry/recipe/canonical.py#L103-L124)). This does **not** functionally break MF — MF consumes the DR instance as an opaque hashed unit (reads DR's `manifest.recipe_hash`, XORs into `data_instance_hash16`; never recomputes DR's hash with MF's combiner). It becomes load-bearing only if/when the deferred vertical / cross-tool hash-chain axis ships (both sides kept the combiner prefix-capable for exactly that).
-- [ ] **Update `project-essentials.md`** — change the cross-repo open item from "DR has not yet implemented `join_stable`" to "DR v0.23 implemented it; formats diverge (see below); aligning is a cross-repo coordination event, not an in-tree fix." Same note in `docs/spikes/I.a-segmented-recipe-identity.md`.
-- [ ] **Surface to the family** (DataRefinery → ModelFoundry → nbfoundry → learningfoundry): is `join_stable`'s byte format meant to be byte-identical across tools, or only structurally analogous? Do **not** alter MF's combiner unilaterally.
+- [x] **Finding — verified empirically against the installed DR v0.23.0.** DR has now *implemented* its `join_stable` (`datarefinery.recipe.segments.join_stable`), closing the open precondition. **The byte formats diverge:** DR is `b"\x1f".join(digests)` (`_JOIN_SEP = b"\x1f"`, an unframed unit-separator join of the raw per-segment digests); MF uses a **labeled, length-framed, label-sorted, prefix-capable** concatenation ([canonical.py](../../src/modelfoundry/recipe/canonical.py)). Both kept prefix-capability (DR exposes `prefix_hash`). This does **not** functionally break MF — MF consumes the DR instance as an opaque hashed unit (reads DR's `manifest.recipe_hash`, XORs into `data_instance_hash16`; never recomputes DR's hash with MF's combiner). It becomes load-bearing only if/when the deferred vertical / cross-tool hash-chain axis ships.
+- [x] **Updated `project-essentials.md`** — replaced the "DR has not yet implemented `join_stable`" open item with the resolved status (DR v0.23 implemented it; formats diverge — both forms quoted; doesn't break MF; aligning is a cross-repo coordination event, not an in-tree fix; do not change MF's combiner unilaterally). Same resolution note added to the I.b cross-repo checkpoint in [`docs/spikes/I.a-segmented-recipe-identity.md`](../spikes/I.a-segmented-recipe-identity.md).
+- [x] **Surfaced to the family** — recorded as the open coordination question in both docs ("is `join_stable`'s byte format meant to be byte-identical across the four tools, or only structurally analogous?"). The cross-team ask (DataRefinery → ModelFoundry → nbfoundry → learningfoundry) is a developer/maintainer action outside this repo; MF's combiner is **not** altered unilaterally.
 
 **Version:** no bump (doc/governance; rides v0.17.0).
 
