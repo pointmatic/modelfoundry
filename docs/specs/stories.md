@@ -291,6 +291,110 @@ on MF's side (no DR change, no per-instance sidecar patch needed).
 
 ---
 
+## Subphase I-1: Audio Feature-Array Consumption
+
+ModelFoundry's consumer half of the audio feature-array seam — the PyTorch loader path that consumes prepared log-mel spectrogram feature arrays from a materialized DataRefinery instance via the per-record `feature_path` field, applying the persisted per-mel-bin `audio_normalize` fit-on-train statistics at load. The MC-dropout stochastic path and `Inference` recipe block are **already built and modality-agnostic** ([stochastic.py](../../src/modelfoundry/plugins/pytorch/stochastic.py), [models.py:91-128](../../src/modelfoundry/recipe/models.py#L91)) — this subphase adds only the loader branch + the clip-level window aggregation that layers over it.
+
+Derived from [`consumer-gap-solutions.md`](consumer-gap-solutions.md) Gap 3 (decision: build the feature-array path; spectrogram-as-image is rejected as lossy) and bound to [`datarefinery/vendor-dependency-spec.md`](datarefinery/vendor-dependency-spec.md) § "Audio feature-array persistence" (Q1–Q6), § "Audio spectral features", § "`audio_normalize` statistics", § "Audio window records" (R7), and § "Failure modes ModelFoundry SHOULD detect". Full gap analysis, the pinned-contract facts, the mini-features/tech-spec, and the out-of-scope walkthrough live in [`phase-i-subphase-1-audio-feature-consumption-plan.md`](phase-i-subphase-1-audio-feature-consumption-plan.md).
+
+---
+
+> **Release cadence (Subphase I-1) — phase-bundled, one minor (multi-release exception).** Phase I already shipped (I.h → v0.16.0, I.j.3 → v0.17.0, I.k → v0.17.1). Subphase I-1 is a follow-on subphase that ships its **own** release tag — the documented Version-Cadence multi-release exception (`_phase-letters.md` § Subphases). Stories I.l–I.q carry no version; **I.r owns the single minor bump → v0.18.0** (new additive capability). **Not cache-invalidating** for any existing instance: the loader change is additive and the only canonical-bytes surface (the I.o aggregation-policy recipe field) is authored only by *audio* recipes — no existing image instance is perturbed. Pre-prod, no production ceremony.
+
+> **Cross-repo sequencing.** DataRefinery has **not yet shipped** the `npy_per_record` sink (forward-declared in the vendor-spec). MF builds its half **now against the pinned Q1–Q6 contract**, verified with a synthesized `.npy` fixture (Story I.l) that mimics the contract exactly. End-to-end against a *real* DR audio instance is verified when DR ships its sink; MF's half is complete and the seam stays aligned. MF consumes the instance **read-only** (never re-hashes it — loose-coupling invariant).
+
+---
+
+### Story I.l: Synthesized audio feature-array fixture builder [Done]
+
+Test substrate, foundation-first — no `src/` change. Extend the fixture machinery ([tests/fixtures/datarefinery_instances/builder.py](../../tests/fixtures/datarefinery_instances/builder.py), or add a sibling `audio_smoke/builder.py`) to emit a DataRefinery-shaped **audio** instance matching the pinned contract, so every following story has something to test against. → New [tests/fixtures/datarefinery_instances/audio_smoke/builder.py](../../tests/fixtures/datarefinery_instances/audio_smoke/builder.py) (`build_dr_audio_instance`), wired as a `dr_audio_instance` conftest fixture ([tests/conftest.py](../../tests/conftest.py)), verified by [test_audio_fixture_foundation.py](../../tests/unit/test_audio_fixture_foundation.py) (11 tests). Loads through the **real installed DR v0.23.0** `audio_classification` plugin + `dr.Instance.load` (the `npy_per_record` sink format is a plain `str`, so the forward-declared value persists/round-trips cleanly despite DR not shipping the sink yet).
+
+- [x] **Feature arrays on disk.** Write `features/<split>/<record_id>.npy` as `(n_mels, n_frames)` `float32` (vendor-spec Q3/Q4); allow a nested `record_id` (`<clip>/<...>__w####`) to exercise the nested-POSIX case (Q5). → `clip_id = <class>/clip_<n>` ⇒ `feature_path` nests below `features/<split>/` by default; array written `rng.random(...).astype(np.float32)`, rank-2.
+- [x] **Window-record JSONL.** Each `<split>.jsonl` record carries `feature_path` (instance-root-relative, Q1), `source_record_id` (parent clip), `window_index`, label, and `record_id = <clip_id>__w{window_index:04d}`. Optionally include a stray source `path` on one record to exercise Q6 (`feature_path` authoritative). → `windows_per_clip` (default 2) windows per clip; `stray_path_on_first=True` rides a `path` on one record.
+- [x] **`audio_normalize` fitted stats.** `fitted_statistics/<op_id>/{mean,std}.parquet` — per-mel-bin, **`n_mels` rows**, axis-0 order, single `value` column (parity with image `normalize`); include a zero-variance mel bin to exercise the `std == 0 → 1.0` guard. → `op_id = "audio_norm"` (= the `audio_normalize` featurization step name; exported as `AUDIO_NORM_OP_ID`); `float64` stats; `zero_variance_bin` (default 3) writes `std == 0.0`.
+- [x] **Manifest + recipe.** `manifest.record_counts` **post-windowing**; `manifest.sinks[<name>].format = "npy_per_record"`; a recipe object exposing an `audio_normalize` op in its **`Featurizations`** section. Add a builder variant that produces a **dangling `source_record_id`** (window → no clip) for the I.o failure-mode test. → `record_counts` = window counts (8 train / 4 val by default); `sinks["features"].format = "npy_per_record"`; recipe authors a `log_mel_spectrogram` + `audio_normalize` `Featurizations` pair; `dangling_source_record_id=True` appends one orphan window whose `source_record_id` matches no `record_id` prefix.
+
+**Version:** no bump (test fixtures; rides v0.18.0).
+
+---
+
+### Story I.m: Feature-array branch in `_decode` + per-record branch selection [Planned]
+
+Add the feature-array load path; image path unchanged (additive).
+
+- [ ] **Branch selection.** In [data.py:`_decode`](../../src/modelfoundry/plugins/pytorch/data.py#L210) / `_resolve_image_path` precedence: a record carrying `feature_path` takes the feature branch; `feature_path` is **authoritative over a stray `path`** (Q6); `image_path`/bare `path` keep the image branch.
+- [ ] **Resolve `feature_path`.** Instance-root-relative (`<instance>/<feature_path>`, Q1 — the I.k sink-`path` bucket, **not** `dataset/`-relative); nested POSIX join, verbatim (Q5). A missing feature file is refused at bind time (extend the I.k `_verify_record_images_resolvable` gate to cover `feature_path`).
+- [ ] **Load + shape.** `np.load`, **assert `ndim == 2`** (Q4 — refuse otherwise), unsqueeze to `(1, n_mels, n_frames)`; preserve the raw `float32` mel values (no `/255`, no premature normalize — normalization is I.n's job, applied at `__getitem__`).
+- [ ] **Geometry guard.** Confirm `_refuse_unbaked_geometry_transforms` does not false-trip on the audio path (features are sinked content, not pre-transform pixels); add/adjust as needed.
+- [ ] **Tests (via I.l fixture).** Decode resolves a nested instance-relative `feature_path` from a **CWD that is not the instance** (parity with I.k's regression); `feature_path` wins over `path`; non-2-D array refused; default image fixtures still decode unchanged.
+
+**Version:** no bump (rides v0.18.0).
+
+---
+
+### Story I.n: `audio_normalize` fit-on-train branch [Planned]
+
+Apply the persisted per-mel-bin statistics at load — the audio analogue of image `normalize`, on the correct axis.
+
+- [ ] **Read DR `Featurizations`.** Extend [data.py:`_resolve_normalization_steps`](../../src/modelfoundry/plugins/pytorch/data.py#L89) to scan the bound recipe's **`Featurizations`** section (today only `Transformations` is scanned) for an `audio_normalize` op and read its `mean`/`std` vectors (`n_mels` rows) from `fitted_statistics/`.
+- [ ] **Register fit-on-train op.** Add `audio_normalize` to [`_FIT_ON_TRAIN_OPS`](../../src/modelfoundry/plugins/pytorch/data.py#L39) so the geometry guard treats it as non-baked.
+- [ ] **Apply on the mel axis.** Per-mel-bin standardization on **axis 0**: `(feat − mean[:, None]) / std[:, None]` — **not** the image CHW `.view(-1, 1, 1)`. Make the reshape modality-aware, driven by the active branch (I.m). `float64` stats over the `float32` array with promotion (Q3); same exact zero-variance guard (`std == 0 → 1.0` at apply, persisted `std` unmodified).
+- [ ] **Tests.** Per-mel-bin standardized output byte-matches a hand-computed reference (including the zero-variance bin); image `normalize`/`mean_subtract` reshape path unchanged.
+
+**Version:** no bump (rides v0.18.0).
+
+---
+
+### Story I.o: Clip-level window aggregation (R7) + dangling-key refusal [Planned]
+
+The consumer-owned aggregation math (DR ships no aggregation op). Layers over the **already-built** MC-dropout per-record outputs ([stochastic.py](../../src/modelfoundry/plugins/pytorch/stochastic.py)).
+
+- [ ] **Design decision (settle in-story).** (a) Where aggregation lives — loader vs. evaluation stage; (b) the **recipe field shape** for the aggregation policy. Per Phase I no-implicit-defaults, the policy is **author-required + scaffolder-emitted** or a **mode-selecting optional** with a versioned absent⇒behavior mapping — *not* a silent code default. This is the only canonical-bytes-affecting change in the subphase, and only audio recipes author it.
+- [ ] **Group + aggregate.** Regroup window-level predictions (incl. MC-dropout means / `predictive_entropy` / `mc_variance`) by `source_record_id` into clip-level results; apply the declared policy (mean / logit-average / majority-vote). `window_index` available for order-sensitive policies.
+- [ ] **Dangling-key failure mode.** A window whose `source_record_id` resolves to no clip in the instance → **refuse** (vendor-spec § Failure modes), alongside the existing bind-time gates. Test via the I.l dangling-key fixture variant.
+- [ ] **Validator cross-check.** The aggregation policy references a producible grouping; surface a misdeclaration at `validate`, not mid-run.
+
+**Version:** no bump (rides v0.18.0).
+
+---
+
+### Story I.p: End-to-end audio MC-dropout integration test (acceptance) [Planned]
+
+The brief's verification, turned into the acceptance gate.
+
+- [ ] **End-to-end run.** A materialized (synthesized, I.l) audio instance + a 1-channel spectrogram-CNN recipe with `Inference: {mode: mc_dropout, mc_samples: T}` trains end-to-end, producing per-record `predictive_entropy` / `mc_variance` and `ece` over MC-aggregated means, **clip-level** via I.o.
+- [ ] **Reproducibility parity.** Assert **byte-deterministic** across two runs (excluding wall-clock fields) and **round-trips from disk** (`ModelInstance.load(path).predict(...)` without external config) — the four determinism invariants hold on the audio path exactly as the image path.
+- [ ] **Image path unaffected.** A default image MC-dropout/integration test stays green (additive guarantee).
+- [ ] **Full CI gate green.** ruff check + ruff format --check + mypy (typecheck) + light + smoke-pytorch.
+
+**Version:** no bump (rides v0.18.0).
+
+---
+
+### Story I.q: Gap 2 docs — Encoder-normalization recipe pattern [Planned]
+
+Zero code (image-encoder, orthogonal to audio; folded in as the last open item in the same solutions doc). Closes the Gap 2 *intuition* gap so the next consumer doesn't re-derive it.
+
+- [ ] **Document the pattern** at the recipe surface: a frozen pretrained encoder gets its exact stats today via DR `resize` (baked → uint8 sink) + fixed-stat `normalize` (applied at load by MF over the uint8 pixels) — **no `Encoder`-op preprocessing, no code change**.
+- [ ] **Units caveat + conversion table.** MF applies `(x − mean)/std` on **0-255 pixel units with no `/255`** ([data.py:189-199](../../src/modelfoundry/plugins/pytorch/data.py#L189-L199)); HF stats are `[0,1]`-unit, so write **`mean₂₅₅ = image_mean × 255`, `std₂₅₅ = image_std × 255`** into the DR `normalize` op. Include the worked ImageNet / ViT `[-1,1]` table from [`consumer-gap-solutions.md`](consumer-gap-solutions.md) Gap 2.
+
+**Version:** no bump (doc-only; rides v0.18.0).
+
+---
+
+### Story I.r: Doc sync, project-essentials append & release — owns the bump (→ v0.18.0) [Planned]
+
+- [ ] **`features.md`** — add FR-AUDIO-1 (feature-array consumption), FR-AUDIO-2 (clip-level window aggregation R7 + dangling-key refusal), FR-AUDIO-3 (reproducibility parity).
+- [ ] **`tech-spec.md`** — reflect the loader feature-array branch, the `audio_normalize` mel-axis read path, the window/clip record model, and the aggregation-policy recipe field.
+- [ ] **`concept.md` / `README.md`** — adjust scope wording if needed (audio feature consumption now in scope on the PyTorch plugin).
+- [ ] **Vendor-spec mirror note** — record that MF's consumer half is **ready**; the seam stays **forward-declared** until DR ships `npy_per_record` (re-ratified to shipped when both land). Any change MF needs to the *shared* contract is **proposed to DR** (attributed `MF:`), never edited in the MF mirror in isolation.
+- [ ] **`project-essentials.md`** — append any new must-know facts (plan_phase Step 8): the `feature_path`/`audio_normalize`/window-aggregation loader contract and the read-only loose-coupling reminder.
+- [ ] **Release** — owns the single minor bump **→ v0.18.0**; release note: new audio feature-array consumption capability; **not cache-invalidating** for existing instances.
+
+**Version:** **minor → v0.18.0** (new additive capability; multi-release-exception bump for Subphase I-1). Not cache-invalidating for existing instances.
+
+---
+
 ## Future
 
 <!--

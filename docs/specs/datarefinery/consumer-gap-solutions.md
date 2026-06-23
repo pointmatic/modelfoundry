@@ -258,10 +258,11 @@ when Phase J was archived, so the brief's link is merely stale. The companion
 [`modelfoundry-audio-feature-consumption.md`](modelfoundry-audio-feature-consumption.md)
 (the consuming half of the seam) is **also in-repo now**; it targets the *ModelFoundry*
 repo (its fix lives there) but usefully pins one producing-side constraint: the consumer
-resolves a `feature_path` relative to `dataset/` into a `(1, n_mels, n_frames)` /
-`(C, n_mels, n_frames)` spectrogram tensor and applies the persisted `audio_normalize`
-fit-on-train stats. Its fix is required for an end-to-end unblock; this doc covers
-DataRefinery's producing half only.
+resolves a `feature_path` (instance-root-relative, `<instance>/<feature_path>`) into a
+`(1, n_mels, n_frames)` model-input tensor (always 2-D `(n_mels, n_frames)` `float32` on
+disk in v1) and applies the persisted per-mel-bin `audio_normalize` fit-on-train stats.
+Its fix is required for an end-to-end unblock; this doc covers DataRefinery's producing
+half only.
 
 **Root cause worth noting:** that archived requirements spec specifies R4 (compute the
 spectral feature) and R5 (fit-on-train normalize) on the data side, but its "Contract
@@ -278,16 +279,28 @@ ingestion/bugfix item, and it cannot be created in `debug` mode. Recommended pat
 
 - **Architectural / integration spike first.** The brief lays out three behavior-level
   options; the spike chooses among them and settles the paired ModelFoundry contract:
-  1. **`npy_per_record` (brief's preferred).** Persist the named float field per record
-     (e.g. `features/<split>/<record_id>.npy`) and rewrite a `feature_path` relative to
-     `dataset/`, mirroring how `png_per_record` rewrites `image_path`. Smallest change —
-     reuses the sink mechanism + stage model, keeps the "arrays are in-pipeline" JSONL
-     convention intact.
+  1. **`npy_per_record` (brief's preferred).** Persist the **raw `mel`** field (the
+     pre-normalize `log_mel_spectrogram` output, `float32`) per record (e.g.
+     `features/<split>/<record_id>.npy`) and rewrite a per-record `feature_path`
+     (**instance-root-relative**, resolved `<instance>/<feature_path>` — the J.g
+     sink-`path` bucket, *not* `image_path`'s `dataset/`-relative anchor), mirroring how
+     `png_per_record` persists pixels + rewrites the JSONL `path`. The consumer applies
+     the persisted per-mel-bin `audio_normalize` stats at load — so persist `mel`, **not**
+     the already-normalized `feature`, or the consumer double-normalizes. Smallest change —
+     reuses the sink mechanism + stage model, keeps the "arrays are in-pipeline; persist
+     via sidecar" convention intact. *(Both pins — `mel` not `feature`, instance-root
+     anchor — were ratified in the 2026-06-23 MF review round; see
+     [`modelfoundry/vendor-dependency-spec.md`](modelfoundry/vendor-dependency-spec.md)
+     § "Audio feature-array persistence", Q1/Q2.)*
   2. **Inline npy-bytes / base64 in the JSONL** — simplest to wire but bloats the JSONL
      and breaks the in-pipeline-array convention. Not preferred.
   3. **A uint8-quantization sink mode** (spectrogram → image through the existing PNG
-     path) — lossy (quantization + range clipping) but unblocks the common
-     CNN-on-spectrogram pattern with minimal new surface.
+     path) — lossy (quantization + range clipping). **ModelFoundry has rejected this
+     route** (see cross-repo section below): the consumer documented five reasons it is
+     lossy and contract-breaking (high-dynamic-range float32 → 256 levels; wrong
+     normalization/channel semantics; not round-trippable, breaking the reproducibility
+     contract). Keep it only as a documented-and-rejected alternative; **do not build it.**
+     The spike should commit to option 1.
 
   The new per-record `feature_path` field is a **shape-binding surface** (per
   `project-essentials.md` § "Recipe / manifest / report shape changes need a cross-repo
@@ -322,6 +335,64 @@ ingestion/bugfix item, and it cannot be created in `debug` mode. Recommended pat
   coordinate rollout with the ModelFoundry consumption fix (paired). It is architecturally
   distinct from Phase K's data-ingestion theme — egress/persistence, not ingestion — and
   crosses repos, so it warrants its own phase rather than an append.
+  - **Double-normalize guardrail (validator check, from the 2026-06-23 MF review).** The
+    contract blesses `field: mel` (pre-normalize) for the consumer-applied path, but an
+    author *could* point a `feature_path`-rewriting `npy_per_record` sink at the
+    already-normalized `feature` field — the consumer would then re-apply `audio_normalize`
+    and silently double-normalize. The `plan_phase` story should add a validator check that
+    a `feature_path`-rewriting `npy_per_record` sink targets the pre-normalize field
+    (`mel`), failing fast at `validate`. This is the egress analogue of check 26
+    (pixel-altering transform ⇒ qualifying sink). MF mirrors the guard at load (verify the
+    rewriting sink's `field == mel` before applying stats). No contract change now — both
+    sides carry it into their execution stories (DR `plan_phase`, MF `plan_features`).
+
+---
+
+## Cross-repo coordination with ModelFoundry
+
+ModelFoundry's own conclusions are recorded in
+[`modelfoundry/consumer-gap-solutions.md`](modelfoundry/consumer-gap-solutions.md)
+(reviewed 2026-06-22). Three points bind the DataRefinery side:
+
+**1. Gap 3 — the seam is aligned; commit to `npy_per_record`, drop the PNG hack.** MF
+independently confirms the shared contract this doc proposes — `npy_per_record` at
+`features/<split>/<record_id>.npy`, `(n_mels, n_frames)` `float32` on disk → `(1|C, n_mels, n_frames)`
+tensor, `feature_path` **instance-root-relative** (`<instance>/<feature_path>`), persisting
+the raw `mel` so the consumer applies per-mel-bin `audio_normalize` stats at load — with
+the axis orientation pinned identically on both sides (ratified in the 2026-06-23 MF review
+round, vendor-dependency-spec Q1/Q2). Critically, **MF rejects the
+spectrogram-as-image PNG route (my option 3)** as lossy and contract-breaking (five
+documented reasons: HDR float32 → 256 levels; wrong per-mel normalization shape; fake
+3-channel RGB vs. true 1-channel; non-round-trippable → breaks the reproducibility
+contract; pure divergence, not reuse). The joint spike should therefore **settle on option
+1 and not build option 3.** MF also notes it consumes the sink output **read-only** (the
+loose-coupling invariants in `project-essentials.md` hold — MF never re-hashes the
+instance), so cache identity for the features stays DataRefinery's responsibility.
+
+**2. MF's Gap 2 hinges on a DataRefinery question — and the answer is YES (refutes their
+`pending`).** MF's encoder-preprocessing gap is blocked on whether DR's `normalize` can
+persist **fixed, author-supplied** mean/std (so a frozen pretrained encoder gets exact
+ImageNet stats), which they could not answer from their repo. **It can.**
+`NormalizeOp.fit`
+([operations/transformations.py](../../src/datarefinery/plugins/image_classification/operations/transformations.py))
+honors pinned stats: *"If the recipe pinned mean/std, honor it as the fit output"* — when
+both `mean` and `std` params are present they are used as-is and persisted to
+`fitted_statistics/`; absent ⇒ fit from train (`mean`/`std` are `required=False`
+mode-selecting optionals, [plugin.py:212-218](../../src/datarefinery/plugins/image_classification/plugin.py#L212)).
+So an author writes the encoder's exact `mean: [...]` / `std: [...]` into a `normalize`
+op and DR applies them across all splits — **MF's cheapest option (1) works today with
+zero DataRefinery code change.** This is the highest-leverage cross-repo answer to relay
+back; it likely closes MF's Gap 2 without a spike.
+
+**3. `vendor-dependency-spec.md` status discrepancy — reconcile.** MF's doc says the spec
+is "forward-declared (authored at the pre-production release)," but
+[`modelfoundry/vendor-dependency-spec.md`](modelfoundry/vendor-dependency-spec.md) **is
+present and substantial in this repo** (~68 KB). The two repos may be looking at different
+copies of the same family doc; settle which is authoritative before the Gap 3 work updates
+it with the `feature_path` surface, so the update lands in the right place. (Related: MF
+flags a directory-convention question — these seam docs live at `docs/specs/` here but the
+copied briefs cross-link to a `docs/specs/modelfoundry/` layout. A doc-layout decision for
+the developer, not a code fix.)
 
 ---
 

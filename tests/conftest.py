@@ -48,3 +48,18 @@ def dr_instance(tmp_path: Path) -> Any:
     from datarefinery_instances.builder import build_dr_instance  # type: ignore[import-not-found]
 
     return build_dr_instance(tmp_path / "dr")
+
+
+@pytest.fixture
+def dr_audio_instance(tmp_path: Path) -> Any:
+    """A synthesized audio feature-array DataRefinery instance (Story I.l, Subphase I-1).
+
+    8 train / 4 val window records (3 classes), `features/<split>/<rid>.npy` feature
+    arrays, and per-mel-bin `audio_normalize` fitted statistics — the pinned-contract
+    substrate the audio loader stories (I.m-I.r) exercise.
+    """
+    from datarefinery_instances.audio_smoke.builder import (  # type: ignore[import-not-found]
+        build_dr_audio_instance,
+    )
+
+    return build_dr_audio_instance(tmp_path / "dr_audio")
