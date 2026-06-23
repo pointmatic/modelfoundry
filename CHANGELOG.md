@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.0] - 2026-06-22
+
+Minor — **DataRefinery v0.23.0 adoption + the family `overlays` standard** (a single phase-bundled
+release, Stories I.j.1–I.j.5). ModelFoundry now requires `ml-datarefinery>=0.23` and adopts the
+governed cross-tool-family **`overlays`** namespace end-to-end: the single `variant: str` becomes an
+ordered `overlays: Sequence[str]` (last-writer-wins per section) everywhere it appears — the recipe's
+`overlays:` catalog (was `variants:`), `DataSpec.overlays`, `RuntimeConfig.overlays`,
+`manifest.overlays`, and the CLI's repeatable `--overlay` (was `--variant`). DataRefinery's own
+segmented identity (`recipe_identity_hash`) and widened `resolve_instance(overlays=…)` boundary are
+consumed directly.
+
+> ⚠ **Cache-invalidating for every recipe — re-materialize.** Renaming the recipe overlay surface
+> moves `DataSpec`'s sub-document inside the hashed `core` segment (`variant: null` → `overlays: []`),
+> which perturbs the canonical bytes of **every** recipe, so **every cached ModelInstance is now
+> stale**; re-run `materialize` to recompute. This is the **second** cache-invalidation event after
+> v0.16.0. Per OR-9 (pre-1.0 zero support window) it is a release-note event — **no migration is
+> written**. The blast radius is real: re-materializing re-runs training, the most expensive stage.
+> The golden canonical-hash pin in `test_canonical.py` was consciously re-pinned (`eca50b…` →
+> `1ab1a6…`) as the deliberate reviewer sign-off (Story I.j.2).
+
+> **Recipe-author migration:** rename the recipe's `variants:` block to `overlays:` (the named-overlay
+> catalog is unchanged in shape — only the key renames), and select overlays with the repeatable
+> `--overlay <name>` CLI flag (was `--variant <name>`), applied in order with last-writer-wins per
+> section. The `manifest.json` field `variant` becomes `overlays` (a list); existing manifests are not
+> migrated (re-materialize). **The on-disk ModelInstance manifest contract changed** accordingly.
+
 ## [0.16.0] - 2026-06-22
 
 Minor — **Phase I: segmented recipe identity + no-implicit-defaults** (a single phase-bundled

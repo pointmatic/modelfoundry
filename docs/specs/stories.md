@@ -230,13 +230,13 @@ One coherent cross-layer rename of MF's *own* overlay surface `variants` → `ov
 
 ---
 
-### Story I.j.3: Cache-invalidation release ceremony — owns v0.17.0 [Planned]
+### Story I.j.3: Cache-invalidation release ceremony — owns v0.17.0 [Done]
 
 The single ceremonious release for the bundle's one cache-invalidation event (per `project-essentials.md` "invalidations are ceremonious" + OR-9 pre-prod rules).
 
-- [ ] **CHANGELOG.md** — v0.17.0 entry: DR v0.23.0 adoption + the MF `overlays` rename; blast radius (every MF cache invalidated → re-materialize), recipe-author migration note (`variants:` → `overlays:`), the conscious canonical re-pin reference (I.j.2).
-- [ ] **Bump** `pyproject.toml` → `0.17.0`.
-- [ ] Confirm the full CI gate green (ruff check + ruff format --check + mypy src tests + light & smoke-pytorch tests) at the bump.
+- [x] **CHANGELOG.md** — added the `## [0.17.0] - 2026-06-22` entry: DR v0.23.0 adoption + the MF `overlays` rename; blast radius (every MF cache invalidated → re-materialize, second event after v0.16.0), recipe-author migration note (`variants:` → `overlays:`, repeatable `--overlay`, `manifest.variant`→`overlays`), and the conscious canonical re-pin reference (`eca50b…` → `1ab1a6…`, I.j.2).
+- [x] **Bump** → `0.17.0` in [src/modelfoundry/_version.py](../../src/modelfoundry/_version.py) (the version source of truth; `pyproject.toml` reads it dynamically via `[tool.hatch.version]`, so there is no literal version line in `pyproject.toml` to edit). `modelfoundry.__version__` now reports `0.17.0`.
+- [x] Confirmed the full CI gate green at the bump: ruff check + ruff format --check (162 files) + mypy (typecheck env, 162 files) + light (569 passed / 47 skipped / 1 xfailed, incl. `test_release_metadata` CHANGELOG↔version guard) + smoke-pytorch (770 passed / 15 skipped / 1 xfailed).
 
 **Version:** **minor → v0.17.0** (cache-invalidating family-standard adoption; second invalidation event after I.h's v0.16.0; pre-prod OR-9 — release-note + re-materialize, no migration written, zero pre-1.0 support window).
 
