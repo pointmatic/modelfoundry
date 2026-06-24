@@ -392,22 +392,9 @@ def _split_metrics(
     labels: list[int],
     n_bins: int,
 ) -> dict[str, Any]:
-    out: dict[str, Any] = {}
-    if "accuracy" in requested:
-        out["accuracy"] = metrics.accuracy(y, preds)
-    if "macro_f1" in requested:
-        out["macro_f1"] = metrics.f1_score(y, preds, labels=labels, average="macro")
-    if "per_class_f1" in requested:
-        out["per_class_f1"] = metrics.f1_score(y, preds, labels=labels, average=None)
-    if "per_class_precision" in requested:
-        out["per_class_precision"] = metrics.precision_score(y, preds, labels=labels)
-    if "per_class_recall" in requested:
-        out["per_class_recall"] = metrics.recall_score(y, preds, labels=labels)
-    if "ece" in requested:
-        out["ece"] = metrics.expected_calibration_error(
-            proba.max(axis=1), (preds == y).astype(float), n_bins=n_bins
-        )
-    return out
+    # The scalar/per-class scorer is shared with the FR-12 baseline (Story I.t) so
+    # the baseline and this plugin never drift on metric semantics.
+    return metrics.score_split(requested, y, preds, proba, labels=labels, n_bins=n_bins)
 
 
 def _prediction_rows(

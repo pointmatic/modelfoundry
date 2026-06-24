@@ -210,7 +210,7 @@ def _good_recipe_dict() -> dict[str, Any]:
             "splits": ["val", "test"],
             "primary_metric": "macro_f1",
             "metrics": ["macro_f1", "accuracy", "ece"],
-            "comparison": {"baseline_model_id": "hf://example/baseline"},
+            "comparison": {"baseline_model_id": "sklearn:RandomForestClassifier"},
             "calibration_bins": 10,
         },
         "Visualizations": [{"op": "training_curves", "mode": "reporting"}],
@@ -792,20 +792,22 @@ def test_invalid_overlays_fixture_trips_check_16() -> None:
     assert "NonexistentSection" in _detail_text(_check(report, 16))
 
 
-@pytest.mark.xfail(
-    reason=(
-        "FR-2 check 13 (features.md:223) specifies a name-format check, but the "
-        "validator only rejects empty/whitespace baseline_model_id. "
-        "invalid_baseline_model_id.yml carries a non-empty malformed id, so check "
-        "13 does not yet trip. Tighten check 13 (or repurpose the fixture) to flip "
-        "this xfail to a pass."
-    ),
-    strict=True,
-)
 def test_invalid_baseline_model_id_fixture_should_trip_check_13() -> None:
+    # FR-12 grammar enforced as of Story I.t: the fixture's `not a valid id!!` is
+    # malformed (no `sklearn:<EstimatorClassName>` shape), so check 13 trips.
     recipe = load_recipe(INVALID_DIR / "invalid_baseline_model_id.yml")
     report = validate(recipe, _instance(), _FixturePlugin())
     assert _failures_for(report, 13)
+
+
+def test_well_formed_baseline_model_id_passes_check_13() -> None:
+    # A well-formed id passes check 13 even if the class is not allowlisted —
+    # allowlist membership is a runtime warn-and-skip concern, not a validate gate.
+    recipe = load_recipe(INVALID_DIR / "invalid_baseline_model_id.yml")
+    assert recipe.Evaluation.comparison is not None
+    recipe.Evaluation.comparison.baseline_model_id = "sklearn:RandomForestClassifier"
+    report = validate(recipe, _instance(), _FixturePlugin())
+    assert not _failures_for(report, 13)
 
 
 # --- ValidationReport API ---

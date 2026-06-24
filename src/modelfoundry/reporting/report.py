@@ -30,6 +30,7 @@ def render_report(artifacts: InstanceArtifacts) -> str:
         "# ModelFoundry Report",
         _recipe_section(artifacts),
         _metrics_section(artifacts),
+        _comparison_section(artifacts),
         _optimization_section(artifacts),
         _expectations_section(artifacts),
         _warnings_section(artifacts),
@@ -78,10 +79,13 @@ def _metrics_section(artifacts: InstanceArtifacts) -> str:
         lines.append("_No evaluation metrics._")
         return "\n".join(lines)
 
+    # The `baseline` key (FR-12) is `{split: {metric}}`, not a split — it renders in
+    # its own Comparison subsection, so exclude it from the per-split metrics table.
+    splits = {k: v for k, v in evaluation.items() if k != "baseline"}
     scalar_names = sorted(
         {
             name
-            for split_metrics in evaluation.values()
+            for split_metrics in splits.values()
             for name, value in split_metrics.items()
             if name not in _NON_SCALAR_METRICS and isinstance(value, int | float)
         }
@@ -93,9 +97,47 @@ def _metrics_section(artifacts: InstanceArtifacts) -> str:
     header = "| split | " + " | ".join(scalar_names) + " |"
     divider = "| --- | " + " | ".join("---" for _ in scalar_names) + " |"
     lines += [header, divider]
-    for split in sorted(evaluation):
-        cells = [_fmt(evaluation[split].get(name)) for name in scalar_names]
+    for split in sorted(splits):
+        cells = [_fmt(splits[split].get(name)) for name in scalar_names]
         lines.append(f"| {split} | " + " | ".join(cells) + " |")
+    return "\n".join(lines)
+
+
+def _comparison_section(artifacts: InstanceArtifacts) -> str:
+    """FR-12 baseline-comparison subsection: main model vs. the sklearn baseline.
+
+    Renders only when the evaluation carries a `baseline` block (a comparison-declaring
+    recipe whose baseline resolved); otherwise emits a stable empty marker so the
+    heading is always present for downstream anchoring.
+    """
+    evaluation = artifacts.evaluation or _attr(artifacts.manifest, "evaluation")
+    lines = ["## Comparison"]
+    baseline = (evaluation or {}).get("baseline")
+    if not baseline:
+        lines.append("_No baseline comparison._")
+        return "\n".join(lines)
+
+    scalar_names = sorted(
+        {
+            name
+            for split_metrics in baseline.values()
+            for name, value in split_metrics.items()
+            if name not in _NON_SCALAR_METRICS and isinstance(value, int | float)
+        }
+    )
+    if not scalar_names:
+        lines.append("_No scalar baseline metrics._")
+        return "\n".join(lines)
+
+    header = "| split | model | " + " | ".join(scalar_names) + " |"
+    divider = "| --- | --- | " + " | ".join("---" for _ in scalar_names) + " |"
+    lines += [header, divider]
+    for split in sorted(baseline):
+        main = (evaluation or {}).get(split, {})
+        main_cells = [_fmt(main.get(name)) for name in scalar_names]
+        lines.append(f"| {split} | model | " + " | ".join(main_cells) + " |")
+        base_cells = [_fmt(baseline[split].get(name)) for name in scalar_names]
+        lines.append(f"| {split} | baseline | " + " | ".join(base_cells) + " |")
     return "\n".join(lines)
 
 

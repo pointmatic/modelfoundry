@@ -362,13 +362,18 @@ def _check_13_baseline_model_id_format(recipe: ModelRecipe) -> ValidationCheck:
     comp = recipe.Evaluation.comparison
     if comp is None:
         return _ok(13, "baseline_model_id_format")
+    # FR-12 grammar (Story I.s D-I.s.1): `sklearn:<EstimatorClassName>`. Format check
+    # only — allowlist membership is a runtime warn-and-skip concern, so a well-formed
+    # but unknown class passes here and is handled at evaluation time.
+    from modelfoundry.plugins.sklearn.baseline import parse_baseline_model_id
+
     mid = comp.baseline_model_id
-    if isinstance(mid, str) and mid.strip():
+    if isinstance(mid, str) and parse_baseline_model_id(mid) is not None:
         return _ok(13, "baseline_model_id_format")
     return _fail(
         13,
         "baseline_model_id_format",
-        f"baseline_model_id must be a non-empty string, got {mid!r}",
+        f"baseline_model_id must match 'sklearn:<EstimatorClassName>', got {mid!r}",
     )
 
 

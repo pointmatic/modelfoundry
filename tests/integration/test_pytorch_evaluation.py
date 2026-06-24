@@ -251,13 +251,51 @@ def test_metrics_json_shape_feeds_expectations(tmp_path: Path) -> None:
     assert isinstance(payload["val"]["accuracy"], float)
 
 
-def test_baseline_comparison_emits_warning(tmp_path: Path) -> None:
+def test_baseline_comparison_resolves_and_writes_baseline_metrics(tmp_path: Path) -> None:
+    # FR-12 (Story I.t): a comparison-declaring recipe fits the sklearn baseline on
+    # train and folds its per-split metrics in under `baseline.<split>.<metric>`.
     from modelfoundry.recipe.models import ComparisonSpec
 
     data = _build_instance(tmp_path)
     out = tmp_path / "instance"
     spec = _eval_spec(
-        metrics=["accuracy"], comparison=ComparisonSpec(baseline_model_id="sklearn-mlp")
+        metrics=["accuracy", "macro_f1"],
+        comparison=ComparisonSpec(baseline_model_id="sklearn:RandomForestClassifier"),
     )
-    result = run_evaluation(spec, _model(), data, out)
-    assert any("sklearn-mlp" in w for w in result.warnings)
+    result = run_evaluation(spec, _model(), data, out, seed=7)
+
+    assert not result.warnings  # resolved cleanly, no skip
+    assert set(result.metrics["baseline"]) == {"val", "test"}
+    payload = json.loads((out / "evaluation" / "metrics.json").read_text())
+    assert set(payload) == {"val", "test", "baseline"}
+    assert set(payload["baseline"]["val"]) == {"accuracy", "macro_f1"}
+    assert isinstance(payload["baseline"]["val"]["accuracy"], float)
+
+
+def test_baseline_comparison_is_byte_identical_across_runs(tmp_path: Path) -> None:
+    from modelfoundry.recipe.models import ComparisonSpec
+
+    data = _build_instance(tmp_path)
+    spec = _eval_spec(
+        metrics=["accuracy", "macro_f1"],
+        comparison=ComparisonSpec(baseline_model_id="sklearn:RandomForestClassifier"),
+    )
+    a = run_evaluation(spec, _model(), data, tmp_path / "a", seed=7).metrics["baseline"]
+    b = run_evaluation(spec, _model(), data, tmp_path / "b", seed=7).metrics["baseline"]
+    assert a == b
+
+
+def test_baseline_comparison_unresolvable_warns_and_omits(tmp_path: Path) -> None:
+    # A well-formed but unknown estimator class → warn + omit baseline; main metrics proceed.
+    from modelfoundry.recipe.models import ComparisonSpec
+
+    data = _build_instance(tmp_path)
+    out = tmp_path / "instance"
+    spec = _eval_spec(
+        metrics=["accuracy"],
+        comparison=ComparisonSpec(baseline_model_id="sklearn:NoSuchEstimator"),
+    )
+    result = run_evaluation(spec, _model(), data, out, seed=7)
+    assert any("NoSuchEstimator" in w for w in result.warnings)
+    assert "baseline" not in result.metrics
+    assert "accuracy" in result.metrics["val"]  # main metrics unaffected

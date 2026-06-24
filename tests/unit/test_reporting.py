@@ -37,6 +37,7 @@ _HEADINGS = [
     "# ModelFoundry Report",
     "## Recipe",
     "## Metrics",
+    "## Comparison",
     "## Optimization",
     "## Expectations",
     "## Warnings",
@@ -127,6 +128,27 @@ def test_report_renders_recipe_and_metrics() -> None:
     assert "accuracy" in md and "macro_f1" in md
     assert "0.8000" in md  # accuracy formatted
     assert "confusion_matrix" not in md  # non-scalar excluded from the metrics table
+
+
+def test_report_comparison_absent_when_no_baseline() -> None:
+    md = render_report(_artifacts())
+    assert "## Comparison" in md
+    assert "_No baseline comparison._" in md
+
+
+def test_report_comparison_renders_main_vs_baseline() -> None:
+    # FR-12: a `baseline` block under the evaluation renders the comparison table.
+    evaluation = {
+        "val": {"accuracy": 0.80, "macro_f1": 0.75},
+        "baseline": {"val": {"accuracy": 0.55, "macro_f1": 0.50}},
+    }
+    md = render_report(_artifacts(evaluation=evaluation))
+    assert "## Comparison" in md
+    assert "baseline" in md
+    assert "0.5500" in md  # baseline accuracy
+    # The `baseline` key is excluded from the per-split metrics table.
+    metrics_block = md.split("## Metrics")[1].split("## Comparison")[0]
+    assert "0.5500" not in metrics_block
 
 
 def test_report_renders_optimization_expectations_warnings() -> None:

@@ -134,3 +134,41 @@ def confusion_matrix(
     from sklearn.metrics import confusion_matrix as _cm
 
     return np.asarray(_cm(y_true, y_pred, labels=labels), dtype=np.int64)
+
+
+def score_split(
+    requested: set[str],
+    y_true: npt.ArrayLike,
+    y_pred: npt.ArrayLike,
+    proba: npt.ArrayLike,
+    *,
+    labels: list[Any],
+    n_bins: int,
+) -> dict[str, Any]:
+    """The shared scalar/per-class scorer over one split's predictions.
+
+    Computes only the requested scalar + per-class metrics (`accuracy` / `macro_f1`
+    / `per_class_f1` / `per_class_precision` / `per_class_recall` / `ece`); the
+    nested `confusion_matrix` / `calibration_curve` metrics are handled by callers
+    that also persist their sidecars. Shared by the sklearn baseline plugin
+    (Story C.m) and the FR-12 baseline comparison (Story I.t) so the two never drift.
+    """
+    proba = np.asarray(proba)
+    out: dict[str, Any] = {}
+    if "accuracy" in requested:
+        out["accuracy"] = accuracy(y_true, y_pred)
+    if "macro_f1" in requested:
+        out["macro_f1"] = f1_score(y_true, y_pred, labels=labels, average="macro")
+    if "per_class_f1" in requested:
+        out["per_class_f1"] = f1_score(y_true, y_pred, labels=labels, average=None)
+    if "per_class_precision" in requested:
+        out["per_class_precision"] = precision_score(y_true, y_pred, labels=labels)
+    if "per_class_recall" in requested:
+        out["per_class_recall"] = recall_score(y_true, y_pred, labels=labels)
+    if "ece" in requested:
+        out["ece"] = expected_calibration_error(
+            proba.max(axis=1),
+            (np.asarray(y_pred) == np.asarray(y_true)).astype(float),
+            n_bins=n_bins,
+        )
+    return out

@@ -148,7 +148,17 @@ def run_evaluation(
             calibration_rows.extend(_calibration_rows(split, curve))
 
     if evaluation.comparison is not None:
-        warnings.append(_baseline_comparison_warning(evaluation.comparison.baseline_model_id))
+        # FR-12 (Story I.t): resolve + fit-on-train the sklearn baseline and fold its
+        # per-split metrics in under `baseline.<split>.<metric>`. A well-formed but
+        # unresolvable id warns + omits the baseline (main metrics proceed).
+        from modelfoundry.plugins.sklearn.baseline import BaselineUnresolvable, score_baseline
+
+        try:
+            metrics["baseline"] = score_baseline(
+                evaluation.comparison.baseline_model_id, data, evaluation, seed
+            )
+        except BaselineUnresolvable as exc:
+            warnings.append(str(exc))
 
     metrics_path = eval_dir / "metrics.json"
     metrics_path.write_text(json.dumps(metrics, indent=2, sort_keys=True), encoding="utf-8")
@@ -416,12 +426,3 @@ def _write_calibration(rows: list[dict[str, Any]], path: Path) -> None:
     import pandas as pd
 
     pd.DataFrame(rows).to_parquet(path, index=False)
-
-
-def _baseline_comparison_warning(baseline_model_id: str) -> str:
-    # FR-12 baseline resolution is deferred (the resolver lands with the C.m sklearn
-    # baseline + C.p library API); pre-prod records a warning and continues.
-    return (
-        f"baseline comparison against {baseline_model_id!r} is not yet resolvable "
-        f"(deferred to the C.m baseline resolver); skipped"
-    )
