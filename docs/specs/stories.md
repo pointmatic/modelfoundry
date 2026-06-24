@@ -398,12 +398,14 @@ The brief's verification, turned into the acceptance gate. → New [test_audio_m
 
 ---
 
-### Story I.q: Gap 2 docs — Encoder-normalization recipe pattern [Planned]
+### Story I.q: Gap 2 docs — Encoder-normalization recipe pattern [Done]
 
-Zero code (image-encoder, orthogonal to audio; folded in as the last open item in the same solutions doc). Closes the Gap 2 *intuition* gap so the next consumer doesn't re-derive it.
+Zero code (image-encoder, orthogonal to audio; folded in as the last open item in the same solutions doc). Closes the Gap 2 *intuition* gap so the next consumer doesn't re-derive it. → New "**Feeding the encoder its exact normalization**" subsection under [README.md](../../README.md) § "Advanced — pretrained encoder + LoRA" (the recipe-facing surface; no `docs/guides/` dir exists — developer-confirmed README placement).
 
-- [ ] **Document the pattern** at the recipe surface: a frozen pretrained encoder gets its exact stats today via DR `resize` (baked → uint8 sink) + fixed-stat `normalize` (applied at load by MF over the uint8 pixels) — **no `Encoder`-op preprocessing, no code change**.
-- [ ] **Units caveat + conversion table.** MF applies `(x − mean)/std` on **0-255 pixel units with no `/255`** ([data.py:189-199](../../src/modelfoundry/plugins/pytorch/data.py#L189-L199)); HF stats are `[0,1]`-unit, so write **`mean₂₅₅ = image_mean × 255`, `std₂₅₅ = image_std × 255`** into the DR `normalize` op. Include the worked ImageNet / ViT `[-1,1]` table from [`consumer-gap-solutions.md`](consumer-gap-solutions.md) Gap 2.
+- [x] **Document the pattern** at the recipe surface: a frozen pretrained encoder gets its exact stats today via DR `resize` (baked → uint8 sink) + fixed-stat `normalize` (applied at load by MF over the uint8 pixels) — **no `Encoder`-op preprocessing, no code change**. → README subsection states MF applies no HF image-processor preprocessing (`Encoder` feeds `pixel_values` through), the data-side pattern (DR `resize` + fixed-stat `normalize`, DR persists author-supplied stats as-is, MF applies at load without rewriting the uint8 bytes so resize + normalize coexist), with an illustrative DataRefinery-recipe YAML snippet.
+- [x] **Units caveat + conversion table.** MF applies `(x − mean)/std` on **0-255 pixel units with no `/255`** ([data.py:218-243](../../src/modelfoundry/plugins/pytorch/data.py#L218-L243)); HF stats are `[0,1]`-unit, so write **`mean₂₅₅ = image_mean × 255`, `std₂₅₅ = image_std × 255`** into the DR `normalize` op. Include the worked ImageNet / ViT `[-1,1]` table from [`consumer-gap-solutions.md`](consumer-gap-solutions.md) Gap 2. → `⚠ Units caveat` blockquote with the full `(x₂₅₅/255 − mean)/std` derivation + the ImageNet / ViT `[-1,1]` worked table (0-255-scaled stats) + a pointer to `consumer-gap-solutions.md` § "Gap 2" for the derivation/evidence.
+
+> **Doc-only — no code/test change.** ruff check + ruff format --check (170 files, unchanged) + light (590 passed / 52 skipped / 1 xfailed) confirm a clean tree; smoke-pytorch is unaffected (no `src/`/`tests/` change since the I.p green at 826 passed).
 
 **Version:** no bump (doc-only; rides v0.18.0).
 

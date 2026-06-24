@@ -158,6 +158,28 @@ pip install ml-modelfoundry[huggingface,pytorch]
 
 Without it the recipe still loads and validates, but `materialize()` raises a `MaterializeError` carrying the install pointer. Two more requirements: the bound DataRefinery instance must match the encoder's **native input contract** (e.g. `vit-tiny-patch16-224` pins 224×224×3 — a pretrained backbone does not adapt to the data the way `simple_cnn` does; `validate()` fails fast on a mismatch), and the base weights load from an **offline warm HF cache** (download once with network, then reruns are reproducible with no run-time network). Only the trainable head/pooling + LoRA adapter deltas are persisted; the frozen base is re-fetched from the warm cache on load, so the instance round-trips from disk.
 
+#### Feeding the encoder its exact normalization
+
+A frozen pretrained encoder also expects its **exact** pretrained input statistics — and ModelFoundry applies **no** HuggingFace image-processor preprocessing (the `Encoder` op feeds `pixel_values` straight through). You supply those statistics on the **data side**, with no `Encoder`-op preprocessing and no code change: prepare the input in the **DataRefinery recipe** with a `resize` (baked into the uint8 sink) followed by a `normalize` op carrying the encoder's **fixed** mean/std — DataRefinery persists author-supplied normalize stats as-is, and ModelFoundry applies them at load over the sinked pixels (a fit-on-train op that does *not* rewrite the uint8 bytes, so resize-persistence and normalization coexist).
+
+```yaml
+# DataRefinery recipe — give the encoder its exact input distribution
+Transformations:
+  - {op: resize, height: 224, width: 224}   # baked → uint8 PNG sink (matches the encoder's pinned size)
+  - op: normalize                            # fixed stats, applied at load by ModelFoundry
+    mean: [123.675, 116.28, 103.53]          # ImageNet mean, scaled to 0-255 (see caveat)
+    std:  [58.395, 57.12, 57.375]            # ImageNet std,  scaled to 0-255
+```
+
+> ⚠ **Units caveat — the easy way to get this silently wrong.** ModelFoundry applies `(x − mean) / std` on **0-255 pixel units with NO `/255` rescale** (the deliberate data-side contract). HuggingFace image processors define `image_mean` / `image_std` in **`[0,1]` units** (applied *after* a `/255` rescale). So the stats written into the DataRefinery `normalize` op must be **scaled to 0-255**: `mean₂₅₅ = image_mean × 255`, `std₂₅₅ = image_std × 255`. ModelFoundry then computes `(x₂₅₅ − image_mean·255)/(image_std·255) = (x₂₅₅/255 − image_mean)/image_std` — exactly the encoder's expected rescale-then-normalize. Writing the raw `[0,1]` HF values directly is a silent mismatch (a mean ≈ 0.5 subtracted from 0-255 pixels).
+
+| Encoder norm | HF `[0,1]` stats | DataRefinery `normalize` op (0-255 units) |
+|---|---|---|
+| ImageNet | mean `[.485, .456, .406]`, std `[.229, .224, .225]` | mean `[123.675, 116.28, 103.53]`, std `[58.395, 57.12, 57.375]` |
+| ViT `[-1, 1]` | mean `[.5, .5, .5]`, std `[.5, .5, .5]` | mean `[127.5, 127.5, 127.5]`, std `[127.5, 127.5, 127.5]` |
+
+The full derivation and evidence live in [`docs/specs/consumer-gap-solutions.md`](docs/specs/consumer-gap-solutions.md) § "Gap 2".
+
 ## Library API
 
 `ModelFoundry.from_recipe(...)` binds a recipe to a materialized DataRefinery instance; the verbs (`validate` / `materialize` / `status` / `inspect` / `report` / `clean` / `check`) are thin methods over that binding, co-equal with the CLI.
