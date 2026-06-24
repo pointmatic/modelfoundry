@@ -424,6 +424,108 @@ Zero code (image-encoder, orthogonal to audio; folded in as the last open item i
 
 ---
 
+## Subphase I-2: Feature-Code Reconciliation
+
+A deliberate features-vs-code reconciliation pass: implement the behaviors `features.md` (and `concept.md`) **promise** but that were never coded and were **not** explicitly deferred to `## Future`, and bring the spec back in line with what actually shipped. The audit cross-checked every FR (FR-1…FR-27, FR-AUDIO-1/2/3), the FR-2 validator-check enumeration, and the `concept.md` Goals / Value Criteria against `src/`; the explicitly-deferred backlog below is excluded by design.
+
+Five code gaps — FR-12 baseline-model comparison (resolver missing; check 13 `xfail`), FR-3 validate-before-materialize (no `validate()` call in `materialize()`), FR-10 NaN-divergence hard error (no guard in the trainer), FR-13 visualization params (`n`/`splits`/`per_class` absent), FR-9 check-6 schedule-monitor extension — plus three doc/code divergences (viz `mode` `exploration`→`interactive`, per-class metrics dict→list, and the shipped `Inference`/MC-dropout surface having no FR). Full gap analysis, the verbatim contract anchors, the mini-features/tech-spec, the design forks, and the out-of-scope walkthrough live in [`phase-i-subphase-2-feature-code-reconciliation-plan.md`](phase-i-subphase-2-feature-code-reconciliation-plan.md).
+
+---
+
+> **Release cadence (Subphase I-2) — phase-bundled, one minor (multi-release exception).** Phase I shipped across I.h → v0.16.0, I.j.3 → v0.17.0, I.k → v0.17.1, I.r → v0.18.0 (Subphase I-1). Subphase I-2 is a follow-on subphase that ships its **own** release tag — the documented Version-Cadence multi-release exception (`_phase-letters.md` § Subphases). Stories I.s–I.x carry no version; **I.y owns the single minor bump → v0.19.0** (new additive capability + spec-conformance fixes). **Not cache-invalidating** for any existing instance: every change is additive (recipe fields authored only when used — `Evaluation.comparison`, the new viz params — which no shipped recipe authors) or doc-only. Pre-prod, no production ceremony.
+
+> **FR-12 scope (decided 2026-06-23).** The baseline comparison ships its **self-contained half** this subphase: a **scikit-learn estimator-class, fit-on-train** baseline (reuses the C.f flattened-feature path + `plugins/sklearn/metrics.py`; learns the dataset's labels, so no label-space alignment problem; no deferred extra). The **HF-pretrained-model comparison** (label-space alignment + the deferred `[huggingface]` extra) is the design-heavy half and is **deferred to its own future story** (see `## Future`).
+
+---
+
+### Story I.s: FR-12 baseline-comparison design pass [Done]
+
+Settle the open design forks the audit flagged so FR-12 becomes implement-ready; deliverable is the **documented decision** appended to [`phase-i-subphase-2-feature-code-reconciliation-plan.md`](phase-i-subphase-2-feature-code-reconciliation-plan.md) (a "Design Decisions" section), not production code. The tell that this is needed: the entire spec for what `baseline_model_id` *is* amounts to one parenthetical in `concept.md` + a bare `str` field, and validator check 13 is `xfail` precisely because no format is defined. → New **§7 "Design Decisions — FR-12 baseline comparison (Story I.s)"** (D-I.s.1…4 + implement-ready handoff) in the plan doc.
+
+- [x] **`baseline_model_id` grammar.** Pick + pin the string format for a scikit-learn estimator class (candidate: `sklearn:RandomForestClassifier`, or a dotted import path) and write the check-13 regex/parse it implies. Reject ambiguity — one grammar. → **D-I.s.1: `sklearn:<EstimatorClassName>`** via a **curated allowlist** (not a free dotted import path — bounded import surface). Regex `^sklearn:([A-Za-z_]\w*)$`; check 13 enforces **format only**, allowlist-membership is a runtime warn-and-skip concern. Initial allowlist: RandomForest / GradientBoosting / LogisticRegression / KNeighbors / Dummy (all expose `predict_proba`).
+- [x] **Mechanism = fit-on-train.** Specify: resolve the class → instantiate with a seeded `random_state` → fit on the `train` feature matrix (reuse the **C.f flattened-feature path** + `plugins/sklearn/metrics.py` scorers) → predict per `Evaluation.splits`. Record *why* this is the self-contained half (estimator learns the bound instance's labels — no HF label-space alignment). → **D-I.s.2**: resolve → seeded instantiate (`random_state` only when accepted) → fit on `sklearn.data.feature_matrix(data,"train")` → score every split via the shared scorers → write `baseline.<split>.<metric>` into `metrics.json`. Label space is the bound instance's own (shared `class_names`), so no HF alignment problem — the self-contained half. Recommends a torch-free `plugins/sklearn/baseline.py::score_baseline` + factoring `metrics.score_split`.
+- [x] **Determinism + persistence.** Seed the fit via `derive_seed(seed, "baseline")` under the four-invariant contract. Decide the persistence surface — recommendation: persist baseline **metrics** into `metrics.json` + report only, **not** a round-trippable baseline `ModelInstance`. → **D-I.s.3**: `random_state = derive_seed(seed, "baseline") & _U32` (32-bit, distinct scope, mirrors the existing weight-init pattern); a new stochastic source under the four invariants; I.t carries a byte-identity test. **D-I.s.4 persistence**: metrics-only (`baseline.<split>.<metric>` + report subsection); no loadable baseline ModelInstance, predictions, or estimator artifact.
+- [x] **Failure mode + HF deferral.** Confirm the kept warn-and-skip contract (unresolvable id → warn + omit baseline + report names it + main metrics proceed). Record the explicit deferral of the HF-pretrained half. → **D-I.s.4**: `comparison=None ⇒ no baseline` (kept mode-selecting optional); well-formed-but-unresolvable → warn + omit + report names it + main metrics proceed; malformed → caught by check 13 at validate. HF-pretrained baseline explicitly deferred to its own future story (I.y files it into `## Future`).
+
+**Version:** no bump (design/doc; rides v0.19.0).
+
+---
+
+### Story I.t: FR-12 sklearn-fit baseline resolver + scoring + check-13 [Planned]
+
+Implement the resolver from I.s, replacing the warn-and-skip stub at [evaluation.py:421-426](../../src/modelfoundry/plugins/pytorch/evaluation.py#L421); close the FR-12 promise (`concept.md` `comparison_baseline_gap`, `features.md` FR-12) for the sklearn half.
+
+- [ ] **Resolver + fit-on-train.** Parse `baseline_model_id` per the I.s grammar; resolve the sklearn estimator class; instantiate with `random_state` from `derive_seed(seed, "baseline")`; fit on the `train` feature matrix via the C.f flattening path.
+- [ ] **Score + persist.** Score the fitted baseline on every `Evaluation.splits` entry with the same metric set; write results under `evaluation/metrics.json` `baseline.<split>.<metric>`; surface them in the report's comparison subsection. `.evaluation` reads them back with no second scoring path.
+- [ ] **Tighten check 13 + flip the xfail.** Enforce the grammar in validator check 13 ([validator.py:361](../../src/modelfoundry/recipe/validator.py#L361)); flip `test_invalid_baseline_model_id_fixture_should_trip_check_13` from `xfail(strict=True)` to a pass ([test_recipe_validator.py:795](../../tests/unit/test_recipe_validator.py#L795)).
+- [ ] **Tests.** A comparison-declaring recipe produces `baseline.*` metrics; **byte-identical across two runs** (seeded baseline); a malformed id trips check 13; the unresolvable-but-well-formed path still warns + omits + lets main metrics proceed.
+
+**Version:** no bump (rides v0.19.0). Output-additive for comparison-declaring recipes; no shipped recipe declares `comparison`, so not cache-invalidating for any existing instance.
+
+---
+
+### Story I.u: FR-3 validate-before-materialize [Planned]
+
+Honor FR-3 Behavior step 1 ("Run `validate` (FR-2); fail fast on any failure") — today [`ModelFoundry.materialize()`](../../src/modelfoundry/core/modelfoundry.py#L189) constructs `MaterializeRunner().run()` directly with no validation, and the runner does not validate either.
+
+- [ ] **Validate first.** Run the FR-2 checks at the head of `materialize()` (library) so both the library and CLI surfaces fail fast before any temp dir / pipeline work. Raise the existing `ValidationError` on any failure.
+- [ ] **Preserve the constant-time cache-hit path.** Settle the ordering (FR-3 favors validate-then-cache-identity; keep the hit short-circuit cheap). Document the chosen order in the story.
+- [ ] **Tests.** An invalid recipe raises before any `.tmp/<run-id>/` directory is created; a valid recipe is unaffected; a cache hit still short-circuits without re-running the full pipeline.
+
+**Version:** no bump (rides v0.19.0). Behavior-only; no canonical-bytes or output-bytes change for any run that already succeeded.
+
+---
+
+### Story I.v: FR-10 NaN-divergence hard error [Planned]
+
+Honor the FR-10 edge case ("Training diverges (loss becomes NaN) → hard error with a clear 'training diverged at epoch N' message; partial history preserved; `FAILED` marker written") — [trainer.py](../../src/modelfoundry/plugins/pytorch/trainer.py) has no non-finite-loss guard today.
+
+- [ ] **Divergence guard.** In the training loop, on `not torch.isfinite(loss)` raise `PluginError("training diverged at epoch N")` naming the epoch. The partial `training/history.parquet` is already in the temp dir; the atomic layer ([cache/atomic.py](../../src/modelfoundry/cache/atomic.py)) writes `FAILED` on the raised exception.
+- [ ] **Tests.** A recipe forced to diverge raises with the epoch in the message and leaves a `FAILED` marker + the partial history; a normal converging run is unaffected (no false trip).
+
+**Version:** no bump (rides v0.19.0). Adds an error path only; no effect on a converging run's bytes.
+
+---
+
+### Story I.w: FR-13 visualization params [Planned]
+
+Complete the FR-13 visualization param surface — the spec promises `predictions_grid` params `n` / `splits` / `per_class` and `splits: list[str]` for `confusion_matrix` / `calibration_curve`, but [visualization_specs.py:38-45](../../src/modelfoundry/plugins/pytorch/visualization_specs.py#L38) carries only `max_items` + singular `split`.
+
+- [ ] **`predictions_grid` params.** Add `n` (rename/alias of `max_items`), `splits`, and `per_class: bool = False`; implement split-filtering + per-class grouping in [`_predictions_grid`](../../src/modelfoundry/plugins/pytorch/visualizations.py#L142). Keep the labels-only fallback when the bound DR instance exposes no per-record images.
+- [ ] **`confusion_matrix` / `calibration_curve` `splits`.** Accept `splits: list[str]` (default `Evaluation.splits`), rendering one figure over the listed splits; refactor `_pick_split` accordingly.
+- [ ] **Byte-neutrality (design constraint).** Add the params without perturbing the canonical bytes of any recipe authoring the current `split`/`max_items` form — alias-preserve, or migrate-the-corpus-with-justification; settle the approach in-story and assert byte-stability.
+- [ ] **Tests.** Multi-split render; `per_class` grouping; byte-stability of an existing-form recipe.
+
+**Version:** no bump (rides v0.19.0). New viz params are authored-only-when-used; no shipped recipe authors them.
+
+---
+
+### Story I.x: FR-9 check-6 schedule-monitor extension [Planned]
+
+Complete the FR-9 promise ("`schedule.monitor` references a metric not produced → caught by FR-2 check 6, extended for schedule monitors") — check 6 ([validator.py:225-238](../../src/modelfoundry/recipe/validator.py#L225)) validates only `Training.early_stopping.monitor` today.
+
+- [ ] **Extend check 6.** When `Optimizer.schedule` is present, validate its `monitor` against produced `Evaluation.metrics` + builtins (`train_loss`/`val_loss`), mirroring the early-stopping-monitor logic. Keep the check non-short-circuiting.
+- [ ] **Tests.** A recipe whose `schedule.monitor` references an unproduced metric trips check 6; a valid schedule monitor passes.
+
+**Version:** no bump (rides v0.19.0). Validation-only; no bytes change.
+
+---
+
+### Story I.y: Doc sync, project-essentials append & release — owns the bump (→ v0.19.0) [Planned]
+
+Bring the spec back in line with the now-reconciled code, fix the three doc/code divergences, append must-know facts (plan_phase Step 8), and own the subphase's single minor bump.
+
+- [ ] **`features.md`** — fold in FR-12 (completed sklearn half + HF deferral note), FR-3 / FR-10 (now enforced), FR-13 / FR-9 (completed); add a new **FR-INFERENCE** documenting the shipped `Inference` block (`mode: point | mc_dropout`, `mc_samples`), the `.uncertainty` accessor, and the `predictive_entropy` / `mc_variance` persistence (divergence **D3**). Fix **D1** (viz `mode` `exploration` → `interactive`, all sites + FR-2 check 15) and **D2** (per-class metrics described as index-ordered `list`, not label-keyed dict).
+- [ ] **`tech-spec.md`** — reflect the baseline resolver, the validate-first ordering, the divergence guard, and the expanded viz-param surface.
+- [ ] **`concept.md` / `README.md`** — touch only if scope wording shifts (baseline comparison is now real on the sklearn path); otherwise leave.
+- [ ] **`project-essentials.md`** — append new must-know facts: the baseline-comparison determinism rule (a fit-on-train baseline is a seeded stochastic source under the four invariants) and the doc-follows-code reconciliation precedent (D1/D2).
+- [ ] **`## Future`** — record the deferred HF-pretrained baseline comparison as its own story.
+- [ ] **Release** — own the single minor bump **→ v0.19.0**; `CHANGELOG.md` `## [0.19.0]` entry (feature-code reconciliation: sklearn baseline comparison + viz params + validate-first + divergence guard; **not cache-invalidating**). Full CI gate green: ruff + ruff format --check + mypy src tests + light + smoke-pytorch.
+
+**Version:** **minor → v0.19.0** (new additive capability + spec-conformance fixes; multi-release-exception bump for Subphase I-2). Not cache-invalidating for existing instances.
+
+---
+
 ## Future
 
 <!--
