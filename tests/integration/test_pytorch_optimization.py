@@ -248,6 +248,7 @@ def test_best_params_merge_back_takes_effect(tmp_path: Path) -> None:
     assert merged.Training.batch_size in {2, 4}
     assert merged.Training.early_stopping is not None
     assert merged.Training.early_stopping.patience in {2, 3, 4}
+    assert merged.Optimizer is not None
     assert 1e-4 <= merged.Optimizer.model_extra["learning_rate"] <= 1e-2  # type: ignore[index]
 
 

@@ -175,6 +175,23 @@ def test_iter_op_sections_omits_absent_schedule() -> None:
     assert "Optimizer.schedule" not in labels
 
 
+def test_iter_op_sections_skips_none_loss_and_optimizer() -> None:
+    # Optional Loss/Optimizer (Story I.ab): a generative density model omits them;
+    # the iterator yields neither (nor a phantom schedule), so resolve_sections —
+    # and therefore validator checks 3/17 — simply skip the absent sections.
+    labels = [label for label, *_ in iter_op_sections(_recipe({"Loss": None, "Optimizer": None}))]
+    assert "Loss" not in labels
+    assert "Optimizer" not in labels
+    assert "Optimizer.schedule" not in labels
+    assert labels == ["Visualizations[0]"]
+
+
+def test_resolve_sections_handles_absent_loss_optimizer() -> None:
+    # With Loss/Optimizer omitted, only the Visualizations surface resolves.
+    sections = resolve_sections(_recipe({"Loss": None, "Optimizer": None}), _Plugin())
+    assert [s.label for s in sections] == ["Visualizations[0]"]
+
+
 # --- resolve_sections: the discriminated-union resolution ---
 
 

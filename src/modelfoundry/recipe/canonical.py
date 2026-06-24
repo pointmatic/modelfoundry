@@ -49,8 +49,6 @@ from modelfoundry.recipe.models import ModelRecipe
 _CORE_FIELDS: tuple[str, ...] = ("schema_version", "plugin", "seed", "Data")
 _PLUGIN_FIELDS: tuple[str, ...] = (
     "Architecture",
-    "Loss",
-    "Optimizer",
     "Training",
     "Optimization",
     "Inference",
@@ -60,12 +58,16 @@ _PLUGIN_FIELDS: tuple[str, ...] = (
 )
 _OVERLAY_FIELD = "overlays"
 _EXTENSIONS_FIELD = "extensions"
-# Story I.o (FR-AUDIO-2): an optional top-level section sparse-MERGED into the plugin
-# segment only when present, so an absent section is byte-neutral (existing recipes
-# unchanged — not a cache-invalidation event). It is NOT in `_PLUGIN_FIELDS` precisely
-# so the always-include comprehension never bakes a `null` for omitting recipes. See
-# tech-spec § "Adding a recipe section byte-neutrally — the sparse-optional rule".
-_SPARSE_PLUGIN_FIELDS: tuple[str, ...] = ("WindowAggregation",)
+# Optional sections sparse-MERGED into the plugin segment only when present, so an
+# absent section is byte-neutral (existing recipes unchanged — not a cache-invalidation
+# event). They are NOT in `_PLUGIN_FIELDS` precisely so the always-include comprehension
+# never bakes a `null` for omitting recipes. See tech-spec § "Adding a recipe section
+# byte-neutrally — the sparse-optional rule".
+#   - WindowAggregation (Story I.o, FR-AUDIO-2): clip-level aggregation policy.
+#   - Loss / Optimizer (Story I.ab): a generative density model omits them. A recipe
+#     that authors them merges the same sub-document it always did, so its canonical
+#     bytes are unchanged (the pinned-hash test guards this byte-neutrality).
+_SPARSE_PLUGIN_FIELDS: tuple[str, ...] = ("Loss", "Optimizer", "WindowAggregation")
 
 # Framed-label for the optional upstream prefix digest (vertical axis). The
 # leading NUL keeps it out of the namespace of any real segment label.

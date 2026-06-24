@@ -92,6 +92,16 @@ def run_training(
     `progress`, when supplied, receives a per-epoch `on_epoch(epoch, record)` for
     user-facing rendering (Story D.e.1); it is independent of `epoch_callback`.
     """
+    # Loss/Optimizer are optional on the recipe (Story I.ab) for non-gradient backends
+    # (e.g. the generative GMM/HMM). The gradient-trained pytorch plugin requires both;
+    # refuse early (and narrow them to non-None for the rest of this function).
+    if recipe.Loss is None or recipe.Optimizer is None:
+        raise PluginError(
+            "the pytorch plugin requires both Loss and Optimizer sections; omitting them "
+            "is only valid for non-gradient backends",
+            stage="train",
+        )
+
     enable_deterministic_algorithms()
     torch.manual_seed(derive_seed(seed, "dropout"))
 
@@ -327,7 +337,7 @@ def _fit_class_weights(
     recipe: ModelRecipe, train_ds: DataRefineryDataset, training_dir: Path
 ) -> tuple[list[float] | None, Path | None]:
     """Fit class weights on the train split and persist them, for the weighted loss."""
-    if recipe.Loss.op != _CLASS_WEIGHTED_LOSS:
+    if recipe.Loss is None or recipe.Loss.op != _CLASS_WEIGHTED_LOSS:
         return None, None
     params = _op_params(recipe.Loss.model_dump(), drop=("op",))
     weight_source = str(params.get("weight_source", "train"))
@@ -354,6 +364,8 @@ def _fit_class_weights(
 
 
 def _maybe_scheduler(recipe: ModelRecipe, optimizer: Any) -> Any | None:
+    if recipe.Optimizer is None:
+        return None
     schedule = recipe.Optimizer.schedule
     if schedule is None:
         return None
@@ -365,7 +377,7 @@ def _maybe_scheduler(recipe: ModelRecipe, optimizer: Any) -> Any | None:
 def _step_scheduler(
     scheduler: Any | None, recipe: ModelRecipe, record: dict[str, float], monitor: str
 ) -> None:
-    if scheduler is None:
+    if scheduler is None or recipe.Optimizer is None:
         return
     schedule = recipe.Optimizer.schedule
     if schedule is not None and schedule.op == _PLATEAU_SCHEDULE:

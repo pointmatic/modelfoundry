@@ -57,8 +57,8 @@ def test_minimal_recipe_round_trips(tmp_path: Path) -> None:
     assert recipe.plugin == "pytorch"
     assert recipe.seed == 7
     assert recipe.Data.recipe == Path("../data/recipe.yml")
-    assert recipe.Loss.op == "cross_entropy"
-    assert recipe.Optimizer.op == "adamw"
+    assert recipe.Loss is not None and recipe.Loss.op == "cross_entropy"
+    assert recipe.Optimizer is not None and recipe.Optimizer.op == "adamw"
     assert recipe.Training.max_epochs == 3
     assert recipe.Evaluation.primary_metric == "macro_f1"
     # Defaults applied.
@@ -76,6 +76,7 @@ def test_recipe_is_frozen(tmp_path: Path) -> None:
 def test_op_params_preserved_via_extra_allow(tmp_path: Path) -> None:
     recipe = load_recipe(_write(tmp_path, MINIMAL_RECIPE))
     # learning_rate is a plugin param carried through extra="allow".
+    assert recipe.Optimizer is not None
     assert recipe.Optimizer.model_extra == {"learning_rate": 0.001}
 
 

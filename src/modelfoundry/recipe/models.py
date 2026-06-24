@@ -219,8 +219,13 @@ class ModelRecipe(BaseModel):
     seed: int
     Data: DataSpec
     Architecture: dict[str, Any]
-    Loss: LossSpec
-    Optimizer: OptimizerSpec
+    # Loss/Optimizer are mode-selecting optional (Story I.ab): a generative density
+    # model (per-class GMM/HMM) has no loss or optimizer to declare, so it omits them
+    # rather than authoring nominal no-op ops. Sparse-omitted from the canonical bytes
+    # when absent (recipe.canonical._SPARSE_PLUGIN_FIELDS), so a recipe that authors
+    # them is byte-identical — not a cache-invalidation event. `None ⇒ no loss/optimizer`.
+    Loss: LossSpec | None = None
+    Optimizer: OptimizerSpec | None = None
     Training: TrainingSpec
     Optimization: OptimizationSpec | None = None
     Inference: InferenceSpec | None = None

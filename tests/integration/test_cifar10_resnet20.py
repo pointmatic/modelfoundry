@@ -178,14 +178,17 @@ def test_deliverable_overlays_flip_optimizer_and_schedule() -> None:
     from modelfoundry.recipe.loader import load_recipe
 
     base = load_recipe(_DELIVERABLE)
+    assert base.Optimizer is not None
     assert base.Optimizer.op == "adamw"
     assert base.Optimizer.schedule is not None and base.Optimizer.schedule.op == "reduce_on_plateau"
 
     sgd = load_recipe(_DELIVERABLE, overlays=["sgd_momentum"])
+    assert sgd.Optimizer is not None
     assert sgd.Optimizer.op == "sgd"
     assert (sgd.Optimizer.model_extra or {})["momentum"] == pytest.approx(0.9)
 
     cosine = load_recipe(_DELIVERABLE, overlays=["cosine"])
+    assert cosine.Optimizer is not None
     assert cosine.Optimizer.schedule is not None and cosine.Optimizer.schedule.op == "cosine"
 
     budget = load_recipe(_DELIVERABLE, overlays=["cpu_budget"])

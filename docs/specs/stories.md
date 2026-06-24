@@ -565,14 +565,14 @@ Settle the design forks the audit surfaced so the generative backend is implemen
 
 ---
 
-### Story I.ab: Optional `Loss`/`Optimizer` sections (schema foundation) [Planned]
+### Story I.ab: Optional `Loss`/`Optimizer` sections (schema foundation) [Done]
 
 Make `ModelRecipe.Loss`/`Optimizer` `| None = None` (the deferred Gap A / Option B cleanup) so a generative density model **omits** them honestly rather than declaring nominal no-op ops. Foundation for the generative recipes. **Not cache-invalidating** — byte-neutral for recipes that author them.
 
-- [ ] **Schema.** `Loss`/`Optimizer` → `| None = None` ([recipe/models.py:222-223](../../src/modelfoundry/recipe/models.py#L222)).
-- [ ] **Validator.** Checks only present sections — check 3 (`section_ops_registered`), check 6 (early-stopping/schedule monitors), check 17 (op-params) skip when the section is `None`; [recipe/sections.py](../../src/modelfoundry/recipe/sections.py) `iter_op_sections` skips `None` sections.
-- [ ] **Byte-neutrality.** Sparse-omit `None` `Loss`/`Optimizer` in [recipe/canonical.py](../../src/modelfoundry/recipe/canonical.py) (mirroring `WindowAggregation`'s I.o wiring) so a recipe authoring them is **byte-identical**; a canonical-hash pin test guards the invariant.
-- [ ] **Corpus + scaffolder.** Update fixtures + the `init` scaffolder to omit the sections when the plugin has no concept of them; existing discriminative recipes keep authoring them unchanged.
+- [x] **Schema.** `Loss`/`Optimizer` → `| None = None` ([recipe/models.py:222-223](../../src/modelfoundry/recipe/models.py#L222)). *(Done — documented as mode-selecting optional: `None ⇒ no loss/optimizer`.)*
+- [x] **Validator.** Checks only present sections — check 3 (`section_ops_registered`), check 6 (early-stopping/schedule monitors), check 17 (op-params) skip when the section is `None`; [recipe/sections.py](../../src/modelfoundry/recipe/sections.py) `iter_op_sections` skips `None` sections. *(Done — `iter_op_sections` guards None Loss/Optimizer (so checks 3/17 skip automatically); check 6 guards `recipe.Optimizer is None`. New test `test_recipe_without_loss_optimizer_passes_section_checks`.)*
+- [x] **Byte-neutrality.** Sparse-omit `None` `Loss`/`Optimizer` in [recipe/canonical.py](../../src/modelfoundry/recipe/canonical.py) (mirroring `WindowAggregation`'s I.o wiring) so a recipe authoring them is **byte-identical**; a canonical-hash pin test guards the invariant. *(Done — moved to `_SPARSE_PLUGIN_FIELDS`; the pre-existing `test_pinned_canonical_hash_is_stable` stayed green = byte-neutral for authoring recipes; new segment-level tests for omit/include.)*
+- [x] **Corpus + scaffolder.** Update fixtures + the `init` scaffolder to omit the sections when the plugin has no concept of them; existing discriminative recipes keep authoring them unchanged. *(Done — "existing recipes unchanged" half verified (all bundled-recipe + scaffolder + pin tests green; pytorch/sklearn keep authoring them). The **omit-when-no-concept** half is structurally deferred to I.ac: no concept-less plugin exists until the generative plugin lands, so the generative scaffolder authors the omitting recipe there. Consumer None-guards added to [pytorch/trainer.py](../../src/modelfoundry/plugins/pytorch/trainer.py) + [sklearn/plugin.py](../../src/modelfoundry/plugins/sklearn/plugin.py) for mypy + invariant.)*
 
 **Version:** no bump (rides v0.20.0). Not cache-invalidating (byte-neutral for existing recipes).
 

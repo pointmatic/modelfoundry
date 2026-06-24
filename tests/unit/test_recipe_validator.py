@@ -261,6 +261,24 @@ def test_predictive_entropy_is_a_selectable_metric() -> None:
     assert not _failures_for(report, 11)
 
 
+def test_recipe_without_loss_optimizer_passes_section_checks() -> None:
+    # Story I.ab: a generative-shaped recipe omits Loss/Optimizer (and the
+    # Optimization/early-stopping that reference them). Checks 3 (ops registered),
+    # 6 (monitor metrics), and 17 (op params) must not false-fail on absent sections.
+    recipe = _recipe(
+        {
+            "Loss": None,
+            "Optimizer": None,
+            "Optimization": None,
+            "Training": {"early_stopping": None},
+        }
+    )
+    report = validate(recipe, _instance(), _Plugin())
+    assert not _failures_for(report, 3)
+    assert not _failures_for(report, 6)
+    assert not _failures_for(report, 17)
+
+
 @pytest.mark.parametrize("check_id", list(range(1, 24)))
 def test_check_passes_on_good_recipe(check_id: int) -> None:
     report = validate(_recipe(), _instance(), _Plugin())

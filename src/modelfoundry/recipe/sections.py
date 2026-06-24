@@ -63,12 +63,22 @@ def iter_op_sections(recipe: ModelRecipe) -> Iterator[tuple[str, str, dict[str, 
 
     `authored_params` is the section's `extra` bag (the op-specific params as
     written); `slot` is the `OperationSpec.applies_to` value the section occupies.
+
+    Loss/Optimizer are optional (Story I.ab): a generative density model omits them,
+    so an absent section yields nothing — checks 3 / 17 then simply skip it.
     """
-    yield "Loss", recipe.Loss.op, dict(recipe.Loss.model_extra or {}), "loss"
-    yield "Optimizer", recipe.Optimizer.op, dict(recipe.Optimizer.model_extra or {}), "optimizer"
-    if recipe.Optimizer.schedule is not None:
-        sched = recipe.Optimizer.schedule
-        yield "Optimizer.schedule", sched.op, dict(sched.model_extra or {}), "schedule"
+    if recipe.Loss is not None:
+        yield "Loss", recipe.Loss.op, dict(recipe.Loss.model_extra or {}), "loss"
+    if recipe.Optimizer is not None:
+        yield (
+            "Optimizer",
+            recipe.Optimizer.op,
+            dict(recipe.Optimizer.model_extra or {}),
+            "optimizer",
+        )
+        if recipe.Optimizer.schedule is not None:
+            sched = recipe.Optimizer.schedule
+            yield "Optimizer.schedule", sched.op, dict(sched.model_extra or {}), "schedule"
     for i, viz in enumerate(recipe.Visualizations):
         yield f"Visualizations[{i}]", viz.op, dict(viz.model_extra or {}), "visualization"
 

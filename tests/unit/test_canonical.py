@@ -9,9 +9,33 @@ import textwrap
 from collections.abc import Sequence
 from pathlib import Path
 
-from modelfoundry.recipe.canonical import canonical_bytes, recipe_hash
+from modelfoundry.recipe.canonical import canonical_bytes, recipe_hash, recipe_segments
 from modelfoundry.recipe.loader import load_recipe
 from modelfoundry.recipe.models import ModelRecipe
+
+# A generative-shaped recipe that omits the now-optional Loss/Optimizer sections
+# (Story I.ab) — a density model has no loss/optimizer to declare.
+NO_LOSS_OPT = textwrap.dedent(
+    """
+    schema_version: 1
+    plugin: pytorch
+    seed: 7
+    Data:
+      recipe: ../data/recipe.yml
+    Architecture: {op: simple_cnn, num_classes: 10}
+    Training:
+      max_epochs: 3
+      batch_size: 32
+      device: auto
+      precision: fp32
+      checkpoint_cadence: 1
+    Evaluation:
+      splits: [val, test]
+      primary_metric: macro_f1
+      metrics: [macro_f1, accuracy]
+      calibration_bins: 10
+    """
+).strip()
 
 BASE = textwrap.dedent(
     """
@@ -192,6 +216,35 @@ def test_seed_override_perturbs_bytes(tmp_path: Path) -> None:
 def test_canonical_bytes_are_deterministic(tmp_path: Path) -> None:
     recipe = _load(tmp_path, BASE)
     assert canonical_bytes(recipe) == canonical_bytes(recipe)
+
+
+def test_recipe_omitting_loss_optimizer_loads(tmp_path: Path) -> None:
+    # Story I.ab: Loss/Optimizer are now `| None = None`; a recipe omitting them loads.
+    recipe = _load(tmp_path, NO_LOSS_OPT, name="gen.yml")
+    assert recipe.Loss is None
+    assert recipe.Optimizer is None
+
+
+def test_plugin_segment_omits_absent_loss_optimizer(tmp_path: Path) -> None:
+    # Sparse-merge (mirroring WindowAggregation): an absent section contributes
+    # nothing to the plugin segment, so no `null` is baked into the canonical form.
+    segments = recipe_segments(_load(tmp_path, NO_LOSS_OPT, name="gen.yml"))
+    assert "Loss" not in segments["plugin"]
+    assert "Optimizer" not in segments["plugin"]
+
+
+def test_plugin_segment_includes_authored_loss_optimizer(tmp_path: Path) -> None:
+    segments = recipe_segments(_load(tmp_path, BASE))
+    assert segments["plugin"]["Loss"] == {"op": "cross_entropy"}
+    assert segments["plugin"]["Optimizer"]["op"] == "adamw"
+
+
+def test_omitting_loss_optimizer_perturbs_bytes(tmp_path: Path) -> None:
+    # Omission is represented in the identity — a generative recipe is not silently
+    # identical to one that authors loss/optimizer.
+    assert recipe_hash(_load(tmp_path, NO_LOSS_OPT, name="gen.yml")) != recipe_hash(
+        _load(tmp_path, BASE)
+    )
 
 
 def test_device_field_perturbs_canonical_bytes(tmp_path: Path) -> None:

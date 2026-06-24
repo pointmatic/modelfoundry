@@ -234,7 +234,8 @@ def _check_6_monitor_metrics_produced(recipe: ModelRecipe) -> ValidationCheck:
     if es is not None and es.monitor not in available:
         bad.append(("early_stopping", es.monitor))
 
-    sched = recipe.Optimizer.schedule
+    # Optimizer is optional (Story I.ab) — only inspect its schedule when present.
+    sched = recipe.Optimizer.schedule if recipe.Optimizer is not None else None
     if sched is not None and sched.monitor is not None and sched.monitor not in available:
         bad.append(("schedule", sched.monitor))
 

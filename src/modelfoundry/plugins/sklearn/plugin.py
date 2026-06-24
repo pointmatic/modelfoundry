@@ -210,7 +210,9 @@ class SklearnPlugin:
         # The recipe's Optimizer block drives the MLPClassifier solver + learning
         # rate (sklearn's "optimizer"). `recipe` is None only when a unit test
         # drives the plugin methods directly; the runner always supplies it.
-        if recipe is not None:
+        # Optimizer is optional on the recipe (Story I.ab) — the MLP baseline simply
+        # keeps its default solver/learning rate when the block is omitted.
+        if recipe is not None and recipe.Optimizer is not None:
             solver = _SOLVER_BY_OP.get(recipe.Optimizer.op)
             if solver is not None:
                 fit_params["solver"] = solver
