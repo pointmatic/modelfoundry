@@ -245,17 +245,21 @@ consumer side (the windowed `sample_array` is also in-pipeline-only, so re-featu
 from the instance is impossible).
 
 The full brief is now in-repo at
-[`datarefinery-audio-feature-persistence.md`](datarefinery-audio-feature-persistence.md);
+[`audio-feature-persistence.md`](audio-feature-persistence.md);
 it ties the gap to the audio requirements R4 (spectral featurization), R5 (fit-on-train
 normalization), and R7 (clip↔window aggregation via `source_record_id`), and confirms my
 reading: `png_per_record` is the only writer, `npy_per_record` / `parquet` are deferred,
-arrays are in-pipeline-only.
+arrays are in-pipeline-only. *(Reconciled 2026-06-23: as of DR v0.25.0 the `npy_per_record`
+sink has **shipped** — `SinkOp.format` is now `Literal['png_per_record','npy_per_record']`;
+`parquet` remains deferred. This is a dated analysis snapshot; the authoritative shipped
+contract is [`vendor-dependency-spec.md`](vendor-dependency-spec.md) § "Audio feature-array
+persistence".)*
 
 The requirements doc the brief links (`audio-classification-requirements.md`) is **not
 missing** — it was moved and renamed to
 [`.archive/phase-j-audio-classification-requirements.md`](.archive/phase-j-audio-classification-requirements.md)
 when Phase J was archived, so the brief's link is merely stale. The companion
-[`modelfoundry-audio-feature-consumption.md`](modelfoundry-audio-feature-consumption.md)
+[`modelfoundry/audio-feature-consumption.md`](modelfoundry/audio-feature-consumption.md)
 (the consuming half of the seam) is **also in-repo now**; it targets the *ModelFoundry*
 repo (its fix lives there) but usefully pins one producing-side constraint: the consumer
 resolves a `feature_path` (instance-root-relative, `<instance>/<feature_path>`) into a
@@ -306,7 +310,7 @@ ingestion/bugfix item, and it cannot be created in `debug` mode. Recommended pat
   `project-essentials.md` § "Recipe / manifest / report shape changes need a cross-repo
   coordination check"): `modelfoundry/vendor-dependency-spec.md` must be updated in the
   same change, and the rollout coordinated with the companion
-  `modelfoundry-audio-feature-consumption.md` fix (neither half unblocks the consumer
+  `modelfoundry/audio-feature-consumption.md` fix (neither half unblocks the consumer
   alone). The brief notes the change is **additive ⇒ no `schema_version` bump**, but sink
   output is instance content, so cache identity must cover it exactly as `png_per_record`
   does today (same recipe + inputs + seed ⇒ byte-identical features; a changed
@@ -317,7 +321,7 @@ ingestion/bugfix item, and it cannot be created in `debug` mode. Recommended pat
   1. The chosen serialization format (1/2/3 above), with the rejected options and why.
   2. The `feature_path` record-field contract sketch + the `modelfoundry/vendor-dependency-spec.md`
      update naming it as a shape-binding surface, coordinated with the companion
-     `modelfoundry-audio-feature-consumption.md` fix. **Pin the persisted array shape /
+     `modelfoundry/audio-feature-consumption.md` fix. **Pin the persisted array shape /
      orientation** the consumer expects — `(n_mels, n_frames)` on disk, loaded as a
      `(1, n_mels, n_frames)` / `(C, n_mels, n_frames)` tensor — so producer and consumer
      agree; mismatched axis order is the obvious way a "paired" fix still fails to line up.

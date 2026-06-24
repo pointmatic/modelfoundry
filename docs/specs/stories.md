@@ -301,7 +301,7 @@ Derived from [`consumer-gap-solutions.md`](consumer-gap-solutions.md) Gap 3 (dec
 
 > **Release cadence (Subphase I-1) — phase-bundled, one minor (multi-release exception).** Phase I already shipped (I.h → v0.16.0, I.j.3 → v0.17.0, I.k → v0.17.1). Subphase I-1 is a follow-on subphase that ships its **own** release tag — the documented Version-Cadence multi-release exception (`_phase-letters.md` § Subphases). Stories I.l–I.q carry no version; **I.r owns the single minor bump → v0.18.0** (new additive capability). **Not cache-invalidating** for any existing instance: the loader change is additive and the only canonical-bytes surface (the I.o aggregation-policy recipe field) is authored only by *audio* recipes — no existing image instance is perturbed. Pre-prod, no production ceremony.
 
-> **Cross-repo sequencing.** DataRefinery has **not yet shipped** the `npy_per_record` sink (forward-declared in the vendor-spec). MF builds its half **now against the pinned Q1–Q6 contract**, verified with a synthesized `.npy` fixture (Story I.l) that mimics the contract exactly. End-to-end against a *real* DR audio instance is verified when DR ships its sink; MF's half is complete and the seam stays aligned. MF consumes the instance **read-only** (never re-hashes it — loose-coupling invariant).
+> **Cross-repo sequencing — RESOLVED (DR v0.25.0).** DataRefinery has now **shipped** the `npy_per_record` sink + `feature_path` rewrite (DR Stories K.c/K.d, v0.24.0–v0.25.0); the vendor-spec § "Audio feature-array persistence" is ratified **shipped**, no longer forward-declared. MF built its half against the pinned Q1–Q6 contract with a synthesized `.npy` fixture (Story I.l), and Story I.m.1 **verified the loader end-to-end against a real DR materialize** — the synthesized fixture and real DR output agree. MF consumes the instance **read-only** (never re-hashes it — loose-coupling invariant).
 
 ---
 
@@ -360,14 +360,26 @@ Apply the persisted per-mel-bin statistics at load — the audio analogue of ima
 
 ---
 
-### Story I.o: Clip-level window aggregation (R7) + dangling-key refusal [Planned]
+> **Split at implementation time (I.o → I.o.1 + I.o.2).** The story proved oversized: the settled design + the byte-neutral recipe surface is one coherent commit, and the aggregation engine (math + a Plugin-Protocol signature change across all four plugins + evaluation wiring + dangling refusal + validator) is a second. Split per the scope-splitting rule to keep each a clean unit.
 
-The consumer-owned aggregation math (DR ships no aggregation op). Layers over the **already-built** MC-dropout per-record outputs ([stochastic.py](../../src/modelfoundry/plugins/pytorch/stochastic.py)).
+### Story I.o.1: `WindowAggregation` recipe surface + byte-neutral canonical wiring [Done]
 
-- [ ] **Design decision (settle in-story).** (a) Where aggregation lives — loader vs. evaluation stage; (b) the **recipe field shape** for the aggregation policy. Per Phase I no-implicit-defaults, the policy is **author-required + scaffolder-emitted** or a **mode-selecting optional** with a versioned absent⇒behavior mapping — *not* a silent code default. This is the only canonical-bytes-affecting change in the subphase, and only audio recipes author it.
-- [ ] **Group + aggregate.** Regroup window-level predictions (incl. MC-dropout means / `predictive_entropy` / `mc_variance`) by `source_record_id` into clip-level results; apply the declared policy (mean / logit-average / majority-vote). `window_index` available for order-sensitive policies.
-- [ ] **Dangling-key failure mode.** A window whose `source_record_id` resolves to no clip in the instance → **refuse** (vendor-spec § Failure modes), alongside the existing bind-time gates. Test via the I.l dangling-key fixture variant.
-- [ ] **Validator cross-check.** The aggregation policy references a producible grouping; surface a misdeclaration at `validate`, not mid-run.
+The settled design (R7) + the recipe section it introduces. → New `WindowAggregationSpec` + `ModelRecipe.WindowAggregation` ([models.py](../../src/modelfoundry/recipe/models.py)); sparse-merge into the plugin segment ([canonical.py](../../src/modelfoundry/recipe/canonical.py)). The aggregation math + wiring is I.o.2.
+
+- [x] **Design decision (settled per the I.a frozen contract; memorialized in `tech-spec.md`).** (a) Aggregation lives in the **evaluation stage** ([evaluation.py](../../src/modelfoundry/plugins/pytorch/evaluation.py)) — regroup window predictions by `source_record_id`; the loader is untouched. (b) The policy is a new **top-level `WindowAggregation` section** in the **plugin** segment (I.a Decision 2: `Evaluation`/`Inference` are plugin-segment), **sparse-omitted when absent** so existing image recipes' canonical bytes are byte-identical (I.a's "omitting an optional yields identical bytes" — no re-pin, not a cache-invalidation event). **Mode-selecting optional** (no-implicit-defaults): `WindowAggregation = None ⇒ window-level eval`; when present, `policy: Literal["mean","logit_average","majority_vote"]` is author-required. The "absent ⇒ window-level" mapping is part of the versioned plugin-segment contract. *(Top-level, not nested under `Evaluation`: a field inside the always-present `Evaluation` sub-doc would bake a `null` into every recipe and perturb all of them — only a sparse top-level section delivers the audio-only byte-shift the subphase promises.)* → The sparse-optional-section rule is now memorialized in [tech-spec.md](../../docs/specs/tech-spec.md) § "Adding a recipe section byte-neutrally", with `WindowAggregation` as the worked example.
+- [x] **Recipe surface + byte-neutral canonical.** `WindowAggregationSpec(policy=...)` (`extra="forbid"`, author-required `policy`); `ModelRecipe.WindowAggregation: … | None = None`. `recipe.canonical` sparse-merges it into the plugin segment only when present (`_SPARSE_PLUGIN_FIELDS`), so an absent section contributes nothing. Verified in [test_segmented_identity.py](../../tests/unit/test_segmented_identity.py): absent ⇒ not in plugin segment + no `WindowAggregation` bytes; present ⇒ in plugin segment + perturbs hash; policy change perturbs. The pinned `_PINNED_HASH` ([test_canonical.py](../../tests/unit/test_canonical.py)) is **unchanged** (no re-pin — image recipes byte-identical).
+
+**Version:** no bump (rides v0.18.0).
+
+---
+
+### Story I.o.2: Clip-level window aggregation engine (R7) + dangling-key refusal + validator [Planned]
+
+The consumer-owned aggregation math (DR ships no aggregation op). Layers over the **already-built** MC-dropout per-record outputs ([stochastic.py](../../src/modelfoundry/plugins/pytorch/stochastic.py)), driven by the I.o.1 `WindowAggregation` policy.
+
+- [ ] **Group + aggregate.** Regroup window-level predictions (incl. MC-dropout means / `predictive_entropy` / `mc_variance`) by `source_record_id` into clip-level results; apply the declared policy. All three policies produce a clip-level `(C,)` probability vector (mean of window probs / logit-space mean / normalized vote histogram) so clip-level metrics + uncertainty compute uniformly. `window_index` available for order-sensitive policies. Thread `recipe.WindowAggregation` through the `Plugin.run_evaluation` Protocol (base + pytorch/sklearn/random) into the evaluation stage; emit a clip-level predictions surface + clip-level metrics when present.
+- [ ] **Dangling-key failure mode.** Per vendor-spec § Failure modes: a window whose `source_record_id` does not resolve to its clip — DR guarantees `record_id == f"{source_record_id}__w{window_index:04d}"`, so a mismatch (or missing `source_record_id`) → **refuse**. Test via the I.l dangling-key fixture variant.
+- [ ] **Validator cross-check.** When `WindowAggregation` is declared, cross-check the bound instance's records carry `source_record_id` (a producible grouping); surface a misdeclaration at `validate`, not mid-run.
 
 **Version:** no bump (rides v0.18.0).
 

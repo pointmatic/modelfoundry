@@ -170,6 +170,30 @@ class EvaluationSpec(BaseModel):
     calibration_bins: int = Field(gt=0)  # no-implicit-defaults (I.e.3): author-required
 
 
+class WindowAggregationSpec(BaseModel):
+    """Clip-level window-aggregation policy (Story I.o, FR-AUDIO-2 / R7).
+
+    Present only on recipes whose bound instance carries **window records**
+    (`source_record_id` / `window_index`, the audio path): it regroups window-level
+    predictions into clip-level results. **Mode-selecting optional** —
+    `WindowAggregation = None ⇒ window-level evaluation` (the absent⇒behavior mapping
+    is part of the versioned plugin-segment contract); when the section is present its
+    `policy` is author-required (no-implicit-defaults, Story I.e.3).
+
+    **Byte-neutral addition.** This is a top-level section sparse-merged into the
+    `plugin` segment only when present (`recipe.canonical.recipe_segments`), so existing
+    recipes that omit it are byte-identical — adding it is not a cache-invalidation
+    event. See `tech-spec.md` § "Adding a recipe section byte-neutrally".
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    # mean: average the per-class probabilities across a clip's windows.
+    # logit_average: average in logit space (mean of log-probabilities, renormalized).
+    # majority_vote: clip label is the modal per-window argmax (ties broken by lowest index).
+    policy: Literal["mean", "logit_average", "majority_vote"]
+
+
 class VisualizationSpec(BaseModel):
     # extra="allow": plugin attaches the viz op's typed params in Phase C.
     model_config = ConfigDict(extra="allow")
@@ -201,6 +225,10 @@ class ModelRecipe(BaseModel):
     Optimization: OptimizationSpec | None = None
     Inference: InferenceSpec | None = None
     Evaluation: EvaluationSpec
+    # Clip-level window aggregation (Story I.o, FR-AUDIO-2). Top-level, sparse-merged
+    # into the plugin segment only when present (byte-neutral when absent); mode-selecting
+    # optional — `None ⇒ window-level evaluation`. See `recipe.canonical.recipe_segments`.
+    WindowAggregation: WindowAggregationSpec | None = None
     Visualizations: list[VisualizationSpec] = []
     OutputExpectations: list[ExpectationSpec] = []
     # Named-overlay catalog (FR-14): `overlays.<name>` blocks selected by an

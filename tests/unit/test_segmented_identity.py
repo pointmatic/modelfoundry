@@ -281,3 +281,38 @@ def test_cosmetic_reorder_preserves_identity(tmp_path: Path) -> None:
     assert canonical_bytes(_load(tmp_path, _PYTORCH)) == canonical_bytes(
         _load(tmp_path, reordered, name="reordered.yml")
     )
+
+
+# --- WindowAggregation sparse-optional plugin section (Story I.o, FR-AUDIO-2) ---
+
+_WINDOW_AGG_MEAN = "\nWindowAggregation:\n  policy: mean\n"
+_WINDOW_AGG_VOTE = "\nWindowAggregation:\n  policy: majority_vote\n"
+
+
+def test_window_aggregation_absent_not_in_plugin_segment(tmp_path: Path) -> None:
+    recipe = _load(tmp_path, _PYTORCH)
+    assert "WindowAggregation" not in recipe_segments(recipe)["plugin"]
+
+
+def test_window_aggregation_absent_is_byte_neutral(tmp_path: Path) -> None:
+    # Omitting the section contributes nothing to the canonical bytes (sparse), so an
+    # existing recipe is byte-identical to before the section was ever added.
+    recipe = _load(tmp_path, _PYTORCH)
+    assert b"WindowAggregation" not in canonical_bytes(recipe)
+
+
+def test_window_aggregation_present_in_plugin_segment(tmp_path: Path) -> None:
+    recipe = _load(tmp_path, _PYTORCH + _WINDOW_AGG_MEAN)
+    assert recipe_segments(recipe)["plugin"]["WindowAggregation"] == {"policy": "mean"}
+
+
+def test_window_aggregation_present_perturbs_hash(tmp_path: Path) -> None:
+    base = _load(tmp_path, _PYTORCH, name="a.yml")
+    agg = _load(tmp_path, _PYTORCH + _WINDOW_AGG_MEAN, name="b.yml")
+    assert recipe_hash(base) != recipe_hash(agg)
+
+
+def test_window_aggregation_policy_change_perturbs_hash(tmp_path: Path) -> None:
+    mean = _load(tmp_path, _PYTORCH + _WINDOW_AGG_MEAN, name="m.yml")
+    vote = _load(tmp_path, _PYTORCH + _WINDOW_AGG_VOTE, name="v.yml")
+    assert recipe_hash(mean) != recipe_hash(vote)

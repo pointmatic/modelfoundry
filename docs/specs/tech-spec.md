@@ -475,6 +475,17 @@ def recipe_hash(recipe: ModelRecipe) -> str:
     layout layer for the directory component)."""
 ```
 
+#### Adding a recipe section byte-neutrally — the sparse-optional rule (frozen, I.a)
+
+The recipe is **flat on disk and segmented by plugin in the hashing** (I.a Decision 2/3); the `core` / `plugin` / `overlays` / `extensions` partition is the governed cross-tool-family standard and is **not** re-opened per feature. Within that frozen model, the rule for **adding a new optional section without invalidating every existing cache** is:
+
+- **Segment-level sparse omission is not field-level.** `join_stable` sparse-omits an *empty/absent segment* (e.g. an unused `extensions`), but `recipe_segments` builds the `plugin` segment from a fixed field list and `model_dump(mode="json")` serializes an absent optional **as `null`**. So a `null`-valued member (e.g. `Inference: null`, or `Evaluation.comparison: null`) **is baked into that segment's canonical bytes** — it is *not* sparse. This is why introducing `Inference` (Story H.m) shifted every recipe's hash.
+- **Therefore, to add a section that perturbs only the recipes that author it** (the byte-neutral, no-re-pin path), add it as a **top-level section** that `recipe_segments` **conditionally merges into its segment only when present** (sparse-when-absent). An absent section then contributes nothing — existing recipes are byte-identical, `_PINNED_HASH` is unchanged, and no re-materialization is forced.
+- **Do NOT nest the new field inside an always-present section** (e.g. a new field on `EvaluationSpec`). Its `null` would be baked into every recipe's `Evaluation` sub-document and perturb **all** caches — a cache-invalidation event, not a byte-neutral addition.
+- **No-implicit-defaults still applies.** The new section is either author-required (scaffolder-emitted) or a **mode-selecting optional** whose `absent ⇒ behavior` mapping is part of the versioned segment contract (changing the *mapping* later is a per-segment version bump).
+
+**Worked example — `WindowAggregation` (Story I.o).** Clip-level window aggregation for audio is a top-level `WindowAggregation` section in the `plugin` segment, sparse-merged when present: `WindowAggregation = None ⇒ window-level evaluation`; when present, `policy` (`mean` / `logit_average` / `majority_vote`) is author-required. Existing image recipes omit it ⇒ byte-identical (not a cache-invalidation event); only audio recipes that declare it shift their bytes (and they have no prior cache). This is the canonical pattern for any future optional section.
+
 ### `cache.identity` (FR-4)
 
 ```python

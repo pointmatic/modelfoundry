@@ -29,7 +29,7 @@ needed.
 |---|-----|------------------|---------------------|-------------|
 | 1 | DR writes instance-relative `path`; MF resolves a bare `path` relative to **CWD** | **confirmed** | Workaround script exists (at `scripts/examples/`, not the cited path) | ✅ **FIXED — Story I.k, v0.17.1**: `_decode` anchors instance-relative `path` to the instance + bind-time fail-fast gate |
 | 2 | MF encoder path applies **no** HF image-processor preprocessing | **confirmed** (headline) — blocking "collision" sub-claim **refuted** | `normalize` is a fit-on-train op applied at load (resize-via-sink + normalize coexist); DR **confirmed** it persists fixed author-supplied stats | ✅ **No spike — zero-code recipe pattern** (DR `resize` + fixed-stat `normalize` in **0-255 units** = HF stats × 255); document the pattern + units caveat |
-| 3 | PyTorch loader is image-only; no audio / feature-array path | **confirmed** | MC-dropout path is **already built and modality-agnostic** (not the blocker); surrounding audio contract now pinned (DR vendor-spec 2026-06-22) but **feature transport still not in the contract** | **Decision: spectrogram-as-image is the wrong (lossy) solution** — build the feature-array path; cross-repo **`plan_features`**, **BLOCKED on DR shipping `feature_path`/`npy_per_record` persistence** |
+| 3 | PyTorch loader is image-only; no audio / feature-array path | **confirmed** | MC-dropout path is **already built and modality-agnostic** (not the blocker) | ✅ **RESOLVED (Subphase I-1)** — DR shipped `npy_per_record`/`feature_path` (v0.24.0–v0.25.0); MF built the feature-array loader + per-mel-bin `audio_normalize` (Stories I.l–I.n), **verified end-to-end against a real DR materialize** (I.m.1). Spectrogram-as-image stayed rejected (lossy). Clip aggregation lands in I.o.2 |
 
 ---
 
@@ -400,14 +400,14 @@ DataRefinery's own solutions doc
 ([`datarefinery/consumer-gap-solutions.md`](datarefinery/consumer-gap-solutions.md)
 Gap 3) and its **vendored dependency contract**
 ([`datarefinery/vendor-dependency-spec.md`](datarefinery/vendor-dependency-spec.md))
-were both reviewed across several rounds. The feature-array transport is now a
-**forward-declared § "Audio feature-array persistence — `npy_per_record` +
-`feature_path`"** in the vendor-spec, with **MF's review-round questions Q1–Q6
-pinned** (2026-06-23). **Status: forward-declared, NOT yet shipped** — DR must still
-ship the `npy_per_record` sink (its `plan_phase`) and MF the loader branch (its
-`plan_features`); the two land together. So Gap 3 stays **blocked on DR shipping
-persistence**, but the *shape* MF builds against is now contractually fixed (no
-longer just a brief proposal).
+were both reviewed across several rounds. The feature-array transport is the
+**§ "Audio feature-array persistence — `npy_per_record` + `feature_path`"** in the
+vendor-spec, with **MF's review-round questions Q1–Q6 pinned** (2026-06-23).
+**Status: SHIPPED (DR v0.25.0; MF Subphase I-1).** DR shipped the `npy_per_record`
+sink + `feature_path` rewrite (v0.24.0–v0.25.0) and MF built the loader branch +
+per-mel-bin `audio_normalize` (Stories I.l–I.n), **verified end-to-end against a real
+DR materialize** (Story I.m.1). The Q1–Q6 pins below are the as-shipped contract,
+confirmed against the installed DR. Clip-level aggregation (R7) lands in I.o.2.
 
 **Pinned feature-transport contract (the binding facts for MF's loader story):**
 
@@ -457,9 +457,10 @@ longer just a brief proposal).
 
 **Still-open cross-repo coordination items:**
 
-1. **Float-array path** — both *solutions docs* commit to `npy_per_record` and DR
-   demoted its PNG option 3 to "do not build." Good — but until that lands in the
-   *vendor-spec* (above), it's intent, not contract.
+1. **Float-array path** — ✅ **landed.** Both *solutions docs* committed to
+   `npy_per_record` and DR demoted its PNG option 3 to "do not build"; this is now
+   **contract, not intent** — the *vendor-spec* § "Audio feature-array persistence" is
+   ratified shipped (DR v0.25.0) and MF consumes it (Subphase I-1).
 2. **`feature_path` shape-binding surface → vendor-dependency-spec
    (authority RESOLVED 2026-06-23; one nicety left).** The DR vendor-spec's new
    `DR:`/`MF:` Revision-Log path convention + its link evidence resolve the earlier
@@ -520,16 +521,14 @@ reply.
    document this `Encoder`-normalization pattern + the units caveat at the recipe
    surface (a docs change — `plan_features`/`plan_tech_spec` or a short doc story).
    The Encoder-op-applies-HF-preprocessing idea is dropped.
-3. **Gap 3 → plan_features (proper path, not the PNG hack) — but BLOCKED on DR
-   shipping feature persistence.** Decision recorded: spectrogram-as-image is lossy
-   and wrong; build the feature-array path. **Status check (DR vendor-spec,
-   2026-06-22):** the *surrounding* contract is now pinned (`audio_normalize` stats
-   with exact axis/broadcast, mel orientation, window records, R7 aggregation key,
-   dangling-window failure mode) — but **feature-array persistence
-   (`npy_per_record` / `feature_path`) is still NOT in the contract; features remain
-   in-pipeline-only.** So MF's consumption branch has nothing to bind to yet.
-   Sequence: DR ships feature persistence (its `plan_phase`) + adds `feature_path`
-   to the vendor-spec → *then* MF authors the loader story (feature-array branch +
-   `audio_normalize` per the now-pinned stats contract), with the brief's
-   verification as acceptance tests. MC-dropout path is done; do not re-investigate
-   it.
+3. **Gap 3 → ✅ RESOLVED (Subphase I-1, DR v0.25.0).** Decision held: spectrogram-as-image
+   is lossy and wrong; MF built the feature-array path. **Status (reconciled 2026-06-23,
+   verified against installed DR 0.25.0):** DR **shipped** feature-array persistence —
+   the `npy_per_record` sink + `feature_path` rewrite (v0.24.0–v0.25.0; `SinkOp.format`
+   is now `Literal['png_per_record','npy_per_record']`) and the vendor-spec §
+   "Audio feature-array persistence" is ratified shipped. MF authored the consumer half
+   in Subphase I-1: the synthesized fixture (I.l), the feature-array `_decode` branch
+   (I.m), the per-mel-bin `audio_normalize` apply (I.n), and a **real-DR end-to-end
+   materialize smoke** (I.m.1) — synthesized fixture and real DR output agree. The R7
+   clip-level window aggregation + dangling-window failure mode land in I.o.2. The
+   modality-agnostic MC-dropout path was reused unchanged.

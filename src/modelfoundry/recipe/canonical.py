@@ -60,6 +60,12 @@ _PLUGIN_FIELDS: tuple[str, ...] = (
 )
 _OVERLAY_FIELD = "overlays"
 _EXTENSIONS_FIELD = "extensions"
+# Story I.o (FR-AUDIO-2): an optional top-level section sparse-MERGED into the plugin
+# segment only when present, so an absent section is byte-neutral (existing recipes
+# unchanged — not a cache-invalidation event). It is NOT in `_PLUGIN_FIELDS` precisely
+# so the always-include comprehension never bakes a `null` for omitting recipes. See
+# tech-spec § "Adding a recipe section byte-neutrally — the sparse-optional rule".
+_SPARSE_PLUGIN_FIELDS: tuple[str, ...] = ("WindowAggregation",)
 
 # Framed-label for the optional upstream prefix digest (vertical axis). The
 # leading NUL keeps it out of the namespace of any real segment label.
@@ -76,6 +82,12 @@ def recipe_segments(recipe: ModelRecipe) -> dict[str, Any]:
     dump = recipe.model_dump(mode="json")
     core = {k: dump[k] for k in _CORE_FIELDS if k in dump}
     plugin = {k: dump[k] for k in _PLUGIN_FIELDS if k in dump}
+    # Sparse-merge optional plugin sections only when present (Story I.o): an absent
+    # section contributes nothing, so omitting recipes are byte-identical.
+    for field_name in _SPARSE_PLUGIN_FIELDS:
+        value = dump.get(field_name)
+        if value is not None:
+            plugin[field_name] = value
     overlays = dump.get(_OVERLAY_FIELD, {})
     extensions = dump.get(_EXTENSIONS_FIELD, {})
     # extensions (Story I.d): empty ⇒ sparse-omitted by the combiner, so adding the

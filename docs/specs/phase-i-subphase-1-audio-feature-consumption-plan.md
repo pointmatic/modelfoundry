@@ -41,11 +41,12 @@ and § "Failure modes ModelFoundry SHOULD detect". The companion briefs are
 | **Test substrate** | `tests/fixtures/datarefinery_instances/builder.py` synthesizes image instances (CIFAR smoke) | A synthesized **audio** instance: `features/<split>/<id>.npy`, `feature_path` JSONL, `audio_normalize` stats parquet, `manifest.sinks[…].format = npy_per_record` |
 | **Gap 2 (image encoders)** | Frozen-encoder normalization works today (DR `resize` + fixed-stat `normalize`) | **Docs only**: recipe pattern + the 0-255 units caveat (HF stats × 255) |
 
-**Cross-repo status.** DataRefinery has **not yet shipped** the `npy_per_record` sink
-(forward-declared in the vendor-spec). Per the decision recorded with this plan, MF
-builds its half **now against the pinned Q1–Q6 contract**, verified with a synthesized
-`.npy` fixture that mimics the contract exactly. End-to-end against a *real* DR audio
-instance is verified when DR ships; MF's half is complete and the seam stays aligned.
+**Cross-repo status — RESOLVED (DR v0.25.0).** DataRefinery has now **shipped** the
+`npy_per_record` sink + `feature_path` rewrite (DR Stories K.c/K.d, v0.24.0–v0.25.0); the
+vendor-spec § "Audio feature-array persistence" is ratified **shipped**. MF built its half
+against the pinned Q1–Q6 contract with a synthesized `.npy` fixture, and **Story I.m.1
+verified the loader end-to-end against a real DR materialize** — synthesized fixture and
+real DR output agree; the seam is aligned and confirmed, not just declared.
 
 ---
 
@@ -183,10 +184,12 @@ consumption capability; **not cache-invalidating** for existing instances.
 
 ## 5. Out of scope (deferred) — *to be walked through at the approval gate*
 
-1. **DataRefinery's `npy_per_record` sink** — DR's half (its own `plan_phase`). This
-   subphase builds MF's consumer half against the pinned contract + a synthesized fixture.
-2. **End-to-end verification against a real DR audio instance** — gated on (1); MF's half
-   is verified against the synthesized fixture now, real-instance smoke when DR ships.
+1. **DataRefinery's `npy_per_record` sink** — DR's half (its own `plan_phase`). ✅ **Shipped
+   (DR v0.24.0–v0.25.0).** This subphase builds MF's consumer half; originally against the
+   pinned contract + a synthesized fixture, now also against the shipped real sink.
+2. **End-to-end verification against a real DR audio instance** — ✅ **done in Story I.m.1**
+   (no longer gated): a real `dr.materialize` audio instance is bound + decoded through MF's
+   loader, and it agrees with the synthesized fixture.
 3. **Multi-channel `(C, n_mels, n_frames)` features** — vendor-spec Q4 pins v1 to 2-D mono;
    multi-channel is explicitly future. MF asserts `ndim == 2` and owns the unsqueeze.
 4. **`plan_features` formal pass** — the FRs are captured in this plan and folded into
