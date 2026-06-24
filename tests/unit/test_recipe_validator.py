@@ -261,17 +261,79 @@ def test_predictive_entropy_is_a_selectable_metric() -> None:
     assert not _failures_for(report, 11)
 
 
-@pytest.mark.parametrize("check_id", list(range(1, 23)))
+@pytest.mark.parametrize("check_id", list(range(1, 24)))
 def test_check_passes_on_good_recipe(check_id: int) -> None:
     report = validate(_recipe(), _instance(), _Plugin())
     check = _check(report, check_id)
     assert check.passed, check.message
 
 
-def test_happy_path_all_22_pass() -> None:
+def test_happy_path_all_23_pass() -> None:
     report = validate(_recipe(), _instance(), _Plugin())
     assert report.passed, [c.message for c in report.failures]
-    assert [c.id for c in report.checks] == list(range(1, 23))
+    assert [c.id for c in report.checks] == list(range(1, 24))
+
+
+# --- Check 23: WindowAggregation declared ⇒ records carry source_record_id ---
+
+
+def _instance_with_records(
+    tmp_path: Path, records: list[dict[str, Any]], *, split: str = "train"
+) -> DataRefineryInstance:
+    import json
+
+    dataset_dir = tmp_path / "dataset"
+    dataset_dir.mkdir(parents=True, exist_ok=True)
+    (dataset_dir / f"{split}.jsonl").write_text(
+        "\n".join(json.dumps(r) for r in records), encoding="utf-8"
+    )
+    from types import SimpleNamespace
+
+    instance = DataRefineryInstance(
+        path=tmp_path,
+        manifest=object(),
+        recipe=SimpleNamespace(schema_version=1),
+        splits=(split,),
+        label_schema={"field": "label"},
+        record_schema={},
+    )
+    object.__setattr__(instance, "instance_num_classes", lambda: 3)
+    return instance
+
+
+def test_check_23_passes_when_window_records_carry_source_id(tmp_path: Path) -> None:
+    instance = _instance_with_records(
+        tmp_path,
+        [{"record_id": "c/0__w0000", "label": "a", "source_record_id": "c/0", "window_index": 0}],
+    )
+    report = validate(
+        _recipe({"WindowAggregation": {"policy": "mean"}, "Evaluation": {"splits": ["train"]}}),
+        instance,
+        _Plugin(),
+    )
+    assert not _failures_for(report, 23)
+
+
+def test_check_23_fails_when_window_aggregation_lacks_grouping_key(tmp_path: Path) -> None:
+    # Records with no `source_record_id` cannot be regrouped into clips — surfaced at
+    # validate, not mid-run.
+    instance = _instance_with_records(
+        tmp_path, [{"record_id": "r0", "label": "a"}, {"record_id": "r1", "label": "b"}]
+    )
+    report = validate(
+        _recipe({"WindowAggregation": {"policy": "mean"}, "Evaluation": {"splits": ["train"]}}),
+        instance,
+        _Plugin(),
+    )
+    [failure] = _failures_for(report, 23)
+    assert "source_record_id" in _detail_text(failure)
+
+
+def test_check_23_trivially_passes_without_window_aggregation() -> None:
+    # No WindowAggregation ⇒ the check is a no-op (the default image path).
+    report = validate(_recipe(), _instance(), _Plugin())
+    check = _check(report, 23)
+    assert check.passed
 
 
 # --- Check 21: architecture input-shape / normalization-scale contract ---

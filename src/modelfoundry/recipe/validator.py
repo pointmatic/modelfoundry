@@ -105,6 +105,7 @@ def validate(
         _check_20_device_available(recipe, plugin),
         _check_21_architecture_input_compat(recipe, data_instance),
         _check_22_extensions_keys_claimed(recipe, plugin),
+        _check_23_window_aggregation_grouping(recipe, data_instance),
     ]
     return ValidationReport(checks=checks)
 
@@ -730,6 +731,54 @@ def _check_22_extensions_keys_claimed(recipe: ModelRecipe, plugin: Plugin) -> Va
         ),
         detail={"unclaimed": unclaimed, "claimed": sorted(claimed)},
     )
+
+
+# --- Check 23 ---
+
+
+def _check_23_window_aggregation_grouping(
+    recipe: ModelRecipe, data_instance: DataRefineryInstance
+) -> ValidationCheck:
+    """`WindowAggregation` declared ⇒ the bound instance's records carry a grouping key.
+
+    Clip-level aggregation (R7) regroups window predictions by `source_record_id`;
+    a recipe that declares `WindowAggregation` against an instance whose records do
+    not carry that field cannot group, so surface the misdeclaration at `validate`
+    rather than mid-run. Read-only and torch-free: peek one on-disk record. When no
+    record is inspectable (no JSONL reachable), skip-with-pass — the bind-time gate
+    and the run-time `verify_window_integrity` refusal still catch real corruption.
+    """
+    if recipe.WindowAggregation is None:
+        return _ok(23, "window_aggregation_grouping")
+    record = _first_instance_record(data_instance)
+    if record is None or "source_record_id" in record:
+        return _ok(23, "window_aggregation_grouping")
+    return _fail(
+        23,
+        "window_aggregation_grouping",
+        "WindowAggregation is declared but the bound DataRefinery instance's records "
+        "do not carry 'source_record_id' — window predictions cannot be regrouped into "
+        "clips. Bind an instance whose records are windows of a parent clip (R7), or "
+        "remove WindowAggregation.",
+        detail={"missing": "source_record_id"},
+    )
+
+
+def _first_instance_record(data_instance: DataRefineryInstance) -> dict[str, Any] | None:
+    """The first JSONL record of the first reachable split, or `None` if indeterminate."""
+    import json
+    from pathlib import Path
+
+    base = Path(getattr(data_instance, "path", "")) / "dataset"
+    for split in getattr(data_instance, "splits", ()) or ():
+        jsonl = base / f"{split}.jsonl"
+        if not jsonl.is_file():
+            continue
+        for line in jsonl.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                parsed: dict[str, Any] = json.loads(line)
+                return parsed
+    return None
 
 
 # --- helpers ---

@@ -38,6 +38,7 @@ from modelfoundry.recipe.models import (
     OptimizationSpec,
     TrainingSpec,
     VisualizationSpec,
+    WindowAggregationSpec,
 )
 
 # Forward-declared types, refined in their owning stories.
@@ -163,6 +164,7 @@ class Plugin(Protocol):
         temp_dir: Path,
         *,
         inference: InferenceSpec | None = None,
+        window_aggregation: WindowAggregationSpec | None = None,
         seed: int = 0,
     ) -> EvaluationResult: ...
 

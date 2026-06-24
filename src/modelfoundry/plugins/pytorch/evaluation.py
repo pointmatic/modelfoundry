@@ -32,6 +32,7 @@ from torch import nn
 from torch.utils.data import DataLoader
 
 from modelfoundry.pipeline.data_binding import DataRefineryInstance
+from modelfoundry.plugins.pytorch.aggregation import ClipAggregate, aggregate_windows
 from modelfoundry.plugins.pytorch.data import DataRefineryDataset
 from modelfoundry.plugins.pytorch.stochastic import (
     enable_mc_dropout,
@@ -40,7 +41,7 @@ from modelfoundry.plugins.pytorch.stochastic import (
     predictive_entropy,
 )
 from modelfoundry.plugins.sklearn.metrics import calibration_curve
-from modelfoundry.recipe.models import EvaluationSpec, InferenceSpec
+from modelfoundry.recipe.models import EvaluationSpec, InferenceSpec, WindowAggregationSpec
 
 _EVAL_BATCH_SIZE = 64
 # Per-record predictive-uncertainty columns added to predictions.parquet on the
@@ -67,6 +68,7 @@ def run_evaluation(
     temp_dir: Path,
     *,
     inference: InferenceSpec | None = None,
+    window_aggregation: WindowAggregationSpec | None = None,
     seed: int = 0,
 ) -> EvaluationResult:
     """Evaluate `model` over `evaluation.splits`, writing artifacts under `temp_dir`.
@@ -77,6 +79,13 @@ def run_evaluation(
     per-record predictive uncertainty (`predictive_entropy`, `mc_variance`) is
     added to `predictions.parquet` (R2.3); `seed` is the recipe master seed that
     drives the per-pass dropout RNG (R2.4).
+
+    When `window_aggregation` is set (FR-AUDIO-2 / R7, Story I.o.2), the bound
+    instance's records are windows of a parent clip: per-window predictions are
+    regrouped by `source_record_id` and combined per the declared policy, so the
+    persisted metrics + predictions are **clip-level**. A window whose `record_id`
+    does not decompose into its declared `source_record_id` + `window_index` is
+    refused (`plugins.pytorch.aggregation.verify_window_integrity`).
     """
     eval_dir = temp_dir / "evaluation"
     eval_dir.mkdir(parents=True, exist_ok=True)
@@ -109,12 +118,25 @@ def run_evaluation(
         else:
             probs, targets = _infer(model, dataset, device)
             uncertainty = None
+
+        if window_aggregation is not None:
+            # Clip-level evaluation (R7): regroup window predictions by source_record_id
+            # and combine per policy; metrics + predictions become clip-level.
+            clip = _aggregate_to_clips(dataset, probs, window_aggregation)
+            targets = _clip_targets(targets, clip)
+            uncertainty = _clip_uncertainty(uncertainty, clip)
+            probs = clip.probs
+            record_ids: list[str] = clip.clip_ids
+        else:
+            record_ids = dataset.record_ids()
         preds = probs.argmax(dim=1)
 
         metrics[split] = _compute_metrics(
             requested, probs, targets, len(classes), evaluation.calibration_bins
         )
-        prediction_rows.extend(_prediction_rows(split, dataset, probs, preds, classes, uncertainty))
+        prediction_rows.extend(
+            _prediction_rows(split, record_ids, targets, probs, preds, classes, uncertainty)
+        )
 
         if "confusion_matrix" in requested:
             cm = _confusion(preds, targets, len(classes))
@@ -291,16 +313,21 @@ def _class_names(dataset: DataRefineryDataset) -> list[str]:
 
 def _prediction_rows(
     split: str,
-    dataset: DataRefineryDataset,
+    record_ids: list[str],
+    targets: torch.Tensor,
     probs: torch.Tensor,
     preds: torch.Tensor,
     classes: list[str],
     uncertainty: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
-    record_ids = dataset.record_ids()
+    """Per-record (or per-clip) prediction rows.
+
+    `record_ids` + `targets` align with `probs` row-for-row (window-level on the
+    default path, clip-level after R7 aggregation).
+    """
     rows: list[dict[str, Any]] = []
     for i, record_id in enumerate(record_ids):
-        true_idx = int(dataset[i][1])
+        true_idx = int(targets[i])
         pred_idx = int(preds[i])
         row: dict[str, Any] = {
             "split": split,
@@ -315,6 +342,42 @@ def _prediction_rows(
                 row[col] = float(values[i])
         rows.append(row)
     return rows
+
+
+# --- clip-level window aggregation (R7) ---
+
+
+def _aggregate_to_clips(
+    dataset: DataRefineryDataset,
+    probs: torch.Tensor,
+    window_aggregation: WindowAggregationSpec,
+) -> ClipAggregate:
+    keys = dataset.window_keys()
+    source_ids = [k[0] for k in keys]
+    window_indices = [k[1] for k in keys]
+    return aggregate_windows(
+        probs, dataset.record_ids(), source_ids, window_indices, window_aggregation.policy
+    )
+
+
+def _clip_targets(targets: torch.Tensor, clip: ClipAggregate) -> torch.Tensor:
+    # Every window of a clip shares one label (no straddling, R7), so the clip target
+    # is its first window's target.
+    return torch.tensor([int(targets[members[0]]) for members in clip.members])
+
+
+def _clip_uncertainty(
+    uncertainty: dict[str, Any] | None, clip: ClipAggregate
+) -> dict[str, Any] | None:
+    # Clip-level MC uncertainty: predictive entropy of the aggregated clip distribution
+    # (the deployed clip prediction), and the mean MC variance across the clip's windows.
+    if uncertainty is None:
+        return None
+    mc_variance = uncertainty["mc_variance"]
+    return {
+        "predictive_entropy": predictive_entropy(clip.probs),
+        "mc_variance": torch.stack([mc_variance[members].mean() for members in clip.members]),
+    }
 
 
 def _write_predictions(

@@ -59,6 +59,7 @@ from modelfoundry.recipe.models import (
     OptimizationSpec,
     TrainingSpec,
     VisualizationSpec,
+    WindowAggregationSpec,
 )
 
 
@@ -213,6 +214,7 @@ class PyTorchPlugin:
         temp_dir: Path,
         *,
         inference: InferenceSpec | None = None,
+        window_aggregation: WindowAggregationSpec | None = None,
         seed: int = 0,
     ) -> EvaluationResult:
         # Lazy import keeps this module (loaded on every discovery) torch-free.
@@ -220,7 +222,15 @@ class PyTorchPlugin:
             run_evaluation as _run_evaluation,
         )
 
-        return _run_evaluation(evaluation, model, data, temp_dir, inference=inference, seed=seed)
+        return _run_evaluation(
+            evaluation,
+            model,
+            data,
+            temp_dir,
+            inference=inference,
+            window_aggregation=window_aggregation,
+            seed=seed,
+        )
 
     def render_visualization(
         self,

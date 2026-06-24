@@ -42,6 +42,7 @@ from modelfoundry.recipe.models import (
     ModelRecipe,
     OptimizationSpec,
     TrainingSpec,
+    WindowAggregationSpec,
 )
 
 _U32 = (1 << 32) - 1
@@ -244,11 +245,13 @@ class SklearnPlugin:
         temp_dir: Path,
         *,
         inference: InferenceSpec | None = None,
+        window_aggregation: WindowAggregationSpec | None = None,
         seed: int = 0,
     ) -> SklearnEvaluationResult:
-        # MC-dropout (R2) is a torch-only concept; the sklearn/random baselines
-        # have no dropout, so the stochastic-inference block is accepted (uniform
-        # Plugin signature) but does not change their single-pass evaluation.
+        # MC-dropout (R2) is a torch-only concept and clip-level window aggregation
+        # (R7) is the torch audio-feature path; the sklearn/random baselines have
+        # neither, so both blocks are accepted (uniform Plugin signature) but do not
+        # change their single-pass, window-level evaluation.
         from modelfoundry.plugins.sklearn.data import feature_matrix
 
         eval_dir = temp_dir / "evaluation"

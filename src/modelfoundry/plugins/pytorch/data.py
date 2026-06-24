@@ -184,6 +184,27 @@ class DataRefineryDataset(Dataset[tuple[torch.Tensor, int]]):
         """
         return [str(rec.get("record_id", idx)) for idx, rec in enumerate(self._records)]
 
+    def window_keys(self) -> list[tuple[str | None, int | None]]:
+        """Per-record `(source_record_id, window_index)`, aligned with `record_ids()`.
+
+        The clip-grouping keys for window records (Subphase I-1 / R7): the evaluation
+        stage regroups window-level predictions by `source_record_id` to produce
+        clip-level results (`plugins.pytorch.aggregation`). Non-window instances carry
+        neither field, so both are `None` — the caller decides whether windowing is
+        expected (it is, only when the recipe declares `WindowAggregation`).
+        """
+        keys: list[tuple[str | None, int | None]] = []
+        for rec in self._records:
+            source_id = rec.get("source_record_id")
+            window_index = rec.get("window_index")
+            keys.append(
+                (
+                    str(source_id) if source_id is not None else None,
+                    int(window_index) if isinstance(window_index, int) else None,
+                )
+            )
+        return keys
+
     def class_counts(self) -> list[int]:
         """Per-class record counts for this split, indexed by `label_to_index`.
 

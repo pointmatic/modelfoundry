@@ -136,6 +136,24 @@ def test_non_2d_feature_array_refused(tmp_path: Path) -> None:
         _ = ds[0]
 
 
+# --- window grouping keys (Story I.o.2) ---
+
+
+def test_window_keys_align_with_record_ids(tmp_path: Path) -> None:
+    # window_keys() exposes (source_record_id, window_index) per record, aligned with
+    # record_ids(), so the evaluation stage can regroup window predictions into clips.
+    instance = build_dr_audio_instance(tmp_path / "a", windows_per_clip=2)
+    ds = DataRefineryDataset(instance, "train")
+    record_ids = ds.record_ids()
+    keys = ds.window_keys()
+    assert len(keys) == len(record_ids) == 8
+    for record_id, (source_id, window_index) in zip(record_ids, keys, strict=True):
+        assert record_id == f"{source_id}__w{window_index:04d}"
+    # First clip's two windows share one source_record_id.
+    assert keys[0] == ("c0/clip_0", 0)
+    assert keys[1] == ("c0/clip_0", 1)
+
+
 # --- bind-time resolvability gate extended to feature_path ---
 
 

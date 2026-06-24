@@ -156,6 +156,7 @@ class MaterializeRunner:
                     self.data,
                     temp_dir,
                     inference=recipe.Inference,
+                    window_aggregation=recipe.WindowAggregation,
                     seed=self.seed,
                 ),
             )
