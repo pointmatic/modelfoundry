@@ -102,7 +102,7 @@ Mapped to the value criteria above:
 - `ModelInstance` notebook-shaped accessors: `.evaluation` → `dict[str, dict]` (per-split metrics), `.metrics` → alias for `.evaluation`, `.confusion_matrix` → `dict[str, np.ndarray]`, `.calibration` → `pd.DataFrame | None`, `.predictions` → `pd.DataFrame | None`, `.trials` → `pd.DataFrame | None`, `.best_params` → `dict | None`, `.figures` → `dict[str, bytes]` (PNG bytes, ready for `IPython.display.Image`), `.predict()` / `.predict_proba()` returning numpy/pandas primitives, plus `.path` escape hatch. (Per-epoch training history is persisted to `training/history.parquet` and surfaced in the report, not via `.metrics`.)
 - Round-trippable `model/architecture.json` — `ModelInstance.load(path).predict(X)` works without an external config object.
 - `OutputExpectations` post-materialization assertions; failures abort with `FAILED` marker.
-- `Visualizations` with `mode: exploration` (on-demand via `inspect()`) and `mode: reporting` (persisted in instance's `report/`).
+- `Visualizations` with `mode: interactive` (on-demand via `inspect()`) and `mode: reporting` (persisted in instance's `report/`).
 - Python library API and CLI as co-equal surfaces; CLI verbs `init`, `validate`, `check`, `status`, `materialize`, `report`, `inspect`, `clean`.
 - `validate` runs an enumerated set of static logical checks (schema-version, plugin/op resolution, per-op splits consistency, `fit_on_train` discipline, search-space path resolution, expectations referencing produced metrics, DataRefinery binding cross-checks); never short-circuits.
 - Deterministic `init` scaffolder; optional LLM enhancement layer via `lmentry` as an extra (mirrors DataRefinery).
@@ -219,10 +219,10 @@ Mapped to the value criteria above:
 **notebook_unfriendly_outputs**:
   - `ModelInstance` accessors are designed for direct rendering: `.evaluation` → `dict[str, dict[str, float]]` (per-split metrics), `.metrics` → alias for `.evaluation`, `.confusion_matrix` → `dict[str, np.ndarray]`, `.calibration` → `pd.DataFrame | None`, `.predictions` → `pd.DataFrame | None`, `.trials` → `pd.DataFrame | None`, `.best_params` → `dict | None`, `.figures` → `dict[str, bytes]` (PNG bytes).
   - The substrate-neutral surface means a Jupyter cell, a Marimo cell, an IPython REPL, and a plain `.py` script all consume `ModelInstance` the same way — no substrate-specific adapter, no `display()` shim, no kernel coupling.
-  - `inspect(view=...)` renders exploration-mode visualizations on demand; reporting-mode visualizations are persisted by `materialize()` and re-loadable via `instance.render_report()`.
+  - `inspect(view=...)` renders interactive-mode visualizations on demand; reporting-mode visualizations are persisted by `materialize()` and re-loadable via `instance.render_report()`.
 
 **comparison_baseline_gap**:
-  - `Evaluation.comparison.baseline_model_id` is a first-class recipe entry; the plugin resolves it (e.g. a HuggingFace model id, an sklearn estimator class) and scores it on the same held-out split alongside the candidate model.
+  - `Evaluation.comparison.baseline_model_id` is a first-class recipe entry. The pre-production release ships the **scikit-learn-estimator** half (`sklearn:<EstimatorClassName>`, e.g. `sklearn:RandomForestClassifier`): the estimator is fit on `train` (seeded) and scored on the same held-out splits alongside the candidate model. The HuggingFace-model-id half is the design-heavy follow-on (deferred).
   - Baseline metrics flow into `evaluation/metrics.json` and the report's comparison subsection; the notebook reads them off `.evaluation` without writing a second scoring path.
 
 **data_modeling_blur**:

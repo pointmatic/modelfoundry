@@ -112,9 +112,10 @@ ModelFoundry compiles a single YAML **model recipe** — declaring `plugin`, `Da
 - `Optimizer` block — `op: adamw | sgd | adam | ...`, op-specific params, plus an optional `schedule:` sub-block (`reduce_on_plateau`, `cosine`, `linear_warmup`).
 - `Training` block — execution policy: `max_epochs`, `batch_size`, `precision` (`fp32`/`amp`), `device` (`auto`/`cpu`/`cuda`/`mps`), `checkpoint_cadence` (epochs between checkpoint writes), optional `early_stopping` (`monitor`, `mode`, `patience`). **`num_workers` is NOT a recipe field** (Phase I / Option A): it is execution context — set via `--num-workers` / `MODELFOUNDRY_NUM_WORKERS`. Per **no-implicit-defaults** (Phase I), `precision` / `device` / `checkpoint_cadence` are author-required (the scaffolder emits them); only mode-selecting optionals (`early_stopping`) may be omitted.
 - `Optimization` block — optional hyperparameter search: `sampler: tpe | random | grid`, `pruner: median | none`, `n_trials: int`, `baseline_trial: enqueue_recipe_defaults` (enqueues the recipe's hyperparameter values as trial 0), `search_space:` keyed by recipe-path strings (e.g. `Optimizer.learning_rate`) with sample-spec values (`{log_uniform: [1e-5, 1e-3]}`, `{categorical: [16, 32, 64]}`, etc.).
-- `Evaluation` block — `splits: list[str]`, `primary_metric: str`, `metrics: list[str]` drawn from the pre-production vocabulary (`macro_f1`, `per_class_f1`, `per_class_precision`, `per_class_recall`, `accuracy`, `confusion_matrix`, `ece`, `calibration_curve`), optional `comparison.baseline_model_id`.
+- `Evaluation` block — `splits: list[str]`, `primary_metric: str`, `metrics: list[str]` drawn from the pre-production vocabulary (`macro_f1`, `per_class_f1`, `per_class_precision`, `per_class_recall`, `accuracy`, `confusion_matrix`, `ece`, `calibration_curve`), optional `comparison.baseline_model_id` (the `sklearn:<EstimatorClassName>` grammar — see FR-12).
+- `Inference` block (FR-28) — **optional**: `mode: point | mc_dropout` (author-required when present), `mc_samples: int` (required for `mc_dropout`). Absent ⇒ `point` (mode-selecting optional). Drives deployment-time MC-dropout predictive uncertainty (`predictive_entropy` / `mc_variance`).
 - `WindowAggregation` block (Subphase I-1 / FR-AUDIO-2) — **optional, audio-only**: `policy: mean | logit_average | majority_vote` (author-required when the block is present). Declared by recipes whose bound instance carries **window records** (`source_record_id` / `window_index`); regroups window-level predictions into clip-level results. Absent ⇒ window-level evaluation. Sparse-merged into the `plugin` segment only when present, so omitting it is byte-identical (not a cache-invalidation event).
-- `Visualizations` block — list of ops, each with `name`, `op` (`training_curves`, `optimization_history`, `confusion_matrix`, `calibration_curve`, `predictions_grid`), `mode` (`exploration` or `reporting`), optional `splits`.
+- `Visualizations` block — list of ops, each with `name`, `op` (`training_curves`, `optimization_history`, `confusion_matrix`, `calibration_curve`, `predictions_grid`), `mode` (`reporting` or `interactive`), optional `splits`.
 - `OutputExpectations` block — list of post-materialization assertions (`{metric: val_macro_f1, op: gte, value: 0.55}`); failures abort with a `FAILED` marker.
 - `overlays` block — optional named overlays applied in order (last-writer-wins per section) at materialize time; selection changes cache identity.
 - `extensions` block (Phase I / F3) — the one sanctioned relaxed island: a declarative bag where `extra` is allowed only inside the namespace (the rest of the recipe stays `extra="forbid"`). Enters cache identity only when non-empty; plugins declare consumed keys via `Plugin.extension_keys` and the validator warns (non-fatally) on unclaimed keys (FR-2 check 22). **Declarative params only — never recipe-activated code.**
@@ -215,16 +216,16 @@ Verify a recipe's correctness without running the pipeline. Covers schema correc
 3. Every op-bearing section names an op the plugin registers **for that section** — an unknown op, or an op registered for a different section (`applies_to` mismatch, e.g. an optimizer op in `Loss`), fails (Story I.c discriminated-union resolution).
 4. Every operation in `Architecture` / `Loss` / `Optimizer` / `Training` / `Optimization` / `Evaluation` / `Visualizations` declares the splits it applies to where applicable, and the splits exist in the bound DataRefinery instance.
 5. Fit-on-train operations (e.g. `cross_entropy_class_weighted` with `weight_source`) declare `train` as the fit source. Class weights cannot be fit on `val` or `test`.
-6. `Training.early_stopping.monitor` references a metric that `Evaluation.metrics` produces, or a built-in (`train_loss`, `val_loss`).
+6. `Training.early_stopping.monitor` **and** `Optimizer.schedule.monitor` (each when present) reference a metric that `Evaluation.metrics` produces, or a built-in (`train_loss`, `val_loss`). Both are validated together and reported independently (Story I.x / FR-9).
 7. `Optimization.search_space` keys reference legitimate recipe paths (e.g. `Optimizer.learning_rate` exists in the schema after overlay application).
 8. `Optimization` categorical hyperparameter defaults are members of the declared choice set (validates `baseline_trial: enqueue_recipe_defaults`).
 9. `Optimization.sampler` is one of `{tpe, random, grid}`; `Optimization.pruner` is one of `{median, none}`. (Plugins may register additional samplers/pruners; the pre-production release caps to this set.)
 10. `Optimization.n_jobs` is absent or `1` (the pre-production release forbids parallel trials per QR-3).
 11. `Evaluation.metrics` names are members of the pre-production vocabulary (`macro_f1`, `per_class_f1`, `per_class_precision`, `per_class_recall`, `accuracy`, `confusion_matrix`, `ece`, `calibration_curve`) plus any plugin-registered additions.
 12. `Evaluation.primary_metric` is a member of `Evaluation.metrics`.
-13. `Evaluation.comparison.baseline_model_id` (when present) is resolvable by the plugin at materialize time (recipe-time check is a name-format check; resolution happens at materialize).
+13. `Evaluation.comparison.baseline_model_id` (when present) matches the `sklearn:<EstimatorClassName>` grammar (a name-format check; allowlist membership + fit/score happen at materialize, where an unresolvable-but-well-formed id warns and is skipped).
 14. `OutputExpectations` reference metrics that `Evaluation.metrics` produces on the declared split.
-15. `Visualizations` operations each declare an output mode (`exploration` or `reporting`).
+15. `Visualizations` operations each declare an output mode (`reporting` or `interactive`).
 16. `overlays` reference only declared sections and override only declared keys.
 17. Plugin-specific operation parameters validate against the plugin's declared `OperationSpec`.
 18. `Data:` binding cross-check — the bound DataRefinery instance exposes every split referenced by the recipe (`Training` implicitly requires `train`; `Evaluation.splits` must be a subset of the instance's splits); the instance's label schema is compatible with `Architecture`'s declared `num_classes`; the instance's record schema is compatible with the plugin's expected input shape.
@@ -246,8 +247,8 @@ Verify a recipe's correctness without running the pipeline. Covers schema correc
 Execute the recipe end-to-end and produce a materialized ModelInstance.
 
 **Behavior:**
-1. Run `validate` (FR-2); fail fast on any failure.
-2. Compute the cache identity (FR-4); on cache hit, return the existing ModelInstance unchanged (constant-time hit: compute key + `path.exists()` + load manifest).
+1. Run `validate` (FR-2); fail fast on any failure (enforced at the head of `materialize()` — library and CLI — before any temp-dir / pipeline work).
+2. Compute the cache identity (FR-4); if an instance already exists at the cache path and `--overwrite` is not set, **refuse** with `ModelArtifactExistsError` (constant-time hit: compute key + `manifest.json` exists check), before any pipeline work. *(Returning the existing instance on a hit instead of refusing is a deferred enhancement; the pre-production contract refuses so a re-materialize is always explicit — see the `--overwrite` edge case below.)*
 3. On cache miss, create a temp directory under `<cache-root>/instances/.tmp/<run-id>/`.
 4. Execute pipeline stages in the canonical order:
    1. **Architecture** — instantiate the model from plugin primitives.
@@ -263,7 +264,7 @@ Execute the recipe end-to-end and produce a materialized ModelInstance.
 6. Print a summary (cache hit/miss, instance path, elapsed time, primary-metric value(s)).
 
 **Edge Cases:**
-- Cache hit on identical inputs -> no work performed; return existing instance path with `cache=hit` in the summary.
+- Existing instance on identical inputs (cache hit) without `--overwrite` -> refused with `ModelArtifactExistsError`; no pipeline work performed. Re-run with `--overwrite` to replace.
 - Failure mid-stage -> temp directory left in place with `FAILED` marker; cache untouched (FR-5).
 - Overlays selected via `--overlay` -> cache identity reflects the applied overlays; different overlay selections of the same recipe produce different ModelInstances.
 - Recipe declares no `Optimization` section -> stage 4.2 is skipped; the manifest records `optimization: null`.
@@ -444,7 +445,7 @@ Score every split listed in `Evaluation.splits` with the declared metric set and
    5. Stamp the confusion matrix into `evaluation/confusion_matrix.npz` keyed by split.
    6. If `calibration_curve` is in `Evaluation.metrics`, stamp the calibration table into `evaluation/calibration.parquet`.
    7. Persist per-record predictions to `evaluation/predictions.parquet` (FR-22).
-2. If `Evaluation.comparison.baseline_model_id` is set, the plugin resolves and scores the baseline on the same splits with the same metric set; baseline values flow into `evaluation/metrics.json` under a `baseline.<split>.<metric>` key.
+2. If `Evaluation.comparison.baseline_model_id` is set, the baseline is resolved, **fit on the `train` split** (seeded — a new stochastic source under the determinism contract, `random_state = derive_seed(seed, "baseline")`), and scored on the same splits with the same metric set; baseline values flow into `evaluation/metrics.json` under a `baseline.<split>.<metric>` key and the report's Comparison subsection names the baseline. The pre-production grammar is **`sklearn:<EstimatorClassName>`** — a scikit-learn classifier class resolved through a curated allowlist (e.g. `sklearn:RandomForestClassifier`); the estimator learns the bound instance's labels directly (no label-space alignment), so this self-contained half ships now. FR-2 **check 13** enforces the *format* (the `sklearn:<Class>` shape); allowlist membership is a runtime concern (an unknown-but-well-formed id warns and is skipped). The **HuggingFace-pretrained-model baseline** (label-space alignment + the deferred `[huggingface]` extra) is the design-heavy half and is deferred to a future story (see `stories.md` § Future).
 
 **Pre-production evaluation metric vocabulary (cross-plugin contract):**
 
@@ -459,7 +460,7 @@ Regression-task metrics are out of scope in the pre-production release (NG-6).
 **Edge Cases:**
 - `Evaluation.splits` references a split absent from the bound DataRefinery instance -> caught by FR-2 check 18.
 - An evaluated split is unlabeled (per DataRefinery's `unlabeled_consistency` rule) -> hard error at `materialize` time: classification metrics require labels.
-- Baseline-model resolution fails (e.g. HuggingFace model id not downloadable on this network) -> warning emitted; baseline metrics are omitted from `evaluation/metrics.json`; the report names the failure; main metrics proceed.
+- Baseline-model resolution fails (a well-formed `sklearn:<Class>` id whose class is not in the allowlist, or the fit/score raises) -> warning emitted; baseline metrics are omitted from `evaluation/metrics.json`; the report names the failure; main metrics proceed. (A *malformed* id is caught earlier by FR-2 check 13 at `validate` time.)
 - `calibration_curve` evaluated on a split with fewer than `Evaluation.calibration_bins` samples -> reduce-bins fallback (the table has fewer rows than configured); a warning is recorded in the manifest.
 
 ### FR-13: Visualizations
@@ -467,8 +468,8 @@ Regression-task metrics are out of scope in the pre-production release (NG-6).
 Render standard or bespoke views over the materialized model and metrics.
 
 **Behavior:**
-1. Each visualization declares `name`, `op`, `mode` (`exploration` or `reporting`), and optional `splits` and op-specific params.
-2. `exploration` visualizations are rendered on demand via `inspect()` or the library API; not persisted.
+1. Each visualization declares `name`, `op`, `mode` (`reporting` or `interactive`), and optional `splits` and op-specific params.
+2. `interactive` visualizations are rendered on demand via `inspect()` or the library API; not persisted.
 3. `reporting` visualizations are rendered during materialization and persisted to `report/visualizations/<name>.png`.
 4. The op handle's `render(...)` receives the `ModelInstance` context (training history, evaluation metrics, predictions). Each plugin contributes its own implementations using `matplotlib`.
 
@@ -536,7 +537,7 @@ Render read-only views of a materialized ModelInstance.
 
 **Behavior:**
 1. `inspect()` returns an `InspectionView` object exposing convenience accessors: `view_training_curves()`, `view_confusion_matrix(split)`, `view_calibration(split)`, `view_predictions(split, n)`, `view_trials()`, `view_manifest()`.
-2. `inspect(view="<name>")` renders a single named visualization (exploration mode) on demand without persisting.
+2. `inspect(view="<name>")` renders a single named visualization (interactive mode) on demand without persisting.
 3. CLI `modelfoundry inspect <instance-path> --view <name>` writes the rendered PNG to a temp file and prints the path.
 
 **Edge Cases:**
@@ -610,8 +611,8 @@ Expose the materialized ModelInstance through a substrate-neutral, notebook-shap
    - `manifest: Manifest` — parsed `manifest.json` (the partial-instance flag lives on `manifest.is_partial`).
    - `plugin: Plugin` — the framework plugin, resolved from `manifest.plugin` at `load` time (FR-23). The canonicalized recipe is read on demand from `recipe.yml` rather than held as a field.
 2. Notebook-shaped properties (computed lazily, cached after first access):
-   - `evaluation -> dict[str, dict[str, float | dict[str, float]]]` — held-out metrics per split. Per-class metrics are nested dicts keyed by class label. `{}` when no Evaluation stage ran.
-   - `metrics -> dict[str, dict[str, float | dict[str, float]]]` — alias for `evaluation`. (Per-epoch training history is persisted to `training/history.parquet` and surfaced in the report / via `inspect`, not through `metrics`.)
+   - `evaluation -> dict[str, dict[str, float | list[float]]]` — held-out metrics per split. Per-class metrics (`per_class_f1` / `per_class_precision` / `per_class_recall`) are **index-ordered `list[float]`** — one value per class in label-index order (the bound instance's class ordering), not label-keyed dicts. `{}` when no Evaluation stage ran.
+   - `metrics -> dict[str, dict[str, float | list[float]]]` — alias for `evaluation`. (Per-epoch training history is persisted to `training/history.parquet` and surfaced in the report / via `inspect`, not through `metrics`.)
    - `confusion_matrix -> dict[str, np.ndarray]` — per-split int arrays of shape (num_classes, num_classes); rows = true label, cols = predicted. `{}` when absent.
    - `calibration -> pd.DataFrame | None` — the reliability table read from `evaluation/calibration.parquet` (columns `confidence_bin`, `expected_accuracy`, `observed_accuracy`, `support`, plus `split`); `None` when absent.
    - `predictions -> pd.DataFrame | None` — **persisted per-record predictions** read from `evaluation/predictions.parquet`, one row per record with columns `split`, `record_id`, `true_label`, `pred_label`, `pred_proba_<class>` (one column per class); `None` when absent.
@@ -729,6 +730,22 @@ Generate a human- and machine-readable summary of the materialized model as a re
 - Plugin does not provide a model summary -> the `model/summary.*` artifacts are absent; `ModelInstance.summary` / `summary_text` return `None`; not an error.
 - The bound DataRefinery instance's record schema declares no usable image shape -> the plugin falls back to decoding one record through its dataset adapter to learn the true `(C, H, W)`.
 
+### FR-28: Stochastic inference (MC-dropout)
+
+Expose deployment-time predictive uncertainty via an optional Monte-Carlo-dropout inference mode, modality-agnostic and seeded under the determinism contract (shipped Phase H; documented here per the Subphase I-2 reconciliation).
+
+**Behavior:**
+1. An optional top-level **`Inference`** recipe block declares `mode: point | mc_dropout` (author-required when the block is present) and `mc_samples: int` (required for `mc_dropout`, target 20–50). **Block absence ⇒ `point`** — a kept mode-selecting optional (`Inference=None ⇒ point`), byte-identical to the pre-mechanism recipe.
+2. **`point`** (the default): single-pass inference with dropout inactive — the established `predict()` / `predict_proba()` point-estimate semantics, byte-unchanged.
+3. **`mc_dropout`**: the evaluation stage runs **T = `mc_samples`** stochastic forward passes with `Dropout` kept active, each seeded deterministically via `derive_seed(master_seed, "dropout", t)`. The deployed prediction is the **mean** over passes; per-record predictive uncertainty — **`predictive_entropy`** (entropy of the mean distribution) and **`mc_variance`** (mean per-class variance across passes) — is added to `evaluation/predictions.parquet`.
+4. Uncertainty is surfaced via **`ModelInstance.uncertainty`** — a `DataFrame` of `[split, record_id, predictive_entropy, mc_variance]` read from `predictions.parquet` (FR-22); `None` for a `point` instance.
+
+**Determinism:** the per-pass seeding makes the MC-aggregated output byte-deterministic across runs (the four-invariant contract holds — `mc_dropout` is a seeded stochastic source, not an entropy-seeded one). Composes with FR-AUDIO-2 clip-level aggregation: window-level MC means / `predictive_entropy` / `mc_variance` regroup by `source_record_id` into clip-level uncertainty.
+
+**Edge Cases:**
+- `Inference.mode: mc_dropout` with no `mc_samples` -> rejected at recipe validation (`InferenceSpec` model validator).
+- An architecture with no `Dropout` layers under `mc_dropout` -> the T passes are identical (degenerate) and uncertainty is ~0; not an error (the recipe asked for MC sampling over a deterministic net).
+
 ### FR-AUDIO-1: Audio feature-array consumption
 
 ModelFoundry's PyTorch loader consumes prepared float feature arrays (log-mel spectrograms) from a materialized DataRefinery instance, alongside (not replacing) the image path. Subphase I-1.
@@ -796,7 +813,7 @@ An audio MC-dropout materialization is **byte-deterministic** and **round-trips 
 - **TR-6: Round-trip integration test.** `ModelInstance.load(path).predict(X)` succeeds without the caller supplying any external config object (sentiment-poc regression precedent — must not recur).
 - **TR-7: Loose-coupling guarantee integration test.** Re-materialize DataRefinery upstream; assert the existing ModelFoundry cached instance is unchanged on disk and is still returned on the next `materialize()` call.
 - **TR-8: Notebook-substrate-neutral smoke.** Same `ModelInstance` accessor calls return identical values when consumed from (a) a plain `.py` script, (b) a Jupyter cell via `nbclient`, (c) a Marimo cell via Marimo's headless runner. (Substrate-neutral by construction — the test is a sanity check, not a feature requirement.)
-- **TR-9: PyTorch-plugin metric implementation tests.** Each pre-production metric (`macro_f1`, `per_class_f1`, `per_class_precision`, `per_class_recall`, `accuracy`, `confusion_matrix`, `ece`, `calibration_curve`) is validated against a hand-computed golden value on a tiny fixture; per-class metrics produce per-class dicts.
+- **TR-9: PyTorch-plugin metric implementation tests.** Each pre-production metric (`macro_f1`, `per_class_f1`, `per_class_precision`, `per_class_recall`, `accuracy`, `confusion_matrix`, `ece`, `calibration_curve`) is validated against a hand-computed golden value on a tiny fixture; per-class metrics produce index-ordered `list[float]` values.
 - **TR-10: Optimization stage tests.** TPE, Random, and Grid samplers each produce deterministic trial sequences from a fixed seed; `baseline_trial: enqueue_recipe_defaults` correctly enqueues trial 0; best-params merge into the recipe before Training; `n_jobs > 1` rejected at validate time.
 - **TR-11: OutputExpectations tests.** Passing and failing expectations both produce the expected outcomes (success / `FAILED` marker); multiple failing expectations all surface in the marker.
 - **TR-12: CIFAR-10 fixture smoke (CR-16, the strongest AC).** End-to-end CI-runnable fixture: a small DataRefinery image-classification recipe materializes a downsized CIFAR-10 instance; a ModelFoundry recipe trains a `simple_cnn` over it with a 2-trial Optimization stage and a 3-epoch Training stage; the smoke asserts `ModelInstance.evaluation["val"]["macro_f1"]` is above a documented floor and the `OutputExpectations` pass. Designed to fit a free-tier CI runner.

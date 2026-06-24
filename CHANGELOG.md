@@ -5,6 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.0] - 2026-06-24
+
+Minor — **Feature-code reconciliation** (Subphase I-2, Stories I.s–I.y). A deliberate pass closing
+behaviors `features.md` *promised* but that were never coded (and not explicitly deferred), plus
+bringing the spec back in line with what shipped:
+
+- **FR-12 baseline comparison (sklearn half).** `Evaluation.comparison.baseline_model_id` now
+  resolves the `sklearn:<EstimatorClassName>` grammar (curated allowlist, e.g.
+  `sklearn:RandomForestClassifier`), fits the estimator on the `train` split **seeded**
+  (`random_state = derive_seed(seed, "baseline")`), and scores it per split into `metrics.json`
+  under `baseline.<split>.<metric>`; the report gains a `## Comparison` subsection. Validator
+  **check 13** enforces the id format; an unresolvable-but-well-formed id warns + omits the baseline
+  (main metrics proceed). The HuggingFace-pretrained half remains deferred (§ Future).
+- **FR-3 validate-before-materialize.** `materialize()` (library + CLI) now runs the FR-2 checks and
+  fails fast **before** any temp-dir / pipeline work, then short-circuits a cache hit
+  (existing instance without `--overwrite`) to the `ModelArtifactExistsError` refusal in constant
+  time rather than running the full pipeline and refusing at promote.
+- **FR-10 NaN-divergence hard error.** A non-finite training loss now raises
+  `PluginError("training diverged at epoch N")` with the partial `training/history.parquet`
+  preserved and a `FAILED` marker written (no silent NaN run).
+- **FR-13 visualization params.** `predictions_grid` gains `n` (legacy `max_items` alias) / `splits`
+  / `per_class`; `confusion_matrix` / `calibration_curve` accept `splits: list[str]` (default
+  `Evaluation.splits`), rendering one panel/overlay per split.
+- **FR-9 schedule-monitor validation.** Validator check 6 now also validates
+  `Optimizer.schedule.monitor` against produced metrics + builtins.
+- **Docs (doc-follows-code).** Documented the shipped `Inference` / MC-dropout surface as **FR-28**;
+  fixed `Visualization.mode` `exploration` → `interactive`, per-class metrics described as
+  index-ordered `list[float]` (not label-keyed dicts), and the FR-3 cache-hit-⇒-refuse contract.
+
+**Not cache-invalidating** for any existing instance. Every change is additive (recipe fields
+authored *only when used* — `Evaluation.comparison`, the new viz params — which no shipped recipe
+authors) or doc-only; the FR-13 viz params are byte-neutral (legacy `split`/`max_items` form
+unchanged in both canonical and output bytes). No re-materialize required. Follow-on subphase release
+(Phase I shipped through v0.18.0).
+
 ## [0.18.0] - 2026-06-23
 
 Minor — **Audio feature-array consumption** (Subphase I-1, Stories I.l–I.r). ModelFoundry's PyTorch
