@@ -385,14 +385,14 @@ The consumer-owned aggregation math (DR ships no aggregation op). Layers over th
 
 ---
 
-### Story I.p: End-to-end audio MC-dropout integration test (acceptance) [Planned]
+### Story I.p: End-to-end audio MC-dropout integration test (acceptance) [Done]
 
-The brief's verification, turned into the acceptance gate.
+The brief's verification, turned into the acceptance gate. → New [test_audio_mc_dropout.py](../../tests/integration/test_audio_mc_dropout.py) (4 tests, smoke-pytorch); **no `src/` change** — the synthesized-fixture audio path (I.m–I.n) + clip-level aggregation (I.o.2) + modality-agnostic MC-dropout (H.m–H.n) compose end-to-end as designed.
 
-- [ ] **End-to-end run.** A materialized (synthesized, I.l) audio instance + a 1-channel spectrogram-CNN recipe with `Inference: {mode: mc_dropout, mc_samples: T}` trains end-to-end, producing per-record `predictive_entropy` / `mc_variance` and `ece` over MC-aggregated means, **clip-level** via I.o.
-- [ ] **Reproducibility parity.** Assert **byte-deterministic** across two runs (excluding wall-clock fields) and **round-trips from disk** (`ModelInstance.load(path).predict(...)` without external config) — the four determinism invariants hold on the audio path exactly as the image path.
-- [ ] **Image path unaffected.** A default image MC-dropout/integration test stays green (additive guarantee).
-- [ ] **Full CI gate green.** ruff check + ruff format --check + mypy (typecheck) + light + smoke-pytorch.
+- [x] **End-to-end run.** A materialized (synthesized, I.l) audio instance + a 1-channel spectrogram-CNN recipe with `Inference: {mode: mc_dropout, mc_samples: T}` trains end-to-end, producing per-record `predictive_entropy` / `mc_variance` and `ece` over MC-aggregated means, **clip-level** via I.o. → `test_audio_mc_dropout_materializes_clip_level`: a genuine 1-channel CNN (`Conv2d(1,4) → ReLU → AdaptiveAvgPool2d → Flatten → Dropout(0.5) → Linear`) over `(1, 16, 32)` mel features; `WindowAggregation: {policy: mean}` regroups the `val` 2-clip×2-window instance to **2 clip-level** predictions keyed by `source_record_id`, each carrying `predictive_entropy` + `mc_variance` (asserted genuinely `> 0` — active dropout, not a degenerate single pass); `ece` + mean `predictive_entropy` reported per split.
+- [x] **Reproducibility parity.** Assert **byte-deterministic** across two runs (excluding wall-clock fields) and **round-trips from disk** (`ModelInstance.load(path).predict(...)` without external config) — the four determinism invariants hold on the audio path exactly as the image path. → `test_audio_materialize_is_byte_deterministic` fingerprints the whole instance (minus `created_at`/`elapsed_seconds`/`report.md`) across two cache roots and asserts equality; `test_audio_instance_round_trips_from_disk` reloads via `ModelInstance.load(path)` and asserts `predict`/`predict_proba` match the materialized instance on a `(N, n_mels, n_frames, 1)` NHWC batch (coerces to the `(N, 1, n_mels, n_frames)` audio shape; float32 bypasses the uint8 `/255`).
+- [x] **Image path unaffected.** A default image MC-dropout/integration test stays green (additive guarantee). → `test_image_mc_dropout_stays_window_level`: the same MC-dropout recipe shape over an image instance with **no** `WindowAggregation` keeps the per-record (8 `val` rows) surface — aggregation is opt-in. The pre-existing [test_mc_dropout_evaluation.py](../../tests/integration/test_mc_dropout_evaluation.py) also stays green in the full run.
+- [x] **Full CI gate green.** ruff check + ruff format --check + mypy (typecheck, 170 files) + light (590 passed / 52 skipped / 1 xfailed) + smoke-pytorch (826 passed / 15 skipped / 1 xfailed).
 
 **Version:** no bump (rides v0.18.0).
 
