@@ -27,6 +27,7 @@ seeded generator. See `project-essentials.md` § Determinism contract.
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
@@ -148,6 +149,17 @@ def run_training(
             record["val_loss"] = val_loss
             record["val_accuracy"] = val_accuracy
         history.append(record)
+
+        # FR-10 divergence guard: a non-finite training loss (NaN/inf) is a hard
+        # error, not a silent NaN run. Persist the partial history (including this
+        # diverged epoch) so it survives in the temp dir alongside the atomic layer's
+        # FAILED marker, then raise naming the epoch.
+        if not math.isfinite(train_loss):
+            _write_history(history, training_dir / "history.parquet")
+            raise PluginError(
+                f"training diverged at epoch {epoch}: train_loss is non-finite ({train_loss})",
+                stage="training",
+            )
 
         if progress is not None:
             progress.on_epoch(epoch, record)

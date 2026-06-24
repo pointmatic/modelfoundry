@@ -139,6 +139,7 @@ def _recipe(
     expectations: list[ExpectationSpec] | None = None,
     eval_splits: list[str] | None = None,
     visualizations: list[VisualizationSpec] | None = None,
+    learning_rate: float = 0.01,
 ) -> ModelRecipe:
     return ModelRecipe(
         schema_version=1,
@@ -150,7 +151,7 @@ def _recipe(
             "layers": [{"op": "Flatten"}, {"op": "Linear", "in_features": 48, "out_features": 3}],
         },
         Loss=LossSpec(op="cross_entropy"),
-        Optimizer=OptimizerSpec(op="adamw", learning_rate=0.01),
+        Optimizer=OptimizerSpec(op="adamw", learning_rate=learning_rate),
         Training=TrainingSpec(
             max_epochs=1, batch_size=4, device="cpu", precision="fp32", checkpoint_cadence=1
         ),
@@ -255,6 +256,28 @@ def test_failed_expectation_aborts_without_promote(tmp_path: Path) -> None:
     payload = json.loads(failed[0].read_text())
     assert payload["stage"] == "output_expectations"
     assert payload["error_class"] == "ExpectationError"
+
+
+def test_training_divergence_writes_failed_marker_and_partial_history(tmp_path: Path) -> None:
+    # FR-10 (Story I.v): a diverging run (huge LR → non-finite loss) aborts without
+    # promote, leaving a FAILED marker (stage=training) and the partial history.
+    from modelfoundry.core.errors import PluginError
+
+    data = _build_instance(tmp_path)
+    config = _config(tmp_path)
+    recipe = _recipe(learning_rate=1e10)
+    with pytest.raises(PluginError, match=r"training diverged at epoch \d+"):
+        _run(recipe, data, config)
+
+    assert not _instance_dir(recipe, data, config).exists()  # not promoted
+    tmp_runs = list((config.cache_root / "instances" / ".tmp").glob("*"))
+    failed = list((config.cache_root / "instances" / ".tmp").glob("*/FAILED"))
+    assert failed, "expected a FAILED marker in the temp dir"
+    payload = json.loads(failed[0].read_text())
+    assert payload["stage"] == "training"
+    assert payload["error_class"] == "PluginError"
+    # partial history survives in the same temp dir
+    assert (tmp_runs[0] / "training" / "history.parquet").is_file()
 
 
 def test_evaluation_skipped_when_no_splits(tmp_path: Path) -> None:

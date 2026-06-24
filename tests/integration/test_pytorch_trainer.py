@@ -236,6 +236,7 @@ def _recipe(
     monitor: str = "val_loss",
     mode: str = "min",
     with_early_stopping: bool = True,
+    learning_rate: float = 0.01,
 ) -> ModelRecipe:
     return ModelRecipe(
         schema_version=1,
@@ -249,7 +250,7 @@ def _recipe(
         Loss=LossSpec(op=loss),
         Optimizer=OptimizerSpec(
             op="adamw",
-            learning_rate=0.01,
+            learning_rate=learning_rate,
             schedule=ScheduleSpec(op="reduce_on_plateau", monitor="val_loss"),
         ),
         Training=TrainingSpec(
@@ -279,6 +280,32 @@ def _train_once(recipe: ModelRecipe, data: DataRefineryInstance, temp_dir: Path)
 
 
 # --- tests ---
+
+
+def test_divergence_raises_with_epoch_and_preserves_partial_history(tmp_path: Path) -> None:
+    # FR-10 (Story I.v): a non-finite training loss (forced via a huge LR) is a hard
+    # error naming the epoch; the partial history.parquet survives in the temp dir.
+    from modelfoundry.core.errors import PluginError
+
+    data = _build_instance(tmp_path)
+    out = tmp_path / "instance"
+    recipe = _recipe(learning_rate=1e10, with_early_stopping=False)
+
+    with pytest.raises(PluginError, match=r"training diverged at epoch \d+"):
+        _train_once(recipe, data, out)
+
+    history_path = out / "training" / "history.parquet"
+    assert history_path.is_file()  # partial history preserved
+    frame = pq.read_table(history_path).to_pandas()  # type: ignore[no-untyped-call]
+    assert len(frame) >= 1  # at least the diverged epoch is recorded
+
+
+def test_converging_run_does_not_false_trip_divergence_guard(tmp_path: Path) -> None:
+    # The guard must not fire on a normal run (a finite-loss control).
+    data = _build_instance(tmp_path)
+    out = tmp_path / "instance"
+    result = _train_once(_recipe(), data, out)
+    assert result.epochs_run == 3  # type: ignore[attr-defined]  # all epochs ran, no early raise
 
 
 def test_training_writes_history_checkpoints_and_best_weights(tmp_path: Path) -> None:
