@@ -62,7 +62,9 @@ def _mlp_recipe() -> dict[str, Any]:
             "max_iter": 50,
         },
         "Loss": {"op": "cross_entropy"},
-        "Optimizer": {"op": "adamw", "learning_rate": 0.01},
+        # The sklearn baseline registers `adam`/`sgd` (not `adamw`) — use a registered
+        # op so the recipe passes FR-2 check 3 under the validate-first materialize (I.u).
+        "Optimizer": {"op": "adam", "learning_rate": 0.01},
         "Training": {
             "max_epochs": 1,
             "batch_size": 8,

@@ -366,8 +366,11 @@ def _build_dr_instance(tmp_path: Path) -> Any:
     (inst / "recipe.json").write_text(dr_recipe.model_dump_json(), encoding="utf-8")
     stats_dir = inst / "fitted_statistics" / "norm"
     stats_dir.mkdir(parents=True)
-    pq.write_table(pa.table({"value": [0.5, 0.3, 0.1]}), stats_dir / "mean.parquet")  # type: ignore[no-untyped-call]
-    pq.write_table(pa.table({"value": [0.25, 0.5, 0.2]}), stats_dir / "std.parquet")  # type: ignore[no-untyped-call]
+    # 0-255-scale fitted stats so the bound instance passes FR-2 check 21 under the
+    # validate-first materialize path (Story I.u); the adapter applies normalization in
+    # pixel units (Story H.a). Mirrors the shared fixture builder.
+    pq.write_table(pa.table({"value": [120.0, 110.0, 100.0]}), stats_dir / "mean.parquet")  # type: ignore[no-untyped-call]
+    pq.write_table(pa.table({"value": [60.0, 55.0, 50.0]}), stats_dir / "std.parquet")  # type: ignore[no-untyped-call]
 
     dataset_dir = inst / "dataset"
     dataset_dir.mkdir()

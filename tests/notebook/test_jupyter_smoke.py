@@ -49,8 +49,8 @@ Training: {max_epochs: 1, batch_size: 4, device: cpu, precision: fp32, checkpoin
 Evaluation: {splits: [val], primary_metric: accuracy,
              metrics: [accuracy, macro_f1], calibration_bins: 10}
 Visualizations:
-  - {name: curves, op: training_curves, mode: reporting}
-  - {name: cm, op: confusion_matrix, mode: reporting}
+  - {op: training_curves, mode: reporting}
+  - {op: confusion_matrix, mode: reporting}
 """
 
 # The notebook cell is self-contained (a fresh kernel inherits nothing from

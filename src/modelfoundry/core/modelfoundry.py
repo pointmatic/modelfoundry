@@ -22,7 +22,7 @@ from modelfoundry.cache.atomic import trash_existing
 from modelfoundry.cache.identity import CacheKey, cache_key
 from modelfoundry.cache.layout import CachePaths
 from modelfoundry.core.config import RuntimeConfig
-from modelfoundry.core.errors import InstanceError, PluginError
+from modelfoundry.core.errors import InstanceError, ModelArtifactExistsError, PluginError
 from modelfoundry.core.instance import ModelInstance
 from modelfoundry.pipeline.data_binding import DataRefineryInstance, resolve_data_instance
 from modelfoundry.pipeline.progress import StageObserver
@@ -180,12 +180,43 @@ class ModelFoundry:
             A `ModelInstance` handle to the freshly materialized instance.
 
         Raises:
+            ValidationError: The recipe fails any FR-2 static check (FR-3 step 1);
+                raised before any cache/pipeline work.
             ModelArtifactExistsError: An instance already exists at the cache
                 path and overwrite was not requested (FR-5).
             ExpectationError: A declared OutputExpectation failed (FR-15).
             MaterializeError: Any stage failed; non-ModelFoundry exceptions are
                 wrapped as this (FR-3).
         """
+        # FR-3 step 1: validate first, fail fast before any temp-dir / pipeline work.
+        # Validation runs on every materialize (including would-be cache hits) — it is
+        # a cheap static pass, and FR-3's ordering text puts validate before cache
+        # identity. The validator never short-circuits, so all failures surface at once.
+        from modelfoundry.core.errors import ValidationError
+
+        report = self.validate()
+        if not report.passed:
+            failures = report.failures
+            raise ValidationError(
+                f"recipe failed {len(failures)} of {len(report.checks)} static checks: "
+                + ", ".join(f"check {c.id} ({c.name})" for c in failures),
+                detail={"failures": [c.model_dump() for c in failures]},
+            )
+
+        # FR-3 step 2: constant-time cache-identity check. An existing instance (cache
+        # "hit") without overwrite is refused here — the shipped pre-prod contract
+        # (ModelArtifactExistsError, see tests/integration/test_loose_coupling.py) —
+        # short-circuiting BEFORE the pipeline runs rather than wasting a full run and
+        # refusing at promote time. (features.md FR-3 describes hit⇒return-existing; the
+        # shipped contract is hit⇒refuse — a doc/code divergence flagged for I.y, not
+        # changed here.) `--overwrite` suppresses the hit so the runner trashes + rebuilds.
+        if not self.config.overwrite and (self.paths.instance_dir / "manifest.json").is_file():
+            raise ModelArtifactExistsError(
+                f"instance already exists at {self.paths.instance_dir}; "
+                f"re-run with overwrite to replace it",
+                detail={"instance_dir": str(self.paths.instance_dir)},
+            )
+
         MaterializeRunner(
             recipe=self.recipe,
             data_instance=self.data,

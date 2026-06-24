@@ -63,8 +63,11 @@ def _build_instance(tmp_path: Path) -> DataRefineryInstance:
     (inst / "recipe.json").write_text(dr_recipe.model_dump_json(), encoding="utf-8")
     stats_dir = inst / "fitted_statistics" / "norm"
     stats_dir.mkdir(parents=True)
-    pq.write_table(pa.table({"value": [0.5, 0.3, 0.1]}), stats_dir / "mean.parquet")  # type: ignore[no-untyped-call]
-    pq.write_table(pa.table({"value": [0.25, 0.5, 0.2]}), stats_dir / "std.parquet")  # type: ignore[no-untyped-call]
+    # 0-255-scale fitted stats (the PyTorch adapter applies normalization in pixel
+    # units, Story H.a) so the bound instance passes FR-2 check 21 under the
+    # validate-first materialize path (Story I.u). Mirrors the shared fixture builder.
+    pq.write_table(pa.table({"value": [120.0, 110.0, 100.0]}), stats_dir / "mean.parquet")  # type: ignore[no-untyped-call]
+    pq.write_table(pa.table({"value": [60.0, 55.0, 50.0]}), stats_dir / "std.parquet")  # type: ignore[no-untyped-call]
 
     dataset_dir = inst / "dataset"
     dataset_dir.mkdir()
@@ -170,6 +173,50 @@ def test_materialize_via_library_api_and_accessors(tmp_path: Path) -> None:
     assert instance.best_params is None
     assert "training_curves" in instance.figures
     assert instance.figures["training_curves"].startswith(b"\x89PNG")
+
+
+def _tmp_runs(config: RuntimeConfig) -> list[Path]:
+    # Per-run temp dirs live under `<cache-root>/instances/.tmp/<run-id>/`.
+    tmp_root = Path(config.cache_root) / "instances" / ".tmp"
+    return list(tmp_root.iterdir()) if tmp_root.is_dir() else []
+
+
+def test_materialize_validates_first_and_raises_before_temp_dir(tmp_path: Path) -> None:
+    # FR-3 step 1 (Story I.u): an invalid recipe fails fast at validate, before any
+    # `.tmp/<run-id>/` directory or pipeline work.
+    from modelfoundry import ModelFoundry
+    from modelfoundry.core.errors import ValidationError
+
+    data = _build_instance(tmp_path)
+    config = RuntimeConfig(cache_root=tmp_path / "mf_cache")
+    path = _write_recipe(tmp_path)
+    recipe = yaml.safe_load(path.read_text())
+    # primary_metric not in metrics ⇒ FR-2 check 12 fails (schema-valid, loadable).
+    recipe["Evaluation"]["primary_metric"] = "not_a_metric"
+    path.write_text(yaml.safe_dump(recipe), encoding="utf-8")
+
+    mf = ModelFoundry.from_recipe(path, data=data, config=config)
+    with pytest.raises(ValidationError):
+        mf.materialize()
+    assert _tmp_runs(config) == []  # no pipeline temp dir created
+
+
+def test_materialize_cache_hit_short_circuits_without_rerunning(tmp_path: Path) -> None:
+    # FR-3 step 2 (Story I.u): a second materialize without --overwrite refuses
+    # constant-time (the shipped ModelArtifactExistsError contract) without re-running
+    # the pipeline — no new temp dir is created.
+    from modelfoundry import ModelFoundry
+    from modelfoundry.core.errors import ModelArtifactExistsError
+
+    data = _build_instance(tmp_path)
+    config = RuntimeConfig(cache_root=tmp_path / "mf_cache")
+    recipe_path = _write_recipe(tmp_path)
+
+    ModelFoundry.from_recipe(recipe_path, data=data, config=config).materialize()
+    mf2 = ModelFoundry.from_recipe(recipe_path, data=data, config=config)
+    with pytest.raises(ModelArtifactExistsError):
+        mf2.materialize()
+    assert _tmp_runs(config) == []  # the refusal short-circuited; pipeline never ran
 
 
 def test_load_round_trip_predict_matches(tmp_path: Path) -> None:
