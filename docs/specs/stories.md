@@ -526,6 +526,122 @@ Bring the spec back in line with the now-reconciled code, fix the three doc/code
 
 ---
 
+## Subphase I-3: Generative-Probabilistic Backend (per-class GMM / HMM)
+
+ModelFoundry's first **generative-probabilistic** classifier backend, closing **Gap 2** of [`consumer-gap-analysis2.md`](consumer-gap-analysis2.md): every shipped backend (`pytorch`/`sklearn`/`random`) is **discriminative**, so a *classical generative* model — a **per-class Gaussian Mixture Model**, or a **Hidden Markov Model** for temporal structure — cannot be authored. The generative model is the **classical-vs-Bayesian contrasting benchmark** for the audio classifier: fit a class-conditional density on `train` (seeded), classify by maximum class-conditional log-likelihood + log priors (Bayes' rule), and score on the *same* held-out clips + clip-level aggregation as the MC-dropout spectrogram CNN — contrasting accuracy + calibration. Inputs already exist (the `feature_path` mel/MFCC `.npy` arrays from Subphase I-1); **only the model backend is missing**.
+
+Full gap analysis, the load-bearing contract facts, the mini-features/tech-spec, the design forks, and the out-of-scope walkthrough live in [`phase-i-subphase-3-generative-probabilistic-backend-plan.md`](phase-i-subphase-3-generative-probabilistic-backend-plan.md).
+
+---
+
+> **Release cadence (Subphase I-3) — phase-bundled, one minor (multi-release exception).** Phase I shipped v0.16.0 → v0.19.0 across Subphases I-1 / I-2. Subphase I-3 is a follow-on subphase that ships its **own** release tag — the documented Version-Cadence multi-release exception (`_phase-letters.md` § Subphases). Stories I.z–I.af carry no version; **I.ag owns the single minor bump → v0.20.0** (new model paradigm + the optional-sections schema cleanup). **Multi-release fallback:** if the `hmmlearn` integration spike (I.aa) surfaces friction, the HMM half (I.ae + its recipe/test) may slip to a follow-on **v0.21.0**, shipping the proven GMM half at v0.20.0 first. **Not cache-invalidating** for any existing instance: new architecture types are additive (a recipe authoring them produces its own identity), and the optional-`Loss`/`Optimizer` change is byte-neutral for recipes that author them (sparse-omit only when `None`). Pre-prod, no production ceremony.
+
+> **Scope note (theme distinctness).** A generative backend is broader than Phase I's "Segmented Recipe Architecture" theme but continues the consumer-gap-driven, pre-1.0 follow-on pattern of I-1 / I-2, and is planned as a subphase at the developer's direction (2026-06-24). A standalone Phase J identity, if later preferred, is a `plan_phase` re-scoping decision.
+
+---
+
+### Story I.z: Generative-backend design pass [Done]
+
+Settle the design forks the audit surfaced so the generative backend is implement-ready; deliverable is a **"Design Decisions" section** appended to [`phase-i-subphase-3-generative-probabilistic-backend-plan.md`](phase-i-subphase-3-generative-probabilistic-backend-plan.md), not production code.
+
+- [x] **Plugin topology.** Decide GMM-on-`sklearn` (smallest reuse) vs. a **new shared `generative` plugin** hosting GMM + HMM (so the Bayes wrapper + frame adapter + clip aggregation are written once). Recommendation leans shared-`generative`; pin it. *(D-I.z.1: pinned **new shared `generative` plugin** — lazy `sklearn`/`hmmlearn`/`joblib` imports, numpy-native/torch-free path.)*
+- [x] **Recipe surface.** `gmm_classifier` / `hmm_classifier` arch params (`n_components`, `covariance_type`, HMM `n_states`/topology — author-required, scaffolder-emitted); class-prior policy (uniform vs. empirical-from-train); the **frame-level** data-adapter shape (frames as samples, **not** the flattened-spectrogram path). *(D-I.z.2: generative params follow the universal plugin-op default convention (not the stricter `recipe/models.py` standard); author-required for genuine modeling forks (`num_classes`/`n_components`/`n_states`/`class_prior`), defaulted+scaffolder-emitted for conventional EM/Baum-Welch knobs; defaults passed explicitly so a sklearn/hmmlearn library default-shift can't change bytes; numpy-ported mel-axis `audio_normalize` for CNN input parity.)*
+- [x] **Bayes wrapper.** `predict`/`predict_proba` from per-class log-evidence (sum of frame `score_samples` + log priors; numerically stable softmax); the joblib round-trip shape. *(D-I.z.3: custom picklable wrapper, prior added once per window, `logsumexp` softmax, no logits, byte-stable joblib via numpy-by-value pickle; no length-normalization for fixed-length windows.)*
+- [x] **Clip aggregation + schema.** Where clip aggregation lands on the generative evaluator (reuse vs. numpy-port the I-1 math); the optional-`Loss`/`Optimizer` `| None` + sparse-omit shape + the validator-check adaptation list + the byte-neutrality guard; the EM/Baum-Welch seeding plan. *(D-I.z.4: numpy-port aggregation to a torch-free shared `pipeline/aggregation.py` (torch path untouched in I-3); precise `models`/`canonical`/`sections`/`validator`/consumer adaptation list + canonical-hash pin; GMM `random_state=derive_seed(seed,"weight_init")&_U32`, HMM gated by I.aa.)*
+
+**Version:** no bump (design/doc; rides v0.20.0).
+
+---
+
+### Story I.aa: Integration spike — `hmmlearn` [Planned]
+
+**Integration spike** (time-boxed, throwaway) to de-risk the **new integration boundary** before committing the HMM backend (gates I.ae). Deliverable is a documented **go/no-go** + the persistence/determinism pattern, not production code.
+
+- [ ] **Install + fit.** `hmmlearn` installs behind a `[hmm]` extra; fit a per-class HMM on frame sequences from the I-1 audio fixture; classify a held-out clip by **forward log-likelihood + Bayes**.
+- [ ] **Persistence + determinism.** The fitted HMM **round-trips** (joblib) and reproduces **byte-identically** under a **seeded** Baum-Welch fit; the path runs **offline**. (This is the load-bearing risk — `hmmlearn` may seed via numpy/scipy RNG in ways the four-invariant contract must pin.)
+- [ ] **Verdict.** Record go/no-go. On friction: a fallback (hand-rolled HMM, or **defer HMM to a v0.21.0 follow-on** per the multi-release fallback) + the reason.
+
+**Version:** no bump (spike; rides v0.20.0).
+
+---
+
+### Story I.ab: Optional `Loss`/`Optimizer` sections (schema foundation) [Planned]
+
+Make `ModelRecipe.Loss`/`Optimizer` `| None = None` (the deferred Gap A / Option B cleanup) so a generative density model **omits** them honestly rather than declaring nominal no-op ops. Foundation for the generative recipes. **Not cache-invalidating** — byte-neutral for recipes that author them.
+
+- [ ] **Schema.** `Loss`/`Optimizer` → `| None = None` ([recipe/models.py:222-223](../../src/modelfoundry/recipe/models.py#L222)).
+- [ ] **Validator.** Checks only present sections — check 3 (`section_ops_registered`), check 6 (early-stopping/schedule monitors), check 17 (op-params) skip when the section is `None`; [recipe/sections.py](../../src/modelfoundry/recipe/sections.py) `iter_op_sections` skips `None` sections.
+- [ ] **Byte-neutrality.** Sparse-omit `None` `Loss`/`Optimizer` in [recipe/canonical.py](../../src/modelfoundry/recipe/canonical.py) (mirroring `WindowAggregation`'s I.o wiring) so a recipe authoring them is **byte-identical**; a canonical-hash pin test guards the invariant.
+- [ ] **Corpus + scaffolder.** Update fixtures + the `init` scaffolder to omit the sections when the plugin has no concept of them; existing discriminative recipes keep authoring them unchanged.
+
+**Version:** no bump (rides v0.20.0). Not cache-invalidating (byte-neutral for existing recipes).
+
+---
+
+### Story I.ac: `gmm_classifier` generative backend [Planned]
+
+The per-class GMM classifier — fit a class-conditional `GaussianMixture` per class, classify by Bayes' rule. Registered per the I.z plugin topology.
+
+- [ ] **Frame-level adapter.** Consume each clip/window `(n_mels, n_frames)` array **frame-wise** (frames as samples), distinct from the flattened-spectrogram `feature_matrix` path.
+- [ ] **Per-class fit.** One seeded `GaussianMixture` per class fit on that class's train frames; EM seeded via `derive_seed(seed, "weight_init")`.
+- [ ] **Bayes wrapper.** `predict`/`predict_proba` = softmax over per-class (summed frame log-likelihood + log prior); numerically stable; joblib persistence + round-trip.
+- [ ] **Eval + tests.** Classification + calibration/ECE on flat/per-window predictions (clip aggregation is I.ad); byte-identical across two seeded runs; existing sklearn/discriminative recipes unaffected.
+
+**Version:** no bump (rides v0.20.0). Additive architecture type; no existing instance perturbed.
+
+---
+
+### Story I.ad: Clip-level window aggregation on the generative evaluator [Planned]
+
+Port window→clip aggregation to the generative/sklearn evaluation path so the generative model scores **clip-level, head-to-head** with the CNN — the sklearn `run_evaluation` ignores `window_aggregation` today ([sklearn/plugin.py:248-269](../../src/modelfoundry/plugins/sklearn/plugin.py#L248)).
+
+- [ ] **Aggregation.** Regroup window predictions by `source_record_id`; apply the recipe `WindowAggregation` policy (`mean`/`logit_average`/`majority_vote`) — share or numpy-port the plugin-agnostic math from [pytorch/aggregation.py](../../src/modelfoundry/plugins/pytorch/aggregation.py).
+- [ ] **Dangling-key refusal.** A window whose `source_record_id` resolves to no clip is **refused** (parity with check 23 / `verify_window_integrity`).
+- [ ] **Tests.** Clip-level metrics over the I-1 audio fixture; dangling-key refusal; image/discriminative recipes unaffected.
+
+**Version:** no bump (rides v0.20.0).
+
+---
+
+### Story I.ae: `hmm_classifier` generative backend [Planned]
+
+Per-class `hmmlearn` HMM for temporal structure, **gated by the I.aa spike outcome**. Reuses the I.ac wrapper surface + the I.ad clip aggregation.
+
+- [ ] **Extra gating.** `hmmlearn` behind a `[hmm]` extra; without it the recipe loads + validates but `materialize()` raises a `MaterializeError` carrying the install pointer (mirroring `[huggingface]`).
+- [ ] **Sequence fit + classify.** Per-class HMM fit on frame **sequences** (order matters); classify a clip by **forward log-likelihood + Bayes**; seeded Baum-Welch; persistence + round-trip per the I.aa pattern.
+- [ ] **Tests.** Byte-identical seeded fit; round-trips from disk; offline.
+
+**Version:** no bump (rides v0.20.0) — or **owns v0.21.0** if the multi-release fallback is taken (per I.aa).
+
+---
+
+### Story I.af: Example recipes + end-to-end audio benchmark [Planned]
+
+Acceptance gate: the brief's verification turned into an end-to-end test. Bundled `gmm`/`hmm` recipes binding the audio instance; a materialization scoring the generative model(s) **clip-level, head-to-head** with the MC-dropout CNN on identical splits + the same `WindowAggregation`, contrasting accuracy + calibration.
+
+- [ ] **Recipes.** `gmm`/`hmm` example recipes (no `Loss`/`Optimizer` blocks — exercising I.ab) binding the I-1 audio instance.
+- [ ] **Benchmark test.** Materialize end-to-end; assert clip-level metrics + calibration are produced and head-to-head-comparable with the CNN on the same splits.
+- [ ] **Determinism + round-trip.** Assert **byte-determinism** + **round-trips from disk** + **existing discriminative recipes unaffected**.
+
+**Version:** no bump (rides v0.20.0).
+
+---
+
+### Story I.ag: Doc sync, project-essentials append & release — owns the bump (→ v0.20.0) [Planned]
+
+Reconcile the spec with the shipped generative backend, append must-know facts (plan_phase Step 8), and own the subphase's single minor bump.
+
+- [ ] **`features.md`** — add FR-GEN-1 (generative classifier backend), FR-GEN-2 (clip-level aggregation on the generative path), FR-GEN-3 (reproducibility parity), FR-SCHEMA-1 (optional `Loss`/`Optimizer`); enumerate any new validator check.
+- [ ] **`tech-spec.md`** — reflect the generative backend / plugin topology, the frame-level adapter, the generative-path clip aggregation, and the optional-sections schema (`| None` + sparse-omit).
+- [ ] **`concept.md` / `README.md`** — generative backend now in scope (plugin-interface-honesty value strengthened: a non-gradient, likelihood-based model); add a runnable example to `README.md` if warranted.
+- [ ] **`project-essentials.md`** — append must-know facts: the generative-backend contract (frame-level consumption, Bayes-rule prediction, seeded EM/Baum-Welch determinism) and the optional-`Loss`/`Optimizer` byte-neutrality rule.
+- [ ] **`## Future`** — mark Gap 2 closed; record the deferred native-likelihood / open-set surface + HMM sequence-labeling as their own items.
+- [ ] **Release** — own the single minor bump **→ v0.20.0**; `CHANGELOG.md` `## [0.20.0]` entry (generative GMM/HMM backend + optional Loss/Optimizer; **not cache-invalidating**). Full CI gate green: ruff + ruff format --check + mypy src tests + light + smoke-pytorch (+ the `[hmm]` env if separately gated).
+
+**Version:** **minor → v0.20.0** (new model paradigm + schema cleanup; multi-release-exception bump for Subphase I-3). Not cache-invalidating for existing instances.
+
+---
+
 ## Future
 
 <!--
