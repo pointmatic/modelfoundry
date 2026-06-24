@@ -500,14 +500,14 @@ Complete the FR-13 visualization param surface — the spec promises `prediction
 
 ---
 
-### Story I.x: FR-9 check-6 schedule-monitor extension [Planned]
+### Story I.x: FR-9 check-6 schedule-monitor extension [Done]
 
-Complete the FR-9 promise ("`schedule.monitor` references a metric not produced → caught by FR-2 check 6, extended for schedule monitors") — check 6 ([validator.py:225-238](../../src/modelfoundry/recipe/validator.py#L225)) validates only `Training.early_stopping.monitor` today.
+Complete the FR-9 promise ("`schedule.monitor` references a metric not produced → caught by FR-2 check 6, extended for schedule monitors") — check 6 ([validator.py:225-238](../../src/modelfoundry/recipe/validator.py#L225)) validates only `Training.early_stopping.monitor` today. → Extended check 6 to validate both monitors; renamed `early_stopping_monitor` → `monitor_metrics_produced` (name is internal; tests assert by id 6).
 
-- [ ] **Extend check 6.** When `Optimizer.schedule` is present, validate its `monitor` against produced `Evaluation.metrics` + builtins (`train_loss`/`val_loss`), mirroring the early-stopping-monitor logic. Keep the check non-short-circuiting.
-- [ ] **Tests.** A recipe whose `schedule.monitor` references an unproduced metric trips check 6; a valid schedule monitor passes.
+- [x] **Extend check 6.** When `Optimizer.schedule` is present, validate its `monitor` against produced `Evaluation.metrics` + builtins (`train_loss`/`val_loss`), mirroring the early-stopping-monitor logic. Keep the check non-short-circuiting. → `_check_6_monitor_metrics_produced` ([validator.py](../../src/modelfoundry/recipe/validator.py)) accumulates both `early_stopping.monitor` and `schedule.monitor` (when present + non-None) into one `bad` list against the shared `available` set, never short-circuiting; the failure message/detail name each offending source (`early_stopping`/`schedule`).
+- [x] **Tests.** A recipe whose `schedule.monitor` references an unproduced metric trips check 6; a valid schedule monitor passes. → [test_recipe_validator.py](../../tests/unit/test_recipe_validator.py): `test_check_6_unknown_schedule_monitor` (trips) + `test_check_6_valid_schedule_monitor_passes`; new invalid fixture [invalid_schedule_monitor.yml](../../tests/fixtures/recipes/invalid/invalid_schedule_monitor.yml) added to the "trips exactly its target check" fixture matrix (exactly check 6). Full CI gate green: ruff + ruff format --check (172) + mypy (172) + light (603 passed / 53 skipped) + smoke-pytorch.
 
-**Version:** no bump (rides v0.19.0). Validation-only; no bytes change.
+**Version:** no bump (rides v0.19.0). Validation-only; no bytes change. (Check-6 name change `early_stopping_monitor`→`monitor_metrics_produced` is internal — no doc references it by name; flag for I.y if the doc enumerates check names.)
 
 ---
 

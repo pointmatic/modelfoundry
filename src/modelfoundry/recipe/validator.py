@@ -88,7 +88,7 @@ def validate(
         _check_3_section_ops_registered(sections, plugin),
         _check_4_splits_exist(recipe, data_instance),
         _check_5_fit_on_train(recipe),
-        _check_6_early_stopping_monitor(recipe),
+        _check_6_monitor_metrics_produced(recipe),
         _check_7_search_space_paths(recipe),
         _check_8_baseline_categorical_defaults(recipe),
         _check_9_sampler_pruner(recipe),
@@ -222,19 +222,30 @@ def _check_5_fit_on_train(recipe: ModelRecipe) -> ValidationCheck:
 # --- Check 6 ---
 
 
-def _check_6_early_stopping_monitor(recipe: ModelRecipe) -> ValidationCheck:
-    es = recipe.Training.early_stopping
-    if es is None:
-        return _ok(6, "early_stopping_monitor")
+def _check_6_monitor_metrics_produced(recipe: ModelRecipe) -> ValidationCheck:
+    # FR-9 (Story I.x): both the early-stopping monitor and the Optimizer.schedule
+    # monitor must reference a produced metric (Evaluation.metrics) or a per-epoch
+    # builtin. Validated together; the check never short-circuits across the two.
     builtins = {"train_loss", "val_loss"}
     available = set(recipe.Evaluation.metrics) | builtins
-    if es.monitor in available:
-        return _ok(6, "early_stopping_monitor")
+    bad: list[tuple[str, str]] = []
+
+    es = recipe.Training.early_stopping
+    if es is not None and es.monitor not in available:
+        bad.append(("early_stopping", es.monitor))
+
+    sched = recipe.Optimizer.schedule
+    if sched is not None and sched.monitor is not None and sched.monitor not in available:
+        bad.append(("schedule", sched.monitor))
+
+    if not bad:
+        return _ok(6, "monitor_metrics_produced")
+    detail_pairs = ", ".join(f"{src}.monitor={mon!r}" for src, mon in bad)
     return _fail(
         6,
-        "early_stopping_monitor",
-        f"monitor {es.monitor!r} not produced; available: {sorted(available)}",
-        detail={"monitor": es.monitor, "available": sorted(available)},
+        "monitor_metrics_produced",
+        f"monitors not produced ({detail_pairs}); available: {sorted(available)}",
+        detail={"monitors": bad, "available": sorted(available)},
     )
 
 

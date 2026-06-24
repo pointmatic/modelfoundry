@@ -501,6 +501,26 @@ def test_check_6_unknown_early_stopping_monitor() -> None:
     assert "phantom_metric" in _detail_text(failing)
 
 
+def test_check_6_unknown_schedule_monitor() -> None:
+    # FR-9 (Story I.x): check 6 also validates Optimizer.schedule.monitor.
+    failing = _check(
+        validate(
+            _recipe({"Optimizer": {"schedule": {"monitor": "phantom_schedule_metric"}}}),
+            _instance(),
+            _Plugin(),
+        ),
+        6,
+    )
+    assert not failing.passed
+    assert "phantom_schedule_metric" in _detail_text(failing)
+
+
+def test_check_6_valid_schedule_monitor_passes() -> None:
+    # The base recipe's schedule monitor is `val_loss` (a builtin) → check 6 passes.
+    report = validate(_recipe(), _instance(), _Plugin())
+    assert not _failures_for(report, 6)
+
+
 def test_check_7_search_space_unknown_path() -> None:
     failing = _check(
         validate(
@@ -753,6 +773,7 @@ _FIXTURE_FAIL_CASES = [
     ("invalid_unknown_loss_op.yml", 3, "bogus_loss"),
     ("invalid_fit_on_train.yml", 5, "weight_source"),
     ("invalid_early_stopping_monitor.yml", 6, "bogus_metric"),
+    ("invalid_schedule_monitor.yml", 6, "bogus_schedule_metric"),
     ("invalid_search_space_path.yml", 7, "Bogus.nonexistent_path"),
     ("invalid_metric_vocabulary.yml", 11, "bogus_metric"),
     ("invalid_primary_metric.yml", 12, "ece"),
