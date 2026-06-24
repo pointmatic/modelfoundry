@@ -553,13 +553,13 @@ Settle the design forks the audit surfaced so the generative backend is implemen
 
 ---
 
-### Story I.aa: Integration spike — `hmmlearn` [Planned]
+### Story I.aa: Integration spike — `hmmlearn` [Done]
 
-**Integration spike** (time-boxed, throwaway) to de-risk the **new integration boundary** before committing the HMM backend (gates I.ae). Deliverable is a documented **go/no-go** + the persistence/determinism pattern, not production code.
+**Integration spike** (time-boxed, throwaway) to de-risk the **new integration boundary** before committing the HMM backend (gates I.ae). Deliverable is a documented **go/no-go** + the persistence/determinism pattern, not production code. **Verdict: GO** — see [`docs/spikes/I.aa-hmmlearn-integration.md`](I.aa-hmmlearn-integration.md) (6/6 claims pass).
 
-- [ ] **Install + fit.** `hmmlearn` installs behind a `[hmm]` extra; fit a per-class HMM on frame sequences from the I-1 audio fixture; classify a held-out clip by **forward log-likelihood + Bayes**.
-- [ ] **Persistence + determinism.** The fitted HMM **round-trips** (joblib) and reproduces **byte-identically** under a **seeded** Baum-Welch fit; the path runs **offline**. (This is the load-bearing risk — `hmmlearn` may seed via numpy/scipy RNG in ways the four-invariant contract must pin.)
-- [ ] **Verdict.** Record go/no-go. On friction: a fallback (hand-rolled HMM, or **defer HMM to a v0.21.0 follow-on** per the multi-release fallback) + the reason.
+- [x] **Install + fit.** `hmmlearn` installs behind a `[hmm]` extra; fit a per-class HMM on frame sequences from the I-1 audio fixture; classify a held-out clip by **forward log-likelihood + Bayes**. *(hmmlearn 0.3.3 installs cleanly on the pinned Python; per-class Baum-Welch fit + forward-loglik + Bayes classification confirmed at I-1 fixture shape parity.)*
+- [x] **Persistence + determinism.** The fitted HMM **round-trips** (joblib) and reproduces **byte-identically** under a **seeded** Baum-Welch fit; the path runs **offline**. (This is the load-bearing risk — `hmmlearn` may seed via numpy/scipy RNG in ways the four-invariant contract must pin.) *(LOAD-BEARING RISK CLEARED: byte-identical under `random_state` alone — in-process AND cross-process — even with the numpy global RNG deliberately perturbed; no global-RNG leak. joblib round-trip preserves scores exactly; offline proven by hard-blocking sockets during fit.)*
+- [x] **Verdict.** Record go/no-go. On friction: a fallback (hand-rolled HMM, or **defer HMM to a v0.21.0 follow-on** per the multi-release fallback) + the reason. *(GO — no fallback/deferral needed; the D-I.z.2 param set is confirmed implementable as written.)*
 
 **Version:** no bump (spike; rides v0.20.0).
 

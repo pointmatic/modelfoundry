@@ -298,9 +298,11 @@ shape-defining ones:
   `num_classes`, `n_components`, `class_prior` (`Literal["empirical","uniform"]`). **Defaulted**
   (conventional EM knobs, scaffolder-emitted): `covariance_type` (`Literal["full","tied","diag","spherical"]`,
   default `"full"`), `max_iter`, `n_init`, `reg_covar`, `tol`.
-- **`hmm_classifier`** (param set **pending the I.aa spike**) — **author-required**: `num_classes`,
-  `n_states`, `class_prior`. **Defaulted**: `covariance_type`, and the Baum-Welch knobs (`n_iter`,
-  `tol`, topology / `init_params`) at whatever defaults the spike confirms are deterministic.
+- **`hmm_classifier`** (param set **confirmed by the I.aa spike — GO**,
+  [`docs/spikes/I.aa-hmmlearn-integration.md`](../spikes/I.aa-hmmlearn-integration.md)) —
+  **author-required**: `num_classes`, `n_states`, `class_prior`. **Defaulted**: `covariance_type`,
+  and the Baum-Welch knobs (`n_iter`, `tol`, `init_params`) — the spike confirmed these are
+  deterministic under `random_state` alone, so they default + scaffolder-emit like the GMM knobs.
 
 Whatever the default, the value is passed **explicitly** to the estimator (never left to fall
 through to the *library's* own default — that is the genuine no-implicit-defaults concern: a
