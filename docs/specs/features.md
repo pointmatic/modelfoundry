@@ -113,6 +113,7 @@ ModelFoundry compiles a single YAML **model recipe** — declaring `plugin`, `Da
 - `Training` block — execution policy: `max_epochs`, `batch_size`, `precision` (`fp32`/`amp`), `device` (`auto`/`cpu`/`cuda`/`mps`), `checkpoint_cadence` (epochs between checkpoint writes), optional `early_stopping` (`monitor`, `mode`, `patience`). **`num_workers` is NOT a recipe field** (Phase I / Option A): it is execution context — set via `--num-workers` / `MODELFOUNDRY_NUM_WORKERS`. Per **no-implicit-defaults** (Phase I), `precision` / `device` / `checkpoint_cadence` are author-required (the scaffolder emits them); only mode-selecting optionals (`early_stopping`) may be omitted.
 - `Optimization` block — optional hyperparameter search: `sampler: tpe | random | grid`, `pruner: median | none`, `n_trials: int`, `baseline_trial: enqueue_recipe_defaults` (enqueues the recipe's hyperparameter values as trial 0), `search_space:` keyed by recipe-path strings (e.g. `Optimizer.learning_rate`) with sample-spec values (`{log_uniform: [1e-5, 1e-3]}`, `{categorical: [16, 32, 64]}`, etc.).
 - `Evaluation` block — `splits: list[str]`, `primary_metric: str`, `metrics: list[str]` drawn from the pre-production vocabulary (`macro_f1`, `per_class_f1`, `per_class_precision`, `per_class_recall`, `accuracy`, `confusion_matrix`, `ece`, `calibration_curve`), optional `comparison.baseline_model_id`.
+- `WindowAggregation` block (Subphase I-1 / FR-AUDIO-2) — **optional, audio-only**: `policy: mean | logit_average | majority_vote` (author-required when the block is present). Declared by recipes whose bound instance carries **window records** (`source_record_id` / `window_index`); regroups window-level predictions into clip-level results. Absent ⇒ window-level evaluation. Sparse-merged into the `plugin` segment only when present, so omitting it is byte-identical (not a cache-invalidation event).
 - `Visualizations` block — list of ops, each with `name`, `op` (`training_curves`, `optimization_history`, `confusion_matrix`, `calibration_curve`, `predictions_grid`), `mode` (`exploration` or `reporting`), optional `splits`.
 - `OutputExpectations` block — list of post-materialization assertions (`{metric: val_macro_f1, op: gte, value: 0.55}`); failures abort with a `FAILED` marker.
 - `overlays` block — optional named overlays applied in order (last-writer-wins per section) at materialize time; selection changes cache identity.
@@ -231,6 +232,7 @@ Verify a recipe's correctness without running the pipeline. Covers schema correc
 20. `Training.device` is `"auto"` or matches one of the plugin's `health_check`-reported available accelerators. Tolerant of plugins whose `health_check` does not yet expose an `accelerators` field (skip with a recorded message rather than fail).
 21. Architecture-input compatibility — the bound instance's produced input satisfies the architecture's contract (encoder input shape/channels for a pretrained `Encoder`; normalization in 0-255 pixel units), per the data↔model interface guard.
 22. `extensions:` keys are claimed by some installed plugin (`Plugin.extension_keys`) — **warn-only** (non-fatal): an unclaimed key is a heads-up, not a failure (Story I.d).
+23. `WindowAggregation` grouping key — when `WindowAggregation` is declared, the bound DataRefinery instance's records carry `source_record_id` (a producible clip grouping). Read-only and torch-free (peeks one on-disk record); skip-with-pass when indeterminate. A misdeclaration surfaces at `validate`, not mid-run (Story I.o.2 / FR-AUDIO-2).
 
 **Edge Cases:**
 - Plugin not installed -> hard error pointing at the plugin name and discovery path.
@@ -727,6 +729,37 @@ Generate a human- and machine-readable summary of the materialized model as a re
 - Plugin does not provide a model summary -> the `model/summary.*` artifacts are absent; `ModelInstance.summary` / `summary_text` return `None`; not an error.
 - The bound DataRefinery instance's record schema declares no usable image shape -> the plugin falls back to decoding one record through its dataset adapter to learn the true `(C, H, W)`.
 
+### FR-AUDIO-1: Audio feature-array consumption
+
+ModelFoundry's PyTorch loader consumes prepared float feature arrays (log-mel spectrograms) from a materialized DataRefinery instance, alongside (not replacing) the image path. Subphase I-1.
+
+**Behavior:**
+1. Branch selection is **per-record**: a record carrying `feature_path` takes the feature branch; `feature_path` is **authoritative over a stray `path`** (vendor-spec Q6). Records with `image_path` / a bare `path` keep the image branch. Default image recipes are unaffected (additive).
+2. Resolve `feature_path` **instance-root-relative** (`<instance>/<feature_path>`, vendor-spec Q1 — the sink-`path` bucket, not `dataset/`-relative), joining the (possibly nested) POSIX string verbatim (Q5).
+3. `np.load` the array, **assert `ndim == 2`** `(n_mels, n_frames)` (Q4, mono) and own the channel-dim unsqueeze to `(1, n_mels, n_frames)`; preserve the raw `float32` mel values (no `/255`, no premature normalize).
+4. Apply the persisted per-mel-bin **`audio_normalize`** fit-on-train statistics at load — read from the DataRefinery recipe's **`Featurizations`** section (not `Transformations`), `n_mels` rows on the **mel axis** (`(feat − mean)/std` reshaped `(1, n_mels, 1)`, *not* the image CHW `.view(-1,1,1)`), `float64` stats promoting the `float32` array (Q3), the same exact `std == 0 → 1.0` zero-variance guard as image `normalize`.
+
+**Edge Cases:**
+- A `feature_path` whose file is absent -> refused at **bind time** (`_verify_record_images_resolvable` extended to `feature_path`), before the (long) training run.
+- A non-2-D feature array -> hard error naming `ndim` (multi-channel `(C, n_mels, n_frames)` is explicitly future).
+
+### FR-AUDIO-2: Clip-level window aggregation
+
+For instances whose records are **windows** of a parent clip (`record_id = f"{source_record_id}__w{window_index:04d}"`, vendor-spec R7), ModelFoundry regroups window-level predictions into clip-level results. The deployed unit of evaluation is the clip; DataRefinery ships no aggregation op, so the consumer owns the math. Subphase I-1.
+
+**Behavior:**
+1. A new **mode-selecting optional** top-level `WindowAggregation` section: absent ⇒ window-level evaluation (the versioned plugin-segment "absent ⇒ behavior" mapping); present ⇒ `policy: mean | logit_average | majority_vote` is author-required. Sparse-merged into the `plugin` segment only when present, so existing image recipes' canonical bytes are byte-identical (not a cache-invalidation event).
+2. In the evaluation stage, regroup the per-window predictions (including MC-dropout means / `predictive_entropy` / `mc_variance`) by `source_record_id`; each policy produces a clip-level `(C,)` probability vector (mean of window probs / renormalized logit-space mean / normalized argmax-vote histogram), over which clip-level metrics + uncertainty compute uniformly. Persisted metrics + predictions become clip-level (`record_id = source_record_id`).
+3. The aggregation policy is threaded through the `Plugin.run_evaluation` contract; the sklearn/random baselines accept it uniformly but have no window concept (no-op).
+
+**Edge Cases:**
+- A window whose `record_id` does not decompose into its declared `source_record_id` + `window_index` (a dangling parent reference) -> **refused** before grouping (vendor-spec § Failure modes).
+- `WindowAggregation` declared against an instance whose records lack `source_record_id` -> surfaced at `validate` (FR-2 check 23), not mid-run.
+
+### FR-AUDIO-3: Reproducibility parity
+
+An audio MC-dropout materialization is **byte-deterministic** and **round-trips from disk** exactly as the image path does — the four QR-3 / FR-25 determinism invariants hold unchanged on the audio path (the loader change is additive; the only canonical-bytes surface is the audio-only `WindowAggregation` field). Asserted by the end-to-end acceptance test (Story I.p): same `(recipe, data, seed)` materializes byte-identically, and `ModelInstance.load(path).predict(...)` reconstructs from disk with no external config.
+
 ---
 
 ## Configuration
@@ -757,7 +790,7 @@ Generate a human- and machine-readable summary of the materialized model as a re
 
 - **TR-1: Recipe loader unit tests.** Coverage on schema-version gating, plugin resolution, overlay merge, canonicalization byte-stability.
 - **TR-2: Cache identity unit tests.** Cosmetic edits (whitespace, key reorder, comment changes) produce identical hashes; semantic edits (value change, op add/remove, overlay switch) produce different hashes; seed change perturbs the hash; bound DataRefinery instance change perturbs the `data_instance_hash16` but does NOT perturb the consuming recipe's hash (CR-15 loose-coupling check).
-- **TR-3: Validate unit tests.** Every static logical check (FR-2 checks 1..22) has a dedicated test that asserts both the rejection and the human-readable error message.
+- **TR-3: Validate unit tests.** Every static logical check (FR-2 checks 1..23) has a dedicated test that asserts both the rejection and the human-readable error message.
 - **TR-4: Atomic promote integration tests.** Forced failure at every materialize stage leaves a `FAILED`-marked temp directory; the cache never sees partials; `--overwrite` correctly trashes the existing instance before promoting.
 - **TR-5: Determinism integration tests.** Run a fixture recipe twice with the PyTorch plugin and assert byte-identical instance contents (excluding wall-clock fields). One worker, two workers, four workers — all three configurations produce identical bytes (mirrors DataRefinery's H.o spike pattern).
 - **TR-6: Round-trip integration test.** `ModelInstance.load(path).predict(X)` succeeds without the caller supplying any external config object (sentiment-poc regression precedent — must not recur).

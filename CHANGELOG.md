@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.0] - 2026-06-23
+
+Minor — **Audio feature-array consumption** (Subphase I-1, Stories I.l–I.r). ModelFoundry's PyTorch
+loader now consumes prepared audio features (log-mel spectrograms) from a materialized DataRefinery
+instance — the consumer half of the `npy_per_record` / `feature_path` seam shipped by DataRefinery
+v0.24.0–v0.25.0. A record carrying `feature_path` takes a feature branch (`feature_path` authoritative
+over a stray `path`): the loader `np.load`s the instance-root-relative `(n_mels, n_frames)` float32
+array, asserts rank-2 (mono) and unsqueezes to `(1, n_mels, n_frames)`, and applies the persisted
+per-mel-bin `audio_normalize` fit-on-train statistics (read from the DataRefinery recipe's
+`Featurizations` section, on the mel axis). For instances whose records are **windows** of a parent
+clip, a new optional top-level **`WindowAggregation`** section (`policy: mean | logit_average |
+majority_vote`) regroups window-level predictions by `source_record_id` into clip-level evaluation
+results (the consumer-owned aggregation math — DataRefinery ships no aggregation op); a dangling
+grouping key is refused, and a new `validate` **check 23** cross-checks the grouping key is present.
+The end-to-end audio MC-dropout path is byte-deterministic and round-trips from disk exactly as the
+image path (acceptance test, Story I.p).
+
+**Not cache-invalidating** for any existing instance. The loader change is additive (image recipes are
+untouched), and the only canonical-bytes surface — the `WindowAggregation` section — is **sparse-merged
+into the `plugin` segment only when present**, so recipes that omit it are byte-identical. No
+re-materialize required. This is a follow-on subphase release (Phase I shipped through v0.17.1).
+
 ## [0.17.1] - 2026-06-22
 
 Patch — **DR→MF persisted-image hand-off fix** (Story I.k; consumer gap-analysis Gap 1).

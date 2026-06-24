@@ -188,7 +188,9 @@ modelfoundry/                                       # repo root
 │       │   │   ├── schedules.py                    # reduce_on_plateau / cosine / linear_warmup (FR-OPT-2)
 │       │   │   ├── trainer.py                      # Training-loop implementation; honors deterministic-algorithm mode + worker_init_fn (QR-3)
 │       │   │   ├── optimization.py                 # Optuna-backed Optimization stage; baseline_trial enqueue; n_jobs=1
-│       │   │   ├── evaluation.py                   # metric implementations via torchmetrics; baseline-model resolution
+│       │   │   ├── evaluation.py                   # metric implementations via torchmetrics; baseline-model resolution; clip-level WindowAggregation wiring (FR-AUDIO-2)
+│       │   │   ├── stochastic.py                    # MC-dropout inference: active-dropout T-pass + aggregation (R2, Story H.m/H.n)
+│       │   │   ├── aggregation.py                   # clip-level window aggregation (FR-AUDIO-2 / R7): grouping + mean/logit_average/majority_vote + dangling-key refusal (Story I.o.2)
 │       │   │   ├── visualizations.py               # matplotlib renderers for the v0.x viz vocabulary
 │       │   │   ├── data.py                         # DataRefineryDataset adapter (reads JSONL + sidecar PNG; lazy-augmentation realization via torchvision.transforms.v2)
 │       │   │   ├── augmentations.py                # Lazy augmentation realizers (random_crop, horizontal_flip, color_jitter, random_erasing) over torchvision.transforms.v2
@@ -209,7 +211,7 @@ modelfoundry/                                       # repo root
 │   ├── conftest.py                                 # shared fixtures: tmp cache roots, minimal DataRefinery fixture, sample recipes
 │   ├── unit/
 │   │   ├── test_recipe_loader.py                   # FR-1: schema-version gate, plugin resolution, overlay merge, canonicalization byte-stability
-│   │   ├── test_recipe_validator.py                # FR-2: every check 1..22 has a test
+│   │   ├── test_recipe_validator.py                # FR-2: every check 1..23 has a test
 │   │   ├── test_cache_identity.py                  # FR-4: cosmetic-edit invariance, semantic-edit perturbation, loose-coupling rule
 │   │   ├── test_atomic_promote.py                  # FR-5: failure at every materialize stage leaves FAILED marker
 │   │   ├── test_manifest.py                        # FR-3 manifest shape; round-trip
@@ -434,7 +436,7 @@ def validate(
     data: DataRefineryInstance,
     plugin: Plugin,
 ) -> ValidationReport:
-    """Run FR-2 checks 1..22. Never short-circuits."""
+    """Run FR-2 checks 1..23. Never short-circuits."""
 ```
 
 ### `recipe.canonical` (FR-4)
@@ -642,6 +644,9 @@ class Plugin(Protocol):
     def run_evaluation(
         self, evaluation: EvaluationSpec, model: Any,
         data: DataRefineryInstance, temp_dir: pathlib.Path,
+        *, inference: InferenceSpec | None = None,
+        window_aggregation: WindowAggregationSpec | None = None,  # FR-AUDIO-2
+        seed: int = 0,
     ) -> EvaluationResult: ...                                        # FR-12
     def render_visualization(
         self, viz: VisualizationSpec, instance_artifacts: InstanceArtifacts,
@@ -657,11 +662,12 @@ class Plugin(Protocol):
 Implements the Plugin Protocol against PyTorch. Key sub-modules:
 
 - `architecture.py` — registers CIFAR-10-scale CNN primitives, composites, and baseline architectures (FR-ARCH-1). Each op is a `nn.Module` subclass + a pydantic `OperationSpec` param model. The plugin composes them via a recursive builder that reads the canonical `Architecture` block.
-- `data.py` — `DataRefineryDataset(torch.utils.data.Dataset)` adapter. Reads the bound instance's `dataset/<split>.jsonl`; resolves `path` / `image_path` per the vendor-dep-spec; decodes with Pillow; applies the recipe's lazy `Augmentations` block at iteration time. Per-record-seed stamps from DataRefinery's vendor-dep-spec (`<AugmentationOp.name>_seed`) are honored for aggressive variants (read directly from the JSONL record); lazy augmentations realize via `torchvision.transforms.v2` against the seeding contract from `pipeline.seeding`.
+- `data.py` — `DataRefineryDataset(torch.utils.data.Dataset)` adapter. Reads the bound instance's `dataset/<split>.jsonl`; resolves `path` / `image_path` per the vendor-dep-spec; decodes with Pillow; applies the recipe's lazy `Augmentations` block at iteration time. Per-record-seed stamps from DataRefinery's vendor-dep-spec (`<AugmentationOp.name>_seed`) are honored for aggressive variants (read directly from the JSONL record); lazy augmentations realize via `torchvision.transforms.v2` against the seeding contract from `pipeline.seeding`. **Audio feature-array branch (Subphase I-1, FR-AUDIO-1):** a record carrying `feature_path` (authoritative over a stray `path`, Q6) takes the feature path — `np.load` an instance-root-relative `(n_mels, n_frames)` float32 array (Q1/Q4/Q5), unsqueeze to `(1, n_mels, n_frames)`, and apply the per-mel-bin `audio_normalize` fit-on-train stats read from the DataRefinery recipe's `Featurizations` section on the **mel axis** (`(1, n_mels, 1)` reshape, float64 stats over float32, same `std==0→1.0` guard as image `normalize`). `window_keys()` exposes per-record `(source_record_id, window_index)` for clip regrouping. Missing `feature_path` files are refused at bind time (`data_binding._verify_record_images_resolvable`).
 - `augmentations.py` — torchvision-v2 realizers for `random_crop`, `horizontal_flip`, `color_jitter`, `random_erasing`. Visual semantics match DataRefinery's Pillow-based aggressive realizers, verified by a hypothesis property-based test on a fixture set (semantic equivalence, not byte-equivalence — the two paths are fundamentally different code).
 - `trainer.py` — Training-loop implementation honoring `Training.max_epochs`, `Training.batch_size`, `Training.early_stopping`, `Training.checkpoint_cadence`. (Weight-init seeding happens earlier, via the runner's `prepare_for_build` hook before `build_model`; the trainer re-asserts `determinism.enable_deterministic_algorithms()` for the loop and seeds dropout.) Uses `pipeline.seeding.worker_init_fn_factory` for DataLoaders. Periodic checkpoints are persisted with `torch.save(Checkpoint(...).model_dump(), path)` — `torch.save` is byte-stable across equal tensors, whereas raw-pickling tensors is not (required for the FR-25 byte-identity contract).
 - `optimization.py` — Optuna-backed Optimization stage. `RDBStorage` with `sqlite:///<temp-dir>/optimization/study.db`; sampler seeded via `derive_seed(master_seed, "optuna_sampler")`; `n_jobs=1` enforced. `baseline_trial: enqueue_recipe_defaults` calls `study.enqueue_trial(recipe.optimizer.params | recipe.training.params | …)` before `study.optimize(...)`. Best-trial params are merged back into the recipe via `recipe.search_space.apply_params(...)` and the Training stage proceeds with the merged recipe.
-- `evaluation.py` — Metric implementations via `torchmetrics` (`MulticlassF1Score`, `MulticlassConfusionMatrix`, `CalibrationError`). ECE via torchmetrics' `CalibrationError`; calibration_curve via sklearn helpers. Baseline-model resolution (FR-12) attempts HuggingFace download lazily; failures emit a warning and continue (the rest of evaluation succeeds).
+- `evaluation.py` — Metric implementations via `torchmetrics` (`MulticlassF1Score`, `MulticlassConfusionMatrix`, `CalibrationError`). ECE via torchmetrics' `CalibrationError`; calibration_curve via sklearn helpers. Baseline-model resolution (FR-12) attempts HuggingFace download lazily; failures emit a warning and continue (the rest of evaluation succeeds). On the MC-dropout path (`Inference.mode == mc_dropout`) the per-record probabilities are the seeded T-pass MC means with `predictive_entropy` / `mc_variance` persisted (delegates to `stochastic.py`). **Clip-level window aggregation (FR-AUDIO-2):** when `WindowAggregation` is present, each split's per-window predictions are regrouped by `source_record_id` via `aggregation.py` and the persisted metrics + predictions become clip-level (clip target = the clip's first-window target; clip MC uncertainty = entropy of the clip distribution + mean per-window `mc_variance`).
+- `aggregation.py` — clip-level window aggregation (FR-AUDIO-2 / R7, consumer-owned — DataRefinery ships no aggregation op). `verify_window_integrity` refuses a window whose `record_id` does not decompose into its declared `source_record_id` + `window_index` (a dangling parent reference); `group_windows` groups row-indices by `source_record_id` in first-appearance order, members ordered by `window_index`; the `mean` / `logit_average` (renormalized geometric mean) / `majority_vote` (normalized argmax histogram) policies each reduce a clip's window probabilities to a `(C,)` clip vector.
 - `visualizations.py` — Matplotlib renderers for `training_curves`, `optimization_history`, `confusion_matrix`, `calibration_curve`, `predictions_grid`. Each visualization op takes `InstanceArtifacts` and returns PNG bytes (single PNG) or `None` (skipped, e.g. `optimization_history` without an Optimization stage and `mode: reporting` declared — emits a placeholder PNG so the manifest's `visualizations` record is consistent).
 - `persistence.py` — `save_model(model, model_dir)` writes:
   - `model/weights/state_dict.pt` — `torch.save(model.state_dict(), ...)`.
@@ -707,7 +713,9 @@ class ModelRecipe(pydantic.BaseModel):
     Optimizer: OptimizerSpec
     Training: TrainingSpec
     Optimization: OptimizationSpec | None = None
+    Inference: InferenceSpec | None = None     # mode-selecting optional (None ⇒ point); MC-dropout (Story H.m)
     Evaluation: EvaluationSpec
+    WindowAggregation: WindowAggregationSpec | None = None  # mode-selecting optional, audio-only; sparse-merged into the plugin segment (FR-AUDIO-2, Story I.o.1)
     Visualizations: list[VisualizationSpec] = []
     OutputExpectations: list[ExpectationSpec] = []
     overlays: dict[str, dict[str, Any]] = {}   # name -> partial overlay
