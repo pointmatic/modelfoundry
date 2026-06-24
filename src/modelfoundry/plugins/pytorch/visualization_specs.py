@@ -14,15 +14,23 @@ Each param model mirrors the params its renderer actually reads from
 `VisualizationSpec.model_extra`:
 
 * `training_curves` / `optimization_history` — no params.
-* `confusion_matrix` / `calibration_curve` — optional `split` (via `_pick_split`).
-* `predictions_grid` — optional `max_items` (default 16).
+* `confusion_matrix` / `calibration_curve` — optional `split` (single, legacy) or
+  `splits: list[str]` (FR-13; defaults to `Evaluation.splits`), via `_pick_splits`.
+* `predictions_grid` — optional `n` (FR-13; legacy alias `max_items`, default 16),
+  `splits: list[str]`, and `per_class: bool` (FR-13).
 
 `extra="forbid"` so the validator rejects params an op would silently ignore.
+
+**Byte-neutrality (Story I.w).** The new params are authored-only-when-used and the
+`max_items` legacy alias is preserved, so a recipe authoring the old `max_items`/
+`split` form validates and dumps verbatim — its canonical bytes are unchanged. The
+renderers also keep the legacy single-split code paths byte-identical, so existing
+instances' materialized PNG bytes are unchanged too.
 """
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 from modelfoundry.plugins.base import OperationSpec
 
@@ -36,13 +44,23 @@ class NoVizParams(_VizParams):
 
 
 class SplitVizParams(_VizParams):
-    """Renderers that pick a split via `visualizations._pick_split`."""
+    """Renderers that select split(s) via `visualizations._pick_splits`.
+
+    `split` (single, legacy) and `splits` (FR-13 list) are both optional; when
+    neither is authored the renderer defaults to `Evaluation.splits`.
+    """
 
     split: str | None = None
+    splits: list[str] | None = None
 
 
 class PredictionsGridParams(_VizParams):
-    max_items: int = 16
+    # `n` is the canonical FR-13 name; `max_items` is the preserved legacy alias
+    # (byte-neutral — the recipe stores whichever key the author wrote, via
+    # VisualizationSpec.model_extra; this validation-only model accepts either).
+    n: int = Field(default=16, validation_alias=AliasChoices("n", "max_items"))
+    splits: list[str] | None = None
+    per_class: bool = False
 
 
 _VISUALIZATION_PARAMS: dict[str, type[BaseModel]] = {

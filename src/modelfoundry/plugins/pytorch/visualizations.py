@@ -93,14 +93,11 @@ def _optimization_history(viz: VisualizationSpec, artifacts: InstanceArtifacts) 
     return _to_png(fig)
 
 
-def _confusion_matrix(viz: VisualizationSpec, artifacts: InstanceArtifacts) -> bytes:
-    split = _pick_split(viz, artifacts)
-    matrix = _evaluation_value(artifacts, split, "confusion_matrix")
-    if matrix is None:
-        return _placeholder("confusion_matrix: not available")
+def _draw_confusion(
+    ax: Any, fig: Any, matrix: Any, split: str, artifacts: InstanceArtifacts
+) -> None:
     cm = np.asarray(matrix)
     classes = artifacts.class_names or [str(i) for i in range(cm.shape[0])]
-    fig, ax = plt.subplots(figsize=_FIGSIZE, dpi=_DPI)
     im = ax.imshow(cm, cmap="Blues")
     fig.colorbar(im, ax=ax)
     ax.set_xticks(range(len(classes)), labels=classes, rotation=45, ha="right")
@@ -119,22 +116,49 @@ def _confusion_matrix(viz: VisualizationSpec, artifacts: InstanceArtifacts) -> b
                 va="center",
                 color="white" if cm[i, j] > threshold else "black",
             )
+
+
+def _confusion_matrix(viz: VisualizationSpec, artifacts: InstanceArtifacts) -> bytes:
+    panels = [
+        (s, _evaluation_value(artifacts, s, "confusion_matrix"))
+        for s in _pick_splits(viz, artifacts)
+    ]
+    panels = [(s, m) for s, m in panels if m is not None]
+    if not panels:
+        return _placeholder("confusion_matrix: not available")
+    # One panel per split. For a single split this is `subplots(1, 1, figsize=_FIGSIZE)`
+    # — byte-identical to the legacy single-split figure (Story I.w byte-neutrality).
+    fig, axes = plt.subplots(
+        1, len(panels), figsize=(_FIGSIZE[0] * len(panels), _FIGSIZE[1]), dpi=_DPI
+    )
+    for ax, (split, matrix) in zip(np.atleast_1d(axes).ravel(), panels, strict=True):
+        _draw_confusion(ax, fig, matrix, split, artifacts)
     return _to_png(fig)
 
 
 def _calibration_curve(viz: VisualizationSpec, artifacts: InstanceArtifacts) -> bytes:
-    split = _pick_split(viz, artifacts)
-    curve = _evaluation_value(artifacts, split, "calibration_curve")
-    if not curve or not curve.get("mean_confidence"):
+    curves = [
+        (s, _evaluation_value(artifacts, s, "calibration_curve"))
+        for s in _pick_splits(viz, artifacts)
+    ]
+    curves = [(s, c) for s, c in curves if c and c.get("mean_confidence")]
+    if not curves:
         return _placeholder("calibration_curve: not available")
     fig, ax = plt.subplots(figsize=_FIGSIZE, dpi=_DPI)
     ax.plot([0, 1], [0, 1], linestyle="--", color="grey", label="perfect")
-    ax.plot(curve["mean_confidence"], curve["accuracy"], marker="o", color="C0", label="model")
+    if len(curves) == 1:
+        # Legacy single-split path, byte-identical to the pre-I.w figure.
+        split, curve = curves[0]
+        ax.plot(curve["mean_confidence"], curve["accuracy"], marker="o", color="C0", label="model")
+        ax.set_title(f"Calibration ({split})")
+    else:
+        for split, curve in curves:
+            ax.plot(curve["mean_confidence"], curve["accuracy"], marker="o", label=split)
+        ax.set_title("Calibration")
     ax.set_xlabel("mean predicted confidence")
     ax.set_ylabel("observed accuracy")
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
-    ax.set_title(f"Calibration ({split})")
     ax.legend(loc="upper left")
     return _to_png(fig)
 
@@ -143,8 +167,18 @@ def _predictions_grid(viz: VisualizationSpec, artifacts: InstanceArtifacts) -> b
     predictions = artifacts.predictions
     if predictions is None or len(predictions) == 0:
         return _placeholder("predictions_grid: no predictions")
-    max_items = int((viz.model_extra or {}).get("max_items", 16))
-    rows = predictions.head(max_items)
+    params = viz.model_extra or {}
+    # `n` (FR-13) with the legacy `max_items` alias; both default to 16. A recipe
+    # authoring only `max_items` takes the identical legacy code path below.
+    n = int(params.get("n", params.get("max_items", 16)))
+    splits = params.get("splits")
+    per_class = bool(params.get("per_class", False))
+    if splits and "split" in predictions.columns:
+        predictions = predictions[predictions["split"].isin([str(s) for s in splits])]
+    if per_class and "true_label" in predictions.columns:
+        # Stable sort groups the grid by true class without disturbing within-class order.
+        predictions = predictions.sort_values("true_label", kind="stable")
+    rows = predictions.head(n)
     n = len(rows)
     cols = min(4, n)
     grid_rows = (n + cols - 1) // cols
@@ -202,13 +236,26 @@ def _placeholder(message: str) -> bytes:
     return _to_png(fig)
 
 
-def _pick_split(viz: VisualizationSpec, artifacts: InstanceArtifacts) -> str:
-    requested = (viz.model_extra or {}).get("split")
-    if requested is not None:
-        return str(requested)
+def _pick_splits(viz: VisualizationSpec, artifacts: InstanceArtifacts) -> list[str]:
+    """Resolve the split(s) a split-aware viz renders over (FR-13, Story I.w).
+
+    Precedence: an authored `splits` list → an authored single `split` → the
+    evaluated splits (`Evaluation.splits`, i.e. every evaluation key **except** the
+    FR-12 `baseline` block) → `["val"]`. A legacy recipe authoring `split` (or
+    nothing) yields exactly one split, preserving the pre-I.w single-split figure.
+    """
+    params = viz.model_extra or {}
+    requested = params.get("splits")
+    if requested:
+        return [str(s) for s in requested]
+    single = params.get("split")
+    if single is not None:
+        return [str(single)]
     if artifacts.evaluation:
-        return next(iter(artifacts.evaluation))
-    return "val"
+        evaluated = [s for s in artifacts.evaluation if s != "baseline"]
+        if evaluated:
+            return evaluated
+    return ["val"]
 
 
 def _evaluation_value(artifacts: InstanceArtifacts, split: str, metric: str) -> Any:

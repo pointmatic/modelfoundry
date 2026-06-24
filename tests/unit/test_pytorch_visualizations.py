@@ -97,6 +97,104 @@ def test_optimization_history_placeholder_without_trials() -> None:
     assert png.startswith(_PNG_MAGIC)
 
 
+# --- Story I.w: FR-13 visualization params (n / splits / per_class) ---
+
+
+def _artifacts_multi() -> InstanceArtifacts:
+    # val + test both carry confusion_matrix + calibration_curve; predictions span both.
+    predictions = pd.DataFrame(
+        {
+            "split": ["val"] * 3 + ["test"] * 3,
+            "record_id": [f"r{i}" for i in range(6)],
+            "true_label": ["c0", "c1", "c2", "c2", "c1", "c0"],
+            "pred_label": ["c0", "c1", "c1", "c2", "c0", "c0"],
+        }
+    )
+    curve = {
+        "bin_lower": [0.0, 0.5],
+        "bin_upper": [0.5, 1.0],
+        "mean_confidence": [0.4, 0.85],
+        "accuracy": [0.5, 0.9],
+        "count": [2.0, 4.0],
+    }
+    cm = [[1, 0, 0], [0, 1, 0], [0, 1, 0]]
+    evaluation = {
+        "val": {"confusion_matrix": cm, "calibration_curve": curve},
+        "test": {"confusion_matrix": cm, "calibration_curve": curve},
+    }
+    return InstanceArtifacts(
+        evaluation=evaluation, predictions=predictions, class_names=["c0", "c1", "c2"]
+    )
+
+
+def test_predictions_grid_param_model_accepts_n_splits_per_class() -> None:
+    from pydantic import ValidationError
+
+    from modelfoundry.plugins.pytorch.visualization_specs import VISUALIZATION_OPERATIONS
+
+    model = VISUALIZATION_OPERATIONS["predictions_grid"].param_model
+    model.model_validate({"n": 8})  # new canonical name
+    model.model_validate({"max_items": 8})  # legacy alias preserved (byte-neutral)
+    model.model_validate({"splits": ["val", "test"]})
+    model.model_validate({"per_class": True})
+    with pytest.raises(ValidationError):
+        model.model_validate({"bogus": 1})
+
+
+def test_split_viz_param_models_accept_splits() -> None:
+    from modelfoundry.plugins.pytorch.visualization_specs import VISUALIZATION_OPERATIONS
+
+    for op in ("confusion_matrix", "calibration_curve"):
+        VISUALIZATION_OPERATIONS[op].param_model.model_validate({"splits": ["val", "test"]})
+        VISUALIZATION_OPERATIONS[op].param_model.model_validate({"split": "val"})  # preserved
+
+
+def test_legacy_viz_form_does_not_bake_new_params() -> None:
+    # Byte-neutrality: a recipe authoring the legacy `max_items`/`split` form dumps
+    # verbatim — no `n`/`splits`/`per_class` baked in — so canonical bytes are unchanged.
+    grid = VisualizationSpec.model_validate(
+        {"op": "predictions_grid", "mode": "reporting", "max_items": 8}
+    )
+    assert grid.model_dump() == {"op": "predictions_grid", "mode": "reporting", "max_items": 8}
+    cm = VisualizationSpec.model_validate(
+        {"op": "confusion_matrix", "mode": "reporting", "split": "val"}
+    )
+    assert cm.model_dump() == {"op": "confusion_matrix", "mode": "reporting", "split": "val"}
+
+
+def test_confusion_matrix_renders_over_multiple_splits() -> None:
+    viz = VisualizationSpec.model_validate(
+        {"op": "confusion_matrix", "mode": "reporting", "splits": ["val", "test"]}
+    )
+    png = render_visualization(viz, _artifacts_multi())
+    assert png.startswith(_PNG_MAGIC) and len(png) > 1000
+
+
+def test_calibration_curve_renders_over_multiple_splits() -> None:
+    viz = VisualizationSpec.model_validate(
+        {"op": "calibration_curve", "mode": "reporting", "splits": ["val", "test"]}
+    )
+    png = render_visualization(viz, _artifacts_multi())
+    assert png.startswith(_PNG_MAGIC) and len(png) > 1000
+
+
+def test_predictions_grid_per_class_and_splits_render() -> None:
+    viz = VisualizationSpec.model_validate(
+        {
+            "op": "predictions_grid",
+            "mode": "reporting",
+            "n": 6,
+            "splits": ["val"],
+            "per_class": True,
+        }
+    )
+    artifacts = _artifacts_multi()
+    a = render_visualization(viz, artifacts)
+    b = render_visualization(viz, artifacts)
+    assert a.startswith(_PNG_MAGIC) and len(a) > 1000
+    assert a == b  # deterministic under the stable per-class grouping
+
+
 def test_predictions_grid_is_labels_only_without_images() -> None:
     # No image column on the predictions frame -> labels-only grid still renders.
     png = render_visualization(
@@ -194,7 +292,7 @@ def test_visualization_param_models_accept_real_params_and_reject_unknown() -> N
 
     from modelfoundry.plugins.pytorch.visualization_specs import VISUALIZATION_OPERATIONS
 
-    # confusion_matrix / calibration_curve honor an optional `split` (via _pick_split).
+    # confusion_matrix / calibration_curve honor an optional `split` (via _pick_splits).
     VISUALIZATION_OPERATIONS["confusion_matrix"].param_model.model_validate({"split": "val"})
     VISUALIZATION_OPERATIONS["calibration_curve"].param_model.model_validate({"split": "test"})
     # predictions_grid honors `max_items`.
